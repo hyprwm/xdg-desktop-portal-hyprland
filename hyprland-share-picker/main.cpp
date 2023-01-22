@@ -105,7 +105,6 @@ int main(int argc, char *argv[]) {
         QString text = QString::fromStdString(std::string("Screen " + std::to_string(i) + " at " + std::to_string(GEOMETRY.x()) + ", "
                             + std::to_string(GEOMETRY.y()) + " (" + std::to_string(GEOMETRY.width()) + "x"
                             + std::to_string(GEOMETRY.height()) + ") (") + SCREENS[i]->name().toStdString() + ")");
-        
         // resize text for graphical reason
 		if (text.size() > 60) {                    
         	text.resize(60); 
