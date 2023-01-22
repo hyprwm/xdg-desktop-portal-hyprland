@@ -95,8 +95,8 @@ int main(int argc, char *argv[]) {
     // add all screens
     const auto SCREENS = picker.screens();
 
-    constexpr int BUTTON_WIDTH  = 441;
-    constexpr int BUTTON_HEIGHT = 41;
+    constexpr int BUTTON_WIDTH  = 430;
+    constexpr int BUTTON_HEIGHT = 40;
     constexpr int BUTTON_PAD    = 4;
 
     for (int i = 0; i < SCREENS.size(); ++i) {
@@ -105,8 +105,15 @@ int main(int argc, char *argv[]) {
         QString text = QString::fromStdString(std::string("Screen " + std::to_string(i) + " at " + std::to_string(GEOMETRY.x()) + ", "
                             + std::to_string(GEOMETRY.y()) + " (" + std::to_string(GEOMETRY.width()) + "x"
                             + std::to_string(GEOMETRY.height()) + ") (") + SCREENS[i]->name().toStdString() + ")");
+        
+        // resize text for graphical reason
+		if (text.size() > 60) {                    
+        	text.resize(60); 
+        	text.append("...");  
+        } 
+                         
         QPushButton* button = new QPushButton(text, (QWidget*)SCREENS_SCROLL_AREA_CONTENTS);
-        button->move(9, 5 + (BUTTON_HEIGHT + BUTTON_PAD) * i);
+        button->move(10, 5 + (BUTTON_HEIGHT + BUTTON_PAD) * i);
         button->resize(BUTTON_WIDTH, BUTTON_HEIGHT);
         QObject::connect(button, &QPushButton::clicked, [=] () {
             std::string ID = button->text().toStdString();
@@ -132,9 +139,15 @@ int main(int argc, char *argv[]) {
     for (auto& window : WINDOWLIST) {
 
         QString text = QString::fromStdString(window.clazz + ": " + window.name);
-
+        
+        // resize text for graphical reason
+		if (text.size() > 60) {                    
+        	text.resize(60); 
+        	text.append("..."); 
+        } 
+        
         QPushButton* button = new QPushButton(text, (QWidget*)WINDOWS_SCROLL_AREA_CONTENTS);
-        button->move(9, 5 + (BUTTON_HEIGHT + BUTTON_PAD) * windowIterator);
+        button->move(10, 5 + (BUTTON_HEIGHT + BUTTON_PAD) * windowIterator);
         button->resize(BUTTON_WIDTH, BUTTON_HEIGHT);
 
         mainPickerPtr->windowIDs[button] = window.id;
@@ -156,8 +169,8 @@ int main(int argc, char *argv[]) {
     QString text = "Select region...";
 
     QPushButton* button = new QPushButton(text, (QWidget*)REGION_OBJECT);
-    button->move(79, 80);
-    button->resize(321, 41);
+    button->move(60, 80);
+    button->resize(330, 40);
     QObject::connect(button, &QPushButton::clicked, [=] () {
         auto REGION = execAndGet("slurp -f \"%o %x %y %w %h\"");
         REGION = REGION.substr(0, REGION.length() - 1);

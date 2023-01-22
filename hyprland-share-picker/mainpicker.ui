@@ -42,15 +42,15 @@
     <property name="geometry">
      <rect>
       <x>0</x>
-      <y>0</y>
+      <y>5</y>
       <width>500</width>
-      <height>290</height>
+      <height>285</height>
      </rect>
     </property>
     <property name="minimumSize">
      <size>
       <width>500</width>
-      <height>290</height>
+      <height>285</height>
      </size>
     </property>
     <property name="maximumSize">
@@ -66,20 +66,44 @@
      <enum>QTabWidget::North</enum>
     </property>
     <property name="currentIndex">
-     <number>0</number>
+     <number>1</number>
     </property>
     <widget class="QWidget" name="screens">
+     <property name="minimumSize">
+      <size>
+       <width>450</width>
+       <height>200</height>
+      </size>
+     </property>
      <attribute name="title">
       <string>Screen</string>
      </attribute>
      <widget class="QScrollArea" name="scrollArea">
       <property name="geometry">
        <rect>
-        <x>9</x>
-        <y>9</y>
-        <width>461</width>
-        <height>241</height>
+        <x>0</x>
+        <y>0</y>
+        <width>450</width>
+        <height>200</height>
        </rect>
+      </property>
+      <property name="minimumSize">
+       <size>
+        <width>450</width>
+        <height>200</height>
+       </size>
+      </property>
+      <property name="cursor" stdset="0">
+       <cursorShape>ArrowCursor</cursorShape>
+      </property>
+      <property name="frameShape">
+       <enum>QFrame::NoFrame</enum>
+      </property>
+      <property name="verticalScrollBarPolicy">
+       <enum>Qt::ScrollBarAsNeeded</enum>
+      </property>
+      <property name="horizontalScrollBarPolicy">
+       <enum>Qt::ScrollBarAlwaysOff</enum>
       </property>
       <property name="widgetResizable">
        <bool>false</bool>
@@ -89,14 +113,14 @@
         <rect>
          <x>0</x>
          <y>0</y>
-         <width>459</width>
-         <height>239</height>
+         <width>450</width>
+         <height>200</height>
         </rect>
        </property>
        <property name="minimumSize">
         <size>
-         <width>459</width>
-         <height>239</height>
+         <width>450</width>
+         <height>200</height>
         </size>
        </property>
        <property name="focusPolicy">
@@ -112,11 +136,20 @@
      <widget class="QScrollArea" name="scrollArea_2">
       <property name="geometry">
        <rect>
-        <x>9</x>
-        <y>9</y>
-        <width>461</width>
-        <height>241</height>
+        <x>0</x>
+        <y>0</y>
+        <width>450</width>
+        <height>200</height>
        </rect>
+      </property>
+      <property name="frameShape">
+       <enum>QFrame::NoFrame</enum>
+      </property>
+      <property name="verticalScrollBarPolicy">
+       <enum>Qt::ScrollBarAsNeeded</enum>
+      </property>
+      <property name="horizontalScrollBarPolicy">
+       <enum>Qt::ScrollBarAlwaysOff</enum>
       </property>
       <property name="widgetResizable">
        <bool>false</bool>
@@ -126,14 +159,14 @@
         <rect>
          <x>0</x>
          <y>0</y>
-         <width>459</width>
-         <height>239</height>
+         <width>450</width>
+         <height>200</height>
         </rect>
        </property>
        <property name="minimumSize">
         <size>
-         <width>459</width>
-         <height>239</height>
+         <width>450</width>
+         <height>200</height>
         </size>
        </property>
        <property name="focusPolicy">
@@ -143,6 +176,12 @@
      </widget>
     </widget>
     <widget class="QWidget" name="region">
+     <property name="minimumSize">
+      <size>
+       <width>450</width>
+       <height>210</height>
+      </size>
+     </property>
      <attribute name="title">
       <string>Region</string>
      </attribute>
