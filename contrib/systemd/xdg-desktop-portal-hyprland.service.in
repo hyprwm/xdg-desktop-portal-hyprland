@@ -9,3 +9,4 @@ Type=dbus
 BusName=org.freedesktop.impl.portal.desktop.hyprland
 ExecStart=@libexecdir@/xdg-desktop-portal-hyprland
 Restart=on-failure
+Slice=session.slice
