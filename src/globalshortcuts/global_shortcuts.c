@@ -168,12 +168,40 @@ static int method_gs_create_session(sd_bus_message *msg, void *data, sd_bus_erro
                 struct globalShortcut *shortcut = calloc(1, sizeof(struct globalShortcut));
                 shortcut->name = malloc(strlen(key) + 1);
                 strcpy(shortcut->name, key);
-                shortcut->description = calloc(1, 1);  // todo
+
+                ret = sd_bus_message_enter_container(msg, 'a', "{sv}");
+                if (ret < 0) {
+                    return ret;
+                }
+
+                while ((ret = sd_bus_message_enter_container(msg, 'e', "sv")) > 0) {
+                    innerRet = sd_bus_message_read(msg, "s", &key);
+                    if (innerRet < 0) {
+                        return innerRet;
+                    }
+
+                    if (strcmp(key, "description") == 0) {
+                        sd_bus_message_read(msg, "v", "s", &key);
+                        shortcut->description = malloc(strlen(key) + 1);
+                        strcpy(shortcut->description, key);
+                    } else {
+                        sd_bus_message_skip(msg, "v");
+                    }
+
+                    innerRet = sd_bus_message_exit_container(msg);
+                    if (innerRet < 0) {
+                        return innerRet;
+                    }
+                }
+
+                sd_bus_message_exit_container(msg);
+
+                if (shortcut->description == NULL) {
+                    shortcut->description = calloc(1, 1);
+                }
+
                 wl_list_insert(&client->shortcuts, &shortcut->link);
 
-                // sd_bus_message_enter_container(msg, 'e', "sv");
-                // sd_bus_message_exit_container(msg);
-                sd_bus_message_skip(msg, "a{sv}");
                 sd_bus_message_exit_container(msg);
             }
 
