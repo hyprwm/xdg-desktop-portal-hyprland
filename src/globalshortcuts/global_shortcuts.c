@@ -7,7 +7,7 @@
 static void wlr_registry_handle_add(void *data, struct wl_registry *reg, uint32_t id, const char *interface, uint32_t ver) {
     struct globalShortcutsInstance *instance = data;
 
-    if (!strcmp(interface, hyprland_global_shortcuts_manager_v1_interface.name) && !instance->manager) {
+    if (!strcmp(interface, hyprland_global_shortcuts_manager_v1_interface.name) && instance->manager == NULL) {
         uint32_t version = ver;
 
         logprint(DEBUG, "hyprland: |-- registered to interface %s (Version %u)", interface, version);
@@ -28,6 +28,10 @@ static const struct wl_registry_listener wlr_registry_listener = {
 static const char object_path[] = "/org/freedesktop/portal/desktop";
 static const char interface_name[] = "org.freedesktop.impl.portal.GlobalShortcuts";
 
+static int method_gs_create_session(sd_bus_message *msg, void *data, sd_bus_error *ret_error);
+static int method_gs_bind_shortcuts(sd_bus_message *msg, void *data, sd_bus_error *ret_error);
+static int method_gs_list_shortcuts(sd_bus_message *msg, void *data, sd_bus_error *ret_error);
+
 static const sd_bus_vtable gs_vtable[] = {
     SD_BUS_VTABLE_START(0),
     SD_BUS_METHOD("CreateSession", "oosa{sv}", "ua{sv}", method_gs_create_session, SD_BUS_VTABLE_UNPRIVILEGED),
@@ -42,16 +46,21 @@ static void handleActivated(void *data, struct hyprland_global_shortcut_v1 *hypr
                             uint32_t tv_nsec) {
     struct xdpw_state *state = data;
 
+    bool found = false;
+
     struct globalShortcut *curr;
-    struct globalShortcutClient *currc;
+    struct globalShortcutsClient *currc;
     wl_list_for_each(currc, &state->shortcutsInstance.shortcutClients, link) {
         wl_list_for_each(curr, &currc->shortcuts, link) {
             if (curr->hlShortcut == hyprland_global_shortcut_v1) {
+                found = true;
                 goto found;
             }
         }
     }
 found:
+
+    if (!found) return;
 
     sd_bus_emit_signal(state->bus, object_path, interface_name, "Activated", "osta{sv}", currc->session->session_handle, curr->name,
                        ((uint64_t)tv_sec_hi << 32) | (uint64_t)(tv_sec_lo), 0);
@@ -61,16 +70,21 @@ static void handleDeactivated(void *data, struct hyprland_global_shortcut_v1 *hy
                               uint32_t tv_nsec) {
     struct xdpw_state *state = data;
 
+    bool found = false;
+
     struct globalShortcut *curr;
-    struct globalShortcutClient *currc;
+    struct globalShortcutsClient *currc;
     wl_list_for_each(currc, &state->shortcutsInstance.shortcutClients, link) {
         wl_list_for_each(curr, &currc->shortcuts, link) {
             if (curr->hlShortcut == hyprland_global_shortcut_v1) {
+                found = true;
                 goto found;
             }
         }
     }
 found:
+
+    if (!found) return;
 
     sd_bus_emit_signal(state->bus, object_path, interface_name, "Deactivated", "osta{sv}", currc->session->session_handle, curr->name,
                        ((uint64_t)tv_sec_hi << 32) | (uint64_t)(tv_sec_lo), 0);
@@ -107,6 +121,7 @@ static int method_gs_create_session(sd_bus_message *msg, void *data, sd_bus_erro
     logprint(INFO, "dbus: app_id: %s", app_id);
 
     char *key;
+    char *option_token;
     int innerRet = 0;
     while ((ret = sd_bus_message_enter_container(msg, 'e', "sv")) > 0) {
         innerRet = sd_bus_message_read(msg, "s", &key);
@@ -115,9 +130,8 @@ static int method_gs_create_session(sd_bus_message *msg, void *data, sd_bus_erro
         }
 
         if (strcmp(key, "session_handle_token") == 0) {
-            char *token;
-            sd_bus_message_read(msg, "v", "s", &token);
-            logprint(INFO, "dbus: option token: %s", token);
+            sd_bus_message_read(msg, "v", "s", &option_token);
+            logprint(INFO, "dbus: option token: %s", option_token);
         } else if (strcmp(key, "shortcuts") == 0) {
             // init shortcuts
             client->sentShortcuts = true;
@@ -198,6 +212,8 @@ static int method_gs_create_session(sd_bus_message *msg, void *data, sd_bus_erro
         return -ENOMEM;
     }
 
+    client->session = sess;
+
     sess->app_id = malloc(strlen(app_id) + 1);
     strcpy(sess->app_id, app_id);
 
@@ -221,6 +237,10 @@ static int method_gs_create_session(sd_bus_message *msg, void *data, sd_bus_erro
     struct globalShortcut *curr;
     wl_list_for_each(curr, &client->shortcuts, link) {
         sd_bus_message_append(reply, "(sa{sv})", curr->name, 1, "description", "s", curr->description);
+        curr->hlShortcut = hyprland_global_shortcuts_manager_v1_register_shortcut(
+            state->shortcutsInstance.manager, curr->name, (strlen(app_id) == 0 ? option_token : app_id), curr->description, "");
+        hyprland_global_shortcut_v1_add_listener(curr->hlShortcut, &shortcutListener, state);
+        curr->bound = true;
     }
 
     ret = sd_bus_message_close_container(reply);
@@ -266,7 +286,7 @@ static int method_gs_bind_shortcuts(sd_bus_message *msg, void *data, sd_bus_erro
     struct globalShortcutsClient *client, *tmp_client;
     wl_list_for_each_reverse_safe(client, tmp_client, &state->shortcutsInstance.shortcutClients, link) {
         if (strcmp(client->session, session_handle) == 0) {
-            logprint(DEBUG, "dbus: bind shortcuts: found matching client %s", client->session_handle);
+            logprint(DEBUG, "dbus: bind shortcuts: found matching client %s", client->session);
             break;
         }
     }
@@ -351,9 +371,11 @@ static int method_gs_bind_shortcuts(sd_bus_message *msg, void *data, sd_bus_erro
     struct globalShortcut *curr;
     wl_list_for_each(curr, &client->shortcuts, link) {
         sd_bus_message_append(reply, "(sa{sv})", curr->name, 1, "description", "s", curr->description);
-        curr->hlShortcut = hyprland_global_shortcuts_manager_v1_register_shortcut(state->shortcutsInstance.manager, curr->name, client->parent_window,
-                                                                                  curr->description, "");
-        hyprland_global_shortcut_v1_add_listener(curr->hlShortcut, &shortcutListener, state);
+        if (!curr->bound) {
+            curr->hlShortcut = hyprland_global_shortcuts_manager_v1_register_shortcut(state->shortcutsInstance.manager, curr->name, parent_window,
+                                                                                      curr->description, "");
+            hyprland_global_shortcut_v1_add_listener(curr->hlShortcut, &shortcutListener, state);
+        }
     }
 
     ret = sd_bus_message_close_container(reply);
@@ -387,13 +409,17 @@ static int method_gs_list_shortcuts(sd_bus_message *msg, void *data, sd_bus_erro
     logprint(INFO, "dbus: request_handle: %s", request_handle);
     logprint(INFO, "dbus: session_handle: %s", session_handle);
 
+    bool foundClient = false;
     struct globalShortcutsClient *client, *tmp_client;
-    wl_list_for_each_reverse_safe(client, tmp_client, &state->shortcutsInstance.shortcutClients, link) {
+    wl_list_for_each(client, &state->shortcutsInstance.shortcutClients, link) {
         if (strcmp(client->session, session_handle) == 0) {
-            logprint(DEBUG, "dbus: bind shortcuts: found matching client %s", client->session_handle);
+            logprint(DEBUG, "dbus: bind shortcuts: found matching client %s", client->session);
+            foundClient = true;
             break;
         }
     }
+
+    if (!foundClient || !client->sentShortcuts) return 0;
 
     sd_bus_message *reply = NULL;
     ret = sd_bus_message_new_method_return(msg, &reply);
@@ -441,7 +467,7 @@ void initShortcutsInstance(struct xdpw_state *state, struct globalShortcutsInsta
 
     wl_display_roundtrip(state->wl_display);
 
-    if (!instance->manager) {
+    if (instance->manager == NULL) {
         logprint(ERROR, "hyprland shortcut protocol unavailable!");
         return;
     }

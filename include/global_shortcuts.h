@@ -1,5 +1,7 @@
 #pragma once
 
+#include <stdbool.h>
+
 #include "protocols/hyprland-global-shortcuts-v1-client-protocol.h"
 
 struct xdpw_state;
@@ -10,6 +12,7 @@ struct globalShortcut {
     char* description;
     struct wl_list link;
     struct hyprland_global_shortcut_v1* hlShortcut;
+    bool bound;
 };
 
 struct globalShortcutsClient {
