@@ -30,6 +30,7 @@ wayland_protos = dependency('wayland-protocols', version: '>=1.24')
 iniparser = dependency('inih')
 gbm = dependency('gbm')
 drm = dependency('libdrm')
+uuid = dependency('uuid')
 
 epoll = dependency('', required: false)
 if (not cc.has_function('timerfd_create', prefix: '#include <sys/timerfd.h>') or
@@ -78,6 +79,7 @@ xdpw_files = files([
 	'src/core/session.c',
 	'src/core/timer.c',
 	'src/core/timespec_util.c',
+	'src/core/utils.c',
 	'src/screenshot/screenshot.c',
 	'src/screencast/screencast.c',
 	'src/screencast/screencast_common.c',
@@ -99,6 +101,7 @@ executable(
 		gbm,
 		drm,
 		epoll,
+		uuid,
 	],
 	include_directories: [inc],
 	install: true,

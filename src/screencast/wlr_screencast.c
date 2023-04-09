@@ -26,13 +26,6 @@
 #include "xdpw.h"
 //
 
-struct SToplevelEntry {
-    struct zwlr_foreign_toplevel_handle_v1 *handle;
-    char name[256];
-    char clazz[256];
-    struct wl_list link;
-};
-
 void handleTitle(void *data, struct zwlr_foreign_toplevel_handle_v1 *handle, const char *title) {
     struct xdpw_screencast_context *ctx = data;
 
@@ -577,6 +570,8 @@ static void wlr_xdg_output_name(void *data, struct zxdg_output_v1 *xdg_output, c
     struct xdpw_wlr_output *output = data;
 
     output->name = strdup(name);
+
+    logprint(INFO, "Output %lx name: %s", data, name);
 };
 
 static void noop() {
@@ -635,17 +630,6 @@ static inline int vasprintf(char **strp, const char *fmt, va_list ap) {
         str_size = vsnprintf(*strp, str_size + 1, fmt, ap);
     }
     return str_size;
-}
-
-char *getFormat(const char *fmt, ...) {
-    char *outputStr = NULL;
-
-    va_list args;
-    va_start(args, fmt);
-    vasprintf(&outputStr, fmt, args);
-    va_end(args);
-
-    return outputStr;
 }
 
 char *buildWindowList(struct xdpw_screencast_context *ctx) {

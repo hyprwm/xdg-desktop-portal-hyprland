@@ -122,6 +122,7 @@ int main(int argc, char *argv[]) {
     };
 
     wl_list_init(&state.xdpw_sessions);
+    wl_list_init(&state.restore_tokens);
 
     initShortcutsInstance(&state, &state.shortcutsInstance);
 

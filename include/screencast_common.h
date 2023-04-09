@@ -4,15 +4,17 @@
 #include <gbm.h>
 #include <pipewire/pipewire.h>
 #include <spa/param/video/format-utils.h>
+#include <stdbool.h>
 #include <wayland-client-protocol.h>
 #include <xf86drm.h>
 
 #include "fps_limit.h"
 #include "hyprland-toplevel-export-v1-client-protocol.h"
+#include "utils.h"
 
 // this seems to be right based on
 // https://github.com/flatpak/xdg-desktop-portal/blob/309a1fc0cf2fb32cceb91dbc666d20cf0a3202c2/src/screen-cast.c#L955
-#define XDP_CAST_PROTO_VER 2
+#define XDP_CAST_PROTO_VER 3
 
 enum cursor_modes {
     HIDDEN = 1,
@@ -157,6 +159,14 @@ struct xdpw_share {
     int window_handle;
 };
 
+struct xdph_restore_token {
+    char *token;
+    char *outputPort;       // NULL if not set
+    uint64_t windowHandle;  // 0 if not set
+    struct wl_list link;
+    bool withCursor;
+};
+
 struct xdpw_screencast_instance {
     // list
     struct wl_list link;
@@ -199,13 +209,20 @@ struct xdpw_screencast_instance {
     struct fps_limit_state fps_limit;
 };
 
+struct SToplevelEntry {
+    struct zwlr_foreign_toplevel_handle_v1 *handle;
+    char name[256];
+    char clazz[256];
+    struct wl_list link;
+};
+
 void randname(char *buf);
 struct gbm_device *xdpw_gbm_device_create(drmDevice *device);
-struct xdpw_buffer *xdpw_buffer_create(struct xdpw_screencast_instance *cast,
-                                       enum buffer_type buffer_type, struct xdpw_screencopy_frame_info *frame_info);
+struct xdpw_buffer *xdpw_buffer_create(struct xdpw_screencast_instance *cast, enum buffer_type buffer_type,
+                                       struct xdpw_screencopy_frame_info *frame_info);
 void xdpw_buffer_destroy(struct xdpw_buffer *buffer);
-bool wlr_query_dmabuf_modifiers(struct xdpw_screencast_context *ctx, uint32_t drm_format,
-                                uint32_t num_modifiers, uint64_t *modifiers, uint32_t *max_modifiers);
+bool wlr_query_dmabuf_modifiers(struct xdpw_screencast_context *ctx, uint32_t drm_format, uint32_t num_modifiers, uint64_t *modifiers,
+                                uint32_t *max_modifiers);
 enum wl_shm_format xdpw_format_wl_shm_from_drm_fourcc(uint32_t format);
 uint32_t xdpw_format_drm_fourcc_from_wl_shm(enum wl_shm_format format);
 enum spa_video_format xdpw_format_pw_from_drm_fourcc(uint32_t format);

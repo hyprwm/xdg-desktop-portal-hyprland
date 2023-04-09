@@ -30,6 +30,11 @@ struct xdpw_state {
     struct wl_list timers;
     struct xdpw_timer *next_timer;
     struct globalShortcutsInstance shortcutsInstance;
+
+    // saved instances of screencast
+    // TODO: persist in storage
+    uint64_t lastRestoreToken;
+    struct wl_list restore_tokens;  // xdph_restore_token
 };
 
 struct xdpw_request {
@@ -42,6 +47,7 @@ struct xdpw_session {
     char *session_handle;
     char *app_id;
     struct xdpw_screencast_instance *screencast_instance;
+    bool persist;
 };
 
 typedef void (*xdpw_event_loop_timer_func_t)(void *data);

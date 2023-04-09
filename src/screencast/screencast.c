@@ -7,9 +7,11 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/mman.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <uuid/uuid.h>
 
 #include "logger.h"
 #include "pipewire_screencast.h"
@@ -47,8 +49,8 @@ void exec_with_shell(char *command) {
     }
 }
 
-void xdpw_screencast_instance_init(struct xdpw_screencast_context *ctx,
-                                   struct xdpw_screencast_instance *cast, struct xdpw_share out, bool with_cursor) {
+void xdpw_screencast_instance_init(struct xdpw_screencast_context *ctx, struct xdpw_screencast_instance *cast, struct xdpw_share out,
+                                   bool with_cursor) {
     // only run exec_before if there's no other instance running that already ran it
     if (wl_list_empty(&ctx->screencast_instances)) {
         char *exec_before = ctx->state->config->screencast_conf.exec_before;
@@ -64,7 +66,9 @@ void xdpw_screencast_instance_init(struct xdpw_screencast_context *ctx,
         cast->max_framerate = 60;  // dirty
     } else {
         if (ctx->state->config->screencast_conf.max_fps > 0) {
-            cast->max_framerate = ctx->state->config->screencast_conf.max_fps < (uint32_t)out.output->framerate ? ctx->state->config->screencast_conf.max_fps : (uint32_t)out.output->framerate;
+            cast->max_framerate = ctx->state->config->screencast_conf.max_fps < (uint32_t)out.output->framerate
+                                      ? ctx->state->config->screencast_conf.max_fps
+                                      : (uint32_t)out.output->framerate;
         } else {
             cast->max_framerate = (uint32_t)out.output->framerate;
         }
@@ -79,8 +83,7 @@ void xdpw_screencast_instance_init(struct xdpw_screencast_context *ctx,
     wl_list_init(&cast->buffer_list);
     logprint(INFO, "xdpw: screencast instance %p has %d references", cast, cast->refcount);
     wl_list_insert(&ctx->screencast_instances, &cast->link);
-    logprint(INFO, "xdpw: %d active screencast instances",
-             wl_list_length(&ctx->screencast_instances));
+    logprint(INFO, "xdpw: %d active screencast instances", wl_list_length(&ctx->screencast_instances));
 }
 
 void xdpw_screencast_instance_destroy(struct xdpw_screencast_instance *cast) {
@@ -111,15 +114,46 @@ void xdpw_screencast_instance_teardown(struct xdpw_screencast_instance *cast) {
     }
 }
 
-bool setup_outputs(struct xdpw_screencast_context *ctx, struct xdpw_session *sess, bool with_cursor) {
+bool setup_outputs(struct xdpw_screencast_context *ctx, struct xdpw_session *sess, bool with_cursor, struct xdph_restore_token *token) {
     struct xdpw_wlr_output *output, *tmp_o;
     wl_list_for_each_reverse_safe(output, tmp_o, &ctx->output_list, link) {
-        logprint(INFO, "wlroots: capturable output: %s model: %s: id: %i name: %s",
-                 output->make, output->model, output->id, output->name);
+        logprint(INFO, "wlroots: capturable output: %s model: %s: id: %i name: %s", output->make, output->model, output->id, output->name);
     }
 
     struct xdpw_share out;
-    out = xdpw_wlr_chooser(ctx);
+    out.window_handle = -1;
+    out.x = -1;
+    out.y = -1;
+    out.w = -1;
+    out.h = -1;
+    out.output = NULL;
+    bool tokenSuccess = false;
+
+    if (token) {
+        // attempt to restore
+        if (token->outputPort) {
+            struct xdpw_wlr_output *output;
+            wl_list_for_each(output, &ctx->output_list, link) {
+                if (strcmp(output->name, token->outputPort) == 0) {
+                    out.output = output;
+                    tokenSuccess = true;
+                    break;
+                }
+            }
+        } else if (token->windowHandle > 0) {
+            struct SToplevelEntry *current;
+            wl_list_for_each(current, &ctx->toplevel_resource_list, link) {
+                if (((uint64_t)current->handle & 0xFFFFFFFF) == token->windowHandle) {
+                    out.window_handle = token->windowHandle;
+                    tokenSuccess = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    if (!tokenSuccess) out = xdpw_wlr_chooser(ctx);
+
     if (!out.output && out.window_handle == -1) {
         logprint(ERROR, "wlroots: no output / window found");
         return false;
@@ -127,36 +161,34 @@ bool setup_outputs(struct xdpw_screencast_context *ctx, struct xdpw_session *ses
 
     // Disable screencast sharing to avoid sharing between dmabuf and shm capable clients
     /*
-	struct xdpw_screencast_instance *cast, *tmp_c;
-	wl_list_for_each_reverse_safe(cast, tmp_c, &ctx->screencast_instances, link) {
-		logprint(INFO, "xdpw: existing screencast instance: %d %s cursor",
-			cast->target_output->id,
-			cast->with_cursor ? "with" : "without");
+    struct xdpw_screencast_instance *cast, *tmp_c;
+    wl_list_for_each_reverse_safe(cast, tmp_c, &ctx->screencast_instances, link) {
+        logprint(INFO, "xdpw: existing screencast instance: %d %s cursor",
+            cast->target_output->id,
+            cast->with_cursor ? "with" : "without");
 
-		if (cast->target_output->id == out->id && cast->with_cursor == with_cursor) {
-			if (cast->refcount == 0) {
-				logprint(DEBUG,
-					"xdpw: matching cast instance found, "
-					"but is already scheduled for destruction, skipping");
-			}
-			else {
-				sess->screencast_instance = cast;
-				++cast->refcount;
-			}
-			logprint(INFO, "xdpw: screencast instance %p now has %d references",
-				cast, cast->refcount);
-		}
-	}
-	*/
+        if (cast->target_output->id == out->id && cast->with_cursor == with_cursor) {
+            if (cast->refcount == 0) {
+                logprint(DEBUG,
+                    "xdpw: matching cast instance found, "
+                    "but is already scheduled for destruction, skipping");
+            }
+            else {
+                sess->screencast_instance = cast;
+                ++cast->refcount;
+            }
+            logprint(INFO, "xdpw: screencast instance %p now has %d references",
+                cast, cast->refcount);
+        }
+    }
+    */
 
     if (!sess->screencast_instance) {
         sess->screencast_instance = calloc(1, sizeof(struct xdpw_screencast_instance));
-        xdpw_screencast_instance_init(ctx, sess->screencast_instance,
-                                      out, with_cursor);
+        xdpw_screencast_instance_init(ctx, sess->screencast_instance, out, with_cursor);
     }
     if (out.output) {
-        logprint(INFO, "wlroots: output: %s",
-                 sess->screencast_instance->target.output->name);
+        logprint(INFO, "wlroots: output: %s", sess->screencast_instance->target.output->name);
     } else {
         logprint(INFO, "hyprland: window handle %d", sess->screencast_instance->target.window_handle);
     }
@@ -173,9 +205,8 @@ static int start_screencast(struct xdpw_screencast_instance *cast) {
     wl_display_dispatch(cast->ctx->state->wl_display);
     wl_display_roundtrip(cast->ctx->state->wl_display);
 
-    if (cast->screencopy_frame_info[WL_SHM].format == DRM_FORMAT_INVALID ||
-        (cast->ctx->state->screencast_version >= 3 &&
-         cast->screencopy_frame_info[DMABUF].format == DRM_FORMAT_INVALID)) {
+    if (cast->screencopy_frame_info[WL_SHM].format == DRM_FORMAT_INVALID /*||
+        (cast->ctx->state->screencast_version >= 3 && cast->screencopy_frame_info[DMABUF].format == DRM_FORMAT_INVALID)*/) {
         logprint(INFO, "wlroots: unable to receive a valid format from wlr_screencopy");
         return -1;
     }
@@ -186,8 +217,42 @@ static int start_screencast(struct xdpw_screencast_instance *cast) {
     return 0;
 }
 
-static int method_screencast_create_session(sd_bus_message *msg, void *data,
-                                            sd_bus_error *ret_error) {
+static struct xdph_restore_token *findRestoreToken(char *token, struct xdpw_state *state) {
+    struct xdph_restore_token *current;
+    wl_list_for_each(current, &state->restore_tokens, link) {
+        if (strcmp(current->token, token) == 0) {
+            return current;
+        }
+    }
+
+    return NULL;
+}
+
+static struct xdph_restore_token *getRestoreToken(char *sessionToken, struct xdpw_state *state, char *outputSelected, uint64_t windowSelected,
+                                                  bool withCursor) {
+    state->lastRestoreToken++;
+    uuid_t uuid;
+    uuid_generate_random(uuid);
+    char *uuid_str = malloc(37);
+    uuid_unparse_upper(uuid, uuid_str);
+    while (findRestoreToken(uuid_str, state) != NULL) {
+        uuid_generate_random(uuid);
+        uuid_unparse_upper(uuid, uuid_str);
+    }
+
+    struct xdph_restore_token *restoreToken = calloc(1, sizeof(struct xdph_restore_token));
+    if (outputSelected) {
+        restoreToken->outputPort = strdup(outputSelected);
+    }
+    restoreToken->windowHandle = windowSelected;
+
+    restoreToken->token = uuid_str;
+    restoreToken->withCursor = withCursor;
+
+    return restoreToken;
+}
+
+static int method_screencast_create_session(sd_bus_message *msg, void *data, sd_bus_error *ret_error) {
     struct xdpw_state *state = data;
 
     int ret = 0;
@@ -240,14 +305,12 @@ static int method_screencast_create_session(sd_bus_message *msg, void *data,
         return ret;
     }
 
-    struct xdpw_request *req =
-        xdpw_request_create(sd_bus_message_get_bus(msg), request_handle);
+    struct xdpw_request *req = xdpw_request_create(sd_bus_message_get_bus(msg), request_handle);
     if (req == NULL) {
         return -ENOMEM;
     }
 
-    struct xdpw_session *sess =
-        xdpw_session_create(state, sd_bus_message_get_bus(msg), strdup(session_handle));
+    struct xdpw_session *sess = xdpw_session_create(state, sd_bus_message_get_bus(msg), strdup(session_handle));
     if (sess == NULL) {
         return -ENOMEM;
     }
@@ -270,8 +333,7 @@ static int method_screencast_create_session(sd_bus_message *msg, void *data,
     return 0;
 }
 
-static int method_screencast_select_sources(sd_bus_message *msg, void *data,
-                                            sd_bus_error *ret_error) {
+static int method_screencast_select_sources(sd_bus_message *msg, void *data, sd_bus_error *ret_error) {
     struct xdpw_state *state = data;
     struct xdpw_screencast_context *ctx = &state->screencast;
 
@@ -300,6 +362,10 @@ static int method_screencast_select_sources(sd_bus_message *msg, void *data,
 
     char *key;
     int innerRet = 0;
+    uint32_t persist = 0;
+
+    struct xdph_restore_token *foundToken = NULL;
+
     while ((ret = sd_bus_message_enter_container(msg, 'e', "sv")) > 0) {
         innerRet = sd_bus_message_read(msg, "s", &key);
         if (innerRet < 0) {
@@ -326,9 +392,57 @@ static int method_screencast_select_sources(sd_bus_message *msg, void *data,
             }
             if (cursor_mode & METADATA) {
                 logprint(ERROR, "dbus: unsupported cursor mode requested, ignoring");
-               //  goto error;
+                //  goto error;
             }
             logprint(INFO, "dbus: option cursor_mode:%x", cursor_mode);
+        } else if (strcmp(key, "restore_token") == 0) {
+            char *restoreToken;
+            sd_bus_message_read(msg, "v", "s", &restoreToken);
+
+            logprint(INFO, "dbus: restore_token %s", restoreToken);
+
+            foundToken = findRestoreToken(restoreToken, state);
+        } else if (strcmp(key, "restore_data") == 0) {
+            logprint(INFO, "dbus: restore_data");
+            innerRet = sd_bus_message_enter_container(msg, 'v', "(suv)");
+            if (innerRet < 0) {
+                logprint(ERROR, "dbus: restore_data malformed container");
+                return innerRet;
+            }
+            innerRet = sd_bus_message_enter_container(msg, 'r', "suv");
+            if (innerRet < 0) {
+                logprint(ERROR, "dbus: error entering struct");
+                return innerRet;
+            }
+            char *issuer;
+            sd_bus_message_read(msg, "s", &issuer);
+            if (strcmp(issuer, "hyprland") != 0) {
+                logprint(INFO, "dbus: skipping unknown issuer (%s)", issuer);
+                sd_bus_message_skip(msg, "uv");
+                continue;
+            }
+            uint32_t ver;
+            sd_bus_message_read(msg, "u", &ver);
+
+            if (ver == 1) {
+                char *restoreToken;
+                sd_bus_message_read(msg, "v", "s", &restoreToken);
+
+                logprint(INFO, "dbus: restore_token %s", restoreToken);
+
+                foundToken = findRestoreToken(restoreToken, state);
+
+                if (foundToken)
+                    logprint(INFO, "xdph: found token %s", restoreToken);
+                else
+                    logprint(INFO, "xdph: token not found");
+            }
+
+            sd_bus_message_exit_container(msg);
+            sd_bus_message_exit_container(msg);
+        } else if (strcmp(key, "persist_mode") == 0) {
+            sd_bus_message_read(msg, "v", "u", &persist);
+            logprint(INFO, "dbus: persist %d", persist);
         } else {
             logprint(WARN, "dbus: unknown option %s", key);
             sd_bus_message_skip(msg, "v");
@@ -351,7 +465,17 @@ static int method_screencast_select_sources(sd_bus_message *msg, void *data,
     wl_list_for_each_reverse_safe(sess, tmp_s, &state->xdpw_sessions, link) {
         if (strcmp(sess->session_handle, session_handle) == 0) {
             logprint(DEBUG, "dbus: select sources: found matching session %s", sess->session_handle);
-            output_selection_canceled = !setup_outputs(ctx, sess, cursor_embedded);
+
+            output_selection_canceled = !setup_outputs(ctx, sess, cursor_embedded, foundToken);
+
+            sess->persist = persist;
+
+            // foundToken has been used, if it existed
+            if (foundToken) {
+                wl_list_remove(&foundToken->link);
+                free(foundToken);
+                foundToken = NULL;
+            }
         }
     }
 
@@ -398,8 +522,7 @@ error:
     return -1;
 }
 
-static int method_screencast_start(sd_bus_message *msg, void *data,
-                                   sd_bus_error *ret_error) {
+static int method_screencast_start(sd_bus_message *msg, void *data, sd_bus_error *ret_error) {
     struct xdpw_state *state = data;
 
     int ret = 0;
@@ -470,6 +593,17 @@ static int method_screencast_start(sd_bus_message *msg, void *data,
         }
     }
 
+    // create token
+    struct xdph_restore_token *restoreToken = NULL;
+    if (sess->persist) {
+        restoreToken = getRestoreToken(session_handle, state, cast->target.output ? cast->target.output->name : NULL,
+                                       cast->target.window_handle < 1 ? 0 : cast->target.window_handle, cast->with_cursor);
+
+        wl_list_insert(&state->restore_tokens, &restoreToken->link);
+
+        logprint(INFO, "xdph: registered restoreToken with token %s", restoreToken->token);
+    }
+
     sd_bus_message *reply = NULL;
     ret = sd_bus_message_new_method_return(msg, &reply);
     if (ret < 0) {
@@ -477,11 +611,15 @@ static int method_screencast_start(sd_bus_message *msg, void *data,
     }
 
     logprint(DEBUG, "dbus: start: returning node %d", (int)cast->node_id);
-    ret = sd_bus_message_append(reply, "ua{sv}", PORTAL_RESPONSE_SUCCESS, 1,
-                                "streams", "a(ua{sv})", 1,
-                                cast->node_id, 2,
-                                "position", "(ii)", 0, 0,
-                                "size", "(ii)", cast->screencopy_frame_info[WL_SHM].width, cast->screencopy_frame_info[WL_SHM].height);
+    if (restoreToken)
+        ret = sd_bus_message_append(reply, "ua{sv}", PORTAL_RESPONSE_SUCCESS, 3, "streams", "a(ua{sv})", 1, cast->node_id, 3, "position", "(ii)", 0,
+                                    0, "size", "(ii)", cast->screencopy_frame_info[WL_SHM].width, cast->screencopy_frame_info[WL_SHM].height,
+                                    "source_type", "u", (cast->target.output ? (1 << MONITOR) : (1 << WINDOW)), "persist_mode", "u", sess->persist,
+                                    "restore_data", "(suv)", "hyprland", 1, "s", restoreToken->token);
+    else
+        ret = sd_bus_message_append(reply, "ua{sv}", PORTAL_RESPONSE_SUCCESS, 1, "streams", "a(ua{sv})", 1, cast->node_id, 3, "position", "(ii)", 0,
+                                    0, "size", "(ii)", cast->screencopy_frame_info[WL_SHM].width, cast->screencopy_frame_info[WL_SHM].height,
+                                    "source_type", "u", (cast->target.output ? (1 << MONITOR) : (1 << WINDOW)));
 
     if (ret < 0) {
         return ret;
@@ -498,21 +636,12 @@ static int method_screencast_start(sd_bus_message *msg, void *data,
 
 static const sd_bus_vtable screencast_vtable[] = {
     SD_BUS_VTABLE_START(0),
-    SD_BUS_METHOD("CreateSession", "oosa{sv}", "ua{sv}",
-                  method_screencast_create_session, SD_BUS_VTABLE_UNPRIVILEGED),
-    SD_BUS_METHOD("SelectSources", "oosa{sv}", "ua{sv}",
-                  method_screencast_select_sources, SD_BUS_VTABLE_UNPRIVILEGED),
-    SD_BUS_METHOD("Start", "oossa{sv}", "ua{sv}",
-                  method_screencast_start, SD_BUS_VTABLE_UNPRIVILEGED),
-    SD_BUS_PROPERTY("AvailableSourceTypes", "u", NULL,
-                    offsetof(struct xdpw_state, screencast_source_types),
-                    SD_BUS_VTABLE_PROPERTY_CONST),
-    SD_BUS_PROPERTY("AvailableCursorModes", "u", NULL,
-                    offsetof(struct xdpw_state, screencast_cursor_modes),
-                    SD_BUS_VTABLE_PROPERTY_CONST),
-    SD_BUS_PROPERTY("version", "u", NULL,
-                    offsetof(struct xdpw_state, screencast_version),
-                    SD_BUS_VTABLE_PROPERTY_CONST),
+    SD_BUS_METHOD("CreateSession", "oosa{sv}", "ua{sv}", method_screencast_create_session, SD_BUS_VTABLE_UNPRIVILEGED),
+    SD_BUS_METHOD("SelectSources", "oosa{sv}", "ua{sv}", method_screencast_select_sources, SD_BUS_VTABLE_UNPRIVILEGED),
+    SD_BUS_METHOD("Start", "oossa{sv}", "ua{sv}", method_screencast_start, SD_BUS_VTABLE_UNPRIVILEGED),
+    SD_BUS_PROPERTY("AvailableSourceTypes", "u", NULL, offsetof(struct xdpw_state, screencast_source_types), SD_BUS_VTABLE_PROPERTY_CONST),
+    SD_BUS_PROPERTY("AvailableCursorModes", "u", NULL, offsetof(struct xdpw_state, screencast_cursor_modes), SD_BUS_VTABLE_PROPERTY_CONST),
+    SD_BUS_PROPERTY("version", "u", NULL, offsetof(struct xdpw_state, screencast_version), SD_BUS_VTABLE_PROPERTY_CONST),
     SD_BUS_VTABLE_END};
 
 int xdpw_screencast_init(struct xdpw_state *state) {
@@ -533,8 +662,7 @@ int xdpw_screencast_init(struct xdpw_state *state) {
         goto fail_screencopy;
     }
 
-    return sd_bus_add_object_vtable(state->bus, &slot, object_path, interface_name,
-                                    screencast_vtable, state);
+    return sd_bus_add_object_vtable(state->bus, &slot, object_path, interface_name, screencast_vtable, state);
 
 fail_screencopy:
     xdpw_wlr_screencopy_finish(&state->screencast);
