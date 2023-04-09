@@ -436,6 +436,38 @@ static int method_screencast_select_sources(sd_bus_message *msg, void *data, sd_
                     logprint(INFO, "xdph: found token %s", restoreToken);
                 else
                     logprint(INFO, "xdph: token not found");
+            } else if (ver == 2) {
+                innerRet = sd_bus_message_enter_container(msg, 'v', "(susbt)" /* amogus */);
+                innerRet = sd_bus_message_enter_container(msg, 'r', "susbt" /* amogus */);
+                if (innerRet < 0) {
+                    logprint(ERROR, "dbus: error entering struct");
+                    return innerRet;
+                }
+
+                char *token;
+                char *output;
+                uint32_t windowHandle;
+                bool withCursor;
+                uint64_t timeIssued;
+
+                sd_bus_message_read(msg, "s", &token);
+                sd_bus_message_read(msg, "u", &windowHandle);
+                sd_bus_message_read(msg, "s", &output);
+                sd_bus_message_read(msg, "b", &withCursor);
+                sd_bus_message_read(msg, "t", &timeIssued);
+
+                foundToken = findRestoreToken(token, state);
+
+                if (!foundToken) {
+                    foundToken = getRestoreToken(session_handle, state, strlen(output) == 0 ? NULL : output, windowHandle, withCursor);
+                }
+
+                sd_bus_message_exit_container(msg);
+                sd_bus_message_exit_container(msg);
+
+            } else {
+                logprint(INFO, "dbus: skipping unknown ver (%d)", ver);
+                sd_bus_message_skip(msg, "v");
             }
 
             sd_bus_message_exit_container(msg);
@@ -615,7 +647,9 @@ static int method_screencast_start(sd_bus_message *msg, void *data, sd_bus_error
         ret = sd_bus_message_append(reply, "ua{sv}", PORTAL_RESPONSE_SUCCESS, 3, "streams", "a(ua{sv})", 1, cast->node_id, 3, "position", "(ii)", 0,
                                     0, "size", "(ii)", cast->screencopy_frame_info[WL_SHM].width, cast->screencopy_frame_info[WL_SHM].height,
                                     "source_type", "u", (cast->target.output ? (1 << MONITOR) : (1 << WINDOW)), "persist_mode", "u", sess->persist,
-                                    "restore_data", "(suv)", "hyprland", 1, "s", restoreToken->token);
+                                    "restore_data", "(suv)", "hyprland", 2, "(susbt)" /* amogus */, restoreToken->token, restoreToken->windowHandle,
+                                    (restoreToken->outputPort == NULL ? "" : restoreToken->outputPort), restoreToken->withCursor,
+                                    (unsigned long)time(NULL));
     else
         ret = sd_bus_message_append(reply, "ua{sv}", PORTAL_RESPONSE_SUCCESS, 1, "streams", "a(ua{sv})", 1, cast->node_id, 3, "position", "(ii)", 0,
                                     0, "size", "(ii)", cast->screencopy_frame_info[WL_SHM].width, cast->screencopy_frame_info[WL_SHM].height,
