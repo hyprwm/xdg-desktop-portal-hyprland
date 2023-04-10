@@ -37,9 +37,9 @@ static const sd_bus_vtable gs_vtable[] = {
     SD_BUS_METHOD("CreateSession", "oosa{sv}", "ua{sv}", method_gs_create_session, SD_BUS_VTABLE_UNPRIVILEGED),
     SD_BUS_METHOD("BindShortcuts", "ooa(sa{sv})sa{sv}", "ua{sv}", method_gs_bind_shortcuts, SD_BUS_VTABLE_UNPRIVILEGED),
     SD_BUS_METHOD("ListShortcuts", "oo", "ua{sv}", method_gs_list_shortcuts, SD_BUS_VTABLE_UNPRIVILEGED),
-    SD_BUS_SIGNAL("Activated", "osta{sv}", NULL),
-    SD_BUS_SIGNAL("Deactivated", "osta{sv}", NULL),
-    SD_BUS_SIGNAL("ShortcutsChanged", "oa(sa{sv})", NULL),
+    SD_BUS_SIGNAL("Activated", "osta{sv}", 0),
+    SD_BUS_SIGNAL("Deactivated", "osta{sv}", 0),
+    SD_BUS_SIGNAL("ShortcutsChanged", "oa(sa{sv})", 0),
     SD_BUS_VTABLE_END};
 
 static void handleActivated(void *data, struct hyprland_global_shortcut_v1 *hyprland_global_shortcut_v1, uint32_t tv_sec_hi, uint32_t tv_sec_lo,
