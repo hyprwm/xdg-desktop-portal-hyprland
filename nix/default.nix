@@ -1,7 +1,6 @@
 {
   lib,
   stdenv,
-  fetchpatch,
   makeWrapper,
   meson,
   ninja,
@@ -14,11 +13,11 @@
   hyprland-protocols,
   inih,
   libdrm,
+  libuuid,
   mesa,
   pipewire,
   systemd,
   wayland,
-  libsForQt5,
   version ? "git",
 }:
 stdenv.mkDerivation {
@@ -29,8 +28,24 @@ stdenv.mkDerivation {
 
   strictDeps = true;
   depsBuildBuild = [pkg-config];
-  nativeBuildInputs = [meson ninja pkg-config wayland-scanner makeWrapper];
-  buildInputs = [hyprland-protocols inih libdrm mesa pipewire systemd wayland wayland-protocols];
+  nativeBuildInputs = [
+    meson
+    ninja
+    pkg-config
+    wayland-scanner
+    makeWrapper
+  ];
+  buildInputs = [
+    hyprland-protocols
+    inih
+    libdrm
+    libuuid
+    mesa
+    pipewire
+    systemd
+    wayland
+    wayland-protocols
+  ];
 
   mesonFlags = [
     "-Dsd-bus-provider=libsystemd"

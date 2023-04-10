@@ -15,8 +15,14 @@ stdenv.mkDerivation {
   inherit version;
   src = ../hyprland-share-picker;
 
-  nativeBuildInputs = [cmake wrapQtAppsHook makeShellWrapper];
-  buildInputs = [qtbase];
+  nativeBuildInputs = [
+    cmake
+    wrapQtAppsHook
+    makeShellWrapper
+  ];
+  buildInputs = [
+    qtbase
+  ];
 
   dontWrapQtApps = true;
 
