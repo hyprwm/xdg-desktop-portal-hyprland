@@ -115,7 +115,7 @@ int main(int argc, char *argv[]) {
         .wl_display = wl_display,
         .pw_loop = pw_loop,
         .screencast_source_types = MONITOR,
-        .screencast_cursor_modes = HIDDEN | EMBEDDED | METADATA,
+        .screencast_cursor_modes = HIDDEN | EMBEDDED,
         .screencast_version = XDP_CAST_PROTO_VER,
         .screenshot_version = XDP_SHOT_PROTO_VER,
         .config = &config,

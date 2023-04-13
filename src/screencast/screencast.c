@@ -391,8 +391,8 @@ static int method_screencast_select_sources(sd_bus_message *msg, void *data, sd_
                 cursor_embedded = false;
             }
             if (cursor_mode & METADATA) {
-                logprint(ERROR, "dbus: unsupported cursor mode requested, ignoring");
-                //  goto error;
+                logprint(ERROR, "dbus: unsupported cursor mode requested");
+                goto error;
             }
             logprint(INFO, "dbus: option cursor_mode:%x", cursor_mode);
         } else if (strcmp(key, "restore_token") == 0) {
