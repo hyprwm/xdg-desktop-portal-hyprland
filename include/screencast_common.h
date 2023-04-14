@@ -63,7 +63,8 @@ struct xdpw_frame {
     bool y_invert;
     uint64_t tv_sec;
     uint32_t tv_nsec;
-    struct xdpw_frame_damage damage;
+    struct xdpw_frame_damage damage[4];
+	uint32_t damage_count;
     struct xdpw_buffer *xdpw_buffer;
     struct pw_buffer *pw_buffer;
 };
@@ -227,6 +228,8 @@ enum wl_shm_format xdpw_format_wl_shm_from_drm_fourcc(uint32_t format);
 uint32_t xdpw_format_drm_fourcc_from_wl_shm(enum wl_shm_format format);
 enum spa_video_format xdpw_format_pw_from_drm_fourcc(uint32_t format);
 enum spa_video_format xdpw_format_pw_strip_alpha(enum spa_video_format format);
+
+struct xdpw_frame_damage merge_damage(struct xdpw_frame_damage *damage1, struct xdpw_frame_damage *damage2);
 
 enum xdpw_chooser_types get_chooser_type(const char *chooser_type);
 const char *chooser_type_str(enum xdpw_chooser_types chooser_type);
