@@ -14,6 +14,7 @@ add_project_arguments(cc.get_supported_arguments([
 	'-Wno-missing-field-initializers',
 	'-Wno-unused-parameter',
 	'-D_POSIX_C_SOURCE=200809L',
+	'-D_GNU_SOURCE',
 ]), language: 'c')
 
 prefix = get_option('prefix')
