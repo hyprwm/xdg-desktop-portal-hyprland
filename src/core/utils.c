@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include "utils.h"
 
 char *getFormat(const char *fmt, ...) {
