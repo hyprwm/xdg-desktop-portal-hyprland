@@ -1,19 +1,20 @@
 #include "pipewire_screencast.h"
 
-#include <pipewire/pipewire.h>
-#include <spa/utils/result.h>
-#include <spa/param/props.h>
-#include <spa/param/format-utils.h>
-#include <spa/param/video/format-utils.h>
-#include <spa/pod/dynamic.h>
-#include <sys/mman.h>
-#include <unistd.h>
 #include <assert.h>
 #include <libdrm/drm_fourcc.h>
+#include <pipewire/pipewire.h>
+#include <spa/buffer/meta.h>
+#include <spa/param/format-utils.h>
+#include <spa/param/props.h>
+#include <spa/param/video/format-utils.h>
+#include <spa/pod/dynamic.h>
+#include <spa/utils/result.h>
+#include <sys/mman.h>
+#include <unistd.h>
 
+#include "logger.h"
 #include "wlr_screencast.h"
 #include "xdpw.h"
-#include "logger.h"
 
 static struct spa_pod *build_buffer(struct spa_pod_builder *b, uint32_t blocks, uint32_t size,
 		uint32_t stride, uint32_t datatype) {
@@ -316,7 +317,12 @@ fixate_format:
 		SPA_PARAM_META_type, SPA_POD_Id(SPA_META_Header),
 		SPA_PARAM_META_size, SPA_POD_Int(sizeof(struct spa_meta_header)));
 
-	params[2] = spa_pod_builder_add_object(&b[2].b,
+    params[2] = spa_pod_builder_add_object(&b[1].b,
+		SPA_TYPE_OBJECT_ParamMeta, SPA_PARAM_Meta,
+		SPA_PARAM_META_type, SPA_POD_Id(SPA_META_VideoTransform),
+		SPA_PARAM_META_size, SPA_POD_Int(sizeof(struct spa_meta_videotransform)));
+
+	params[3] = spa_pod_builder_add_object(&b[2].b,
 		SPA_TYPE_OBJECT_ParamMeta, SPA_PARAM_Meta,
 		SPA_PARAM_META_type, SPA_POD_Id(SPA_META_VideoDamage),
 		SPA_PARAM_META_size, SPA_POD_CHOICE_RANGE_Int(
@@ -447,6 +453,12 @@ void xdpw_pwr_enqueue_buffer(struct xdpw_screencast_instance *cast) {
 		h->seq = cast->seq++;
 		h->dts_offset = 0;
 		logprint(TRACE, "pipewire: timestamp %"PRId64, h->pts);
+	}
+
+    struct spa_meta_videotransform *vt;
+	if ((vt = spa_buffer_find_meta_data(spa_buf, SPA_META_VideoTransform, sizeof(*vt)))) {
+		vt->transform = cast->target.output->transform;
+		logprint(TRACE, "pipewire: transform %u", vt->transform);
 	}
 
 	struct spa_meta *damage;

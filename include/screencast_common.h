@@ -149,6 +149,7 @@ struct xdpw_wlr_output {
     int width;
     int height;
     float framerate;
+    enum wl_output_transform transform;
 };
 
 struct xdpw_share {

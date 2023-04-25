@@ -551,6 +551,7 @@ static void wlr_output_handle_geometry(void *data, struct wl_output *wl_output, 
     struct xdpw_wlr_output *output = data;
     output->make = strdup(make);
     output->model = strdup(model);
+    output->transform = transform;
 }
 
 static void wlr_output_handle_mode(void *data, struct wl_output *wl_output, uint32_t flags, int32_t width, int32_t height, int32_t refresh) {
