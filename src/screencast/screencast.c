@@ -132,14 +132,26 @@ bool setup_outputs(struct xdpw_screencast_context *ctx, struct xdpw_session *ses
     if (token) {
         // attempt to restore
         if (token->outputPort) {
-            struct xdpw_wlr_output *output;
-            wl_list_for_each(output, &ctx->output_list, link) {
-                if (strcmp(output->name, token->outputPort) == 0) {
-                    out.output = output;
-                    tokenSuccess = true;
-                    break;
+            if (strncmp(token->outputPort, "class:", 6) == 0) {
+                struct SToplevelEntry *current;
+                wl_list_for_each(current, &ctx->toplevel_resource_list, link) {
+                    if (strcmp(token->outputPort + 6, current->clazz) == 0) {
+                        out.window_handle = token->windowHandle;
+                        tokenSuccess = true;
+                        break;
+                    }
+                }
+            } else {
+                struct xdpw_wlr_output *output;
+                wl_list_for_each(output, &ctx->output_list, link) {
+                    if (strcmp(output->name, token->outputPort) == 0) {
+                        out.output = output;
+                        tokenSuccess = true;
+                        break;
+                    }
                 }
             }
+
         } else if (token->windowHandle > 0) {
             struct SToplevelEntry *current;
             wl_list_for_each(current, &ctx->toplevel_resource_list, link) {
@@ -248,6 +260,16 @@ static struct xdph_restore_token *getRestoreToken(char *sessionToken, struct xdp
 
     restoreToken->token = uuid_str;
     restoreToken->withCursor = withCursor;
+
+    if (windowSelected) {
+        struct SToplevelEntry *current;
+        wl_list_for_each(current, &state->screencast.toplevel_resource_list, link) {
+            if (current->handle == restoreToken->windowHandle) {
+                restoreToken->windowClass = getFormat("class:%x", current->clazz);
+                break;
+            }
+        }
+    }
 
     return restoreToken;
 }
@@ -644,12 +666,13 @@ static int method_screencast_start(sd_bus_message *msg, void *data, sd_bus_error
 
     logprint(DEBUG, "dbus: start: returning node %d", (int)cast->node_id);
     if (restoreToken)
-        ret = sd_bus_message_append(reply, "ua{sv}", PORTAL_RESPONSE_SUCCESS, 3, "streams", "a(ua{sv})", 1, cast->node_id, 3, "position", "(ii)", 0,
-                                    0, "size", "(ii)", cast->screencopy_frame_info[WL_SHM].width, cast->screencopy_frame_info[WL_SHM].height,
-                                    "source_type", "u", (cast->target.output ? (1 << MONITOR) : (1 << WINDOW)), "persist_mode", "u", sess->persist,
-                                    "restore_data", "(suv)", "hyprland", 2, "(susbt)" /* amogus */, restoreToken->token, restoreToken->windowHandle,
-                                    (restoreToken->outputPort == NULL ? "" : restoreToken->outputPort), restoreToken->withCursor,
-                                    (unsigned long)time(NULL));
+        ret = sd_bus_message_append(
+            reply, "ua{sv}", PORTAL_RESPONSE_SUCCESS, 3, "streams", "a(ua{sv})", 1, cast->node_id, 3, "position", "(ii)", 0, 0, "size", "(ii)",
+            cast->screencopy_frame_info[WL_SHM].width, cast->screencopy_frame_info[WL_SHM].height, "source_type", "u",
+            (cast->target.output ? (1 << MONITOR) : (1 << WINDOW)), "persist_mode", "u", sess->persist, "restore_data", "(suv)", "hyprland", 2,
+            "(susbt)" /* amogus */, restoreToken->token, restoreToken->windowHandle,
+            (restoreToken->outputPort == NULL ? (restoreToken->windowHandle ? restoreToken->windowClass : "") : restoreToken->outputPort),
+            restoreToken->withCursor, (unsigned long)time(NULL));
     else
         ret = sd_bus_message_append(reply, "ua{sv}", PORTAL_RESPONSE_SUCCESS, 1, "streams", "a(ua{sv})", 1, cast->node_id, 3, "position", "(ii)", 0,
                                     0, "size", "(ii)", cast->screencopy_frame_info[WL_SHM].width, cast->screencopy_frame_info[WL_SHM].height,

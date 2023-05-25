@@ -64,7 +64,7 @@ struct xdpw_frame {
     uint64_t tv_sec;
     uint32_t tv_nsec;
     struct xdpw_frame_damage damage[4];
-	uint32_t damage_count;
+    uint32_t damage_count;
     struct xdpw_buffer *xdpw_buffer;
     struct pw_buffer *pw_buffer;
 };
@@ -164,6 +164,7 @@ struct xdpw_share {
 struct xdph_restore_token {
     char *token;
     char *outputPort;       // NULL if not set
+    char *windowClass;      // NULL if not set
     uint64_t windowHandle;  // 0 if not set
     struct wl_list link;
     bool withCursor;
