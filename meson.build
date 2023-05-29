@@ -1,7 +1,7 @@
 project(
 	'xdg-desktop-portal-hyprland',
 	'c',
-	version: '0.2.1',
+	version: '0.4.0',
 	license: 'MIT',
 	meson_version: '>=0.58.0',
 	default_options: ['c_std=c11', 'warning_level=2', 'werror=false'],
