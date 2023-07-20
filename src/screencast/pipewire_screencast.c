@@ -457,7 +457,7 @@ void xdpw_pwr_enqueue_buffer(struct xdpw_screencast_instance *cast) {
 
     struct spa_meta_videotransform *vt;
 	if ((vt = spa_buffer_find_meta_data(spa_buf, SPA_META_VideoTransform, sizeof(*vt)))) {
-		vt->transform = cast->target.output->transform;
+		vt->transform = cast->target.output ? cast->target.output->transform : 0;
 		logprint(TRACE, "pipewire: transform %u", vt->transform);
 	}
 
