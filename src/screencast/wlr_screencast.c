@@ -375,9 +375,6 @@ static void hyprland_frame_buffer(void *data, struct hyprland_toplevel_export_fr
     cast->screencopy_frame_info[WL_SHM].stride = stride;
     cast->screencopy_frame_info[WL_SHM].size = stride * height;
     cast->screencopy_frame_info[WL_SHM].format = xdpw_format_drm_fourcc_from_wl_shm(format);
-
-    // TODO: am I sure this should be here
-    hyprland_frame_buffer_done(cast, frame);
 }
 
 static void hyprland_frame_linux_dmabuf(void *data, struct hyprland_toplevel_export_frame_v1 *frame, uint32_t format, uint32_t width,
