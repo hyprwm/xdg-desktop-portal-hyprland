@@ -203,7 +203,7 @@ static void pwr_handle_stream_param_changed(void *data, uint32_t id,
 	struct pw_stream *stream = cast->stream;
 	uint8_t params_buffer[3][1024];
 	struct spa_pod_dynamic_builder b[3];
-	const struct spa_pod *params[3];
+	const struct spa_pod *params[4];
 	uint32_t blocks;
 	uint32_t data_type;
 
