@@ -28,21 +28,8 @@
           inputs.hyprland-protocols.overlays.default
         ];
       });
-    mkDate = longDate: (lib.concatStringsSep "-" [
-      (builtins.substring 0 4 longDate)
-      (builtins.substring 4 2 longDate)
-      (builtins.substring 6 2 longDate)
-    ]);
-    version = "0.pre" + "+date=" + (mkDate (self.lastModifiedDate or "19700101")) + "_" + (self.shortRev or "dirty");
   in {
-    overlays.default = final: prev: {
-      xdg-desktop-portal-hyprland = final.callPackage ./nix/default.nix {
-        inherit (final) hyprland-protocols hyprland-share-picker;
-        inherit version;
-      };
-
-      hyprland-share-picker = final.libsForQt5.callPackage ./nix/hyprland-share-picker.nix {inherit version;};
-    };
+    overlays = import ./nix/overlays.nix {inherit self inputs lib;};
 
     packages = genSystems (system:
       (self.overlays.default pkgsFor.${system} pkgsFor.${system})
