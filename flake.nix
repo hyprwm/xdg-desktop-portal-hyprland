@@ -25,16 +25,18 @@
       import nixpkgs {
         localSystem = system;
         overlays = [
-          self.overlays.default
           inputs.hyprland-protocols.overlays.default
+          self.overlays.xdg-desktop-portal-hyprland
+          self.overlays.hyprland-share-picker
         ];
       });
   in {
     overlays = import ./nix/overlays.nix {inherit self inputs lib;};
 
-    packages = eachSystem (system:
-      (self.overlays.default pkgsFor.${system} pkgsFor.${system})
-      // {default = self.packages.${system}.xdg-desktop-portal-hyprland;});
+    packages = eachSystem (system: {
+      inherit (pkgsFor.${system}) xdg-desktop-portal-hyprland hyprland-share-picker;
+      default = self.packages.${system}.xdg-desktop-portal-hyprland;
+    });
 
     formatter = eachSystem (system: nixpkgs.legacyPackages.${system}.alejandra);
   };
