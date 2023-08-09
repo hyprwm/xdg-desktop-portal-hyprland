@@ -48,6 +48,6 @@
       (self.overlays.default pkgsFor.${system} pkgsFor.${system})
       // {default = self.packages.${system}.xdg-desktop-portal-hyprland;});
 
-    formatter = genSystems (system: pkgsFor.${system}.alejandra);
+    formatter = genSystems (system: nixpkgs.legacyPackages.${system}.alejandra);
   };
 }
