@@ -6,6 +6,8 @@
 #include <protocols/wlr-foreign-toplevel-management-unstable-v1-protocol.h>
 #include <protocols/wlr-screencopy-unstable-v1-protocol.h>
 
+#include <pipewire/pipewire.h>
+
 void handleGlobal(void* data, struct wl_registry* registry, uint32_t name, const char* interface, uint32_t version) {
     g_pPortalManager->onGlobal(data, registry, name, interface, version);
 }
@@ -26,7 +28,7 @@ void CPortalManager::onGlobal(void* data, struct wl_registry* registry, uint32_t
 
     Debug::log(LOG, " | Got interface: {} (ver {})", INTERFACE, version);
 
-    if (INTERFACE == zwlr_screencopy_manager_v1_interface.name)
+    if (INTERFACE == zwlr_screencopy_manager_v1_interface.name && m_sPipewire.loop)
         m_sPortals.screencopy = std::make_unique<CScreencopyPortal>((zwlr_screencopy_manager_v1*)wl_registry_bind(registry, name, &zwlr_screencopy_manager_v1_interface, version));
 }
 
@@ -58,9 +60,18 @@ void CPortalManager::init() {
     wl_registry* registry = wl_display_get_registry(m_sWaylandConnection.display);
     wl_registry_add_listener(registry, &registryListener, nullptr);
 
+    pw_init(nullptr, nullptr);
+    m_sPipewire.loop = pw_loop_new(nullptr);
+
+    if (!m_sPipewire.loop)
+        Debug::log(ERR, "Pipewire: refused to create a loop. Screensharing will not work.");
+
     Debug::log(LOG, "Gathering exported interfaces");
 
     wl_display_roundtrip(m_sWaylandConnection.display);
+
+    if (!m_sPortals.screencopy)
+        Debug::log(WARN, "Screencopy not started: compositor doesn't support zwlr_screencopy_v1 or pw refused a loop");
 
     while (1) {
         // dbus events
@@ -76,6 +87,8 @@ void CPortalManager::init() {
             if (r <= 0)
                 break;
         }
+
+        // TODO: pipewire loop
 
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }

@@ -18,6 +18,21 @@ enum sourceTypes
     VIRTUAL = 4,
 };
 
+struct pw_context;
+struct pw_core;
+
+class CPipewireConnection {
+  public:
+    CPipewireConnection();
+    ~CPipewireConnection();
+
+    bool good();
+
+  private:
+    pw_context* m_pContext = nullptr;
+    pw_core*    m_pCore    = nullptr;
+};
+
 class CScreencopyPortal {
   public:
     CScreencopyPortal(zwlr_screencopy_manager_v1*);
@@ -46,6 +61,12 @@ class CScreencopyPortal {
 
     SSession*                              getSession(sdbus::ObjectPath& path);
 
-    const std::string                      INTERFACE_NAME = "org.freedesktop.impl.portal.ScreenCast";
-    const std::string                      OBJECT_PATH    = "/org/freedesktop/portal/desktop";
+    std::unique_ptr<CPipewireConnection>   m_pPipewire;
+
+    struct {
+        zwlr_screencopy_manager_v1* screencopy = nullptr;
+    } m_sState;
+
+    const std::string INTERFACE_NAME = "org.freedesktop.impl.portal.ScreenCast";
+    const std::string OBJECT_PATH    = "/org/freedesktop/portal/desktop";
 };

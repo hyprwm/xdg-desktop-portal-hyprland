@@ -6,6 +6,8 @@
 
 #include "../portals/Screencopy.hpp"
 
+struct pw_loop;
+
 class CPortalManager {
   public:
     void                init();
@@ -13,6 +15,10 @@ class CPortalManager {
     void                onGlobal(void* data, struct wl_registry* registry, uint32_t name, const char* interface, uint32_t version);
 
     sdbus::IConnection* getConnection();
+
+    struct {
+        pw_loop* loop = nullptr;
+    } m_sPipewire;
 
   private:
     std::unique_ptr<sdbus::IConnection> m_pConnection;

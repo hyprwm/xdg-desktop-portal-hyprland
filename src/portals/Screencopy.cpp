@@ -3,6 +3,8 @@
 #include "../helpers/Log.hpp"
 #include "../helpers/MiscFunctions.hpp"
 
+#include <pipewire/pipewire.h>
+
 void onCloseRequest(sdbus::MethodCall& call, CScreencopyPortal::SSession* sess) {
     if (!sess || !sess->request)
         return;
@@ -197,6 +199,7 @@ void CScreencopyPortal::onStart(sdbus::MethodCall& call) {
         case TYPE_WINDOW: type = 1 << WINDOW; break;
         case TYPE_GEOMETRY:
         case TYPE_WORKSPACE: type = 1 << VIRTUAL; break;
+        default: type = 0; break;
     }
     options["source_type"] = type;
 
@@ -226,5 +229,37 @@ CScreencopyPortal::CScreencopyPortal(zwlr_screencopy_manager_v1* mgr) {
 
     m_pObject->finishRegistration();
 
+    m_sState.screencopy = mgr;
+    m_pPipewire         = std::make_unique<CPipewireConnection>();
+
     Debug::log(LOG, "[screencopy] init successful");
+}
+
+bool CPipewireConnection::good() {
+    return m_pContext && m_pCore;
+}
+
+CPipewireConnection::CPipewireConnection() {
+    m_pContext = pw_context_new(g_pPortalManager->m_sPipewire.loop, nullptr, 0);
+
+    if (!m_pContext) {
+        Debug::log(ERR, "[pipewire] pw didn't allow for a context");
+        return;
+    }
+
+    m_pCore = pw_context_connect(m_pContext, nullptr, 0);
+
+    if (!m_pCore) {
+        Debug::log(ERR, "[pipewire] pw didn't allow for a context connection");
+        return;
+    }
+
+    Debug::log(LOG, "[pipewire] connected");
+}
+
+CPipewireConnection::~CPipewireConnection() {
+    if (m_pCore)
+        pw_core_disconnect(m_pCore);
+    if (m_pContext)
+        pw_context_destroy(m_pContext);
 }
