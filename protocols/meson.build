@@ -1,3 +1,13 @@
+wayland_protos = dependency('wayland-protocols',
+	version: '>=1.31',
+	default_options: ['tests=false'],
+)
+
+hyprland_protos = dependency('hyprland-protocols',
+	version: '>=0.2',
+	fallback: 'hyprland-protocols',
+)
+
 wl_protocol_dir = wayland_protos.get_variable('pkgdatadir')
 hl_protocol_dir = hyprland_protos.get_variable('pkgdatadir')
 
@@ -10,14 +20,12 @@ if wayland_scanner_dep.found()
 else
 	wayland_scanner = find_program('wayland-scanner', native: true)
 endif
-
 client_protocols = [
-	wl_protocol_dir / 'unstable/linux-dmabuf/linux-dmabuf-unstable-v1.xml',
-	wl_protocol_dir / 'unstable/xdg-output/xdg-output-unstable-v1.xml',
-	hl_protocol_dir / 'protocols/hyprland-toplevel-export-v1.xml',
-	hl_protocol_dir / 'protocols/hyprland-global-shortcuts-v1.xml',
 	'wlr-screencopy-unstable-v1.xml',
 	'wlr-foreign-toplevel-management-unstable-v1.xml',
+	hl_protocol_dir / 'protocols/hyprland-toplevel-export-v1.xml',
+	hl_protocol_dir / 'protocols/hyprland-global-shortcuts-v1.xml',
+	wl_protocol_dir / 'unstable/linux-dmabuf/linux-dmabuf-unstable-v1.xml',
 ]
 
 wl_proto_files = []
@@ -33,7 +41,7 @@ foreach xml: client_protocols
 	client_header = custom_target(
 		xml.underscorify() + '_client_h',
 		input: xml,
-		output: '@BASENAME@-client-protocol.h',
+		output: '@BASENAME@-protocol.h',
 		command: [wayland_scanner, 'client-header', '@INPUT@', '@OUTPUT@'],
 	)
 
