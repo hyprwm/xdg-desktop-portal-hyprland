@@ -29,6 +29,7 @@
           inputs.hyprland-protocols.overlays.default
           self.overlays.xdg-desktop-portal-hyprland
           self.overlays.hyprland-share-picker
+          self.overlays.package-overrides
         ];
       });
   in {

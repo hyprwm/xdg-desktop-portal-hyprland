@@ -1,111 +1,38 @@
-project(
-	'xdg-desktop-portal-hyprland',
-	'c',
-	version: '0.5.0',
+project('xdg-desktop-portal-hyprland', 'cpp', 'c',
+	version: '2.0.0',
 	license: 'MIT',
-	meson_version: '>=0.58.0',
-	default_options: ['c_std=c11', 'warning_level=2', 'werror=false'],
-)
-
-cc = meson.get_compiler('c')
-
-add_project_arguments(cc.get_supported_arguments([
-	'-Wno-missing-braces',
-	'-Wno-missing-field-initializers',
-	'-Wno-unused-parameter',
-	'-D_POSIX_C_SOURCE=200809L',
-	'-D_GNU_SOURCE',
-]), language: 'c')
-
-prefix = get_option('prefix')
-sysconfdir = get_option('sysconfdir')
-add_project_arguments('-DSYSCONFDIR="@0@"'.format(join_paths(prefix, sysconfdir)), language : 'c')
-
-inc = include_directories('include')
-
-rt = cc.find_library('rt')
-pipewire = dependency('libpipewire-0.3', version: '>= 0.3.62')
-hyprland_protos = dependency('hyprland-protocols', version: '>=0.2', fallback: 'hyprland-protocols')
-wayland_client = dependency('wayland-client')
-wayland_protos = dependency('wayland-protocols', version: '>=1.24')
-iniparser = dependency('inih')
-gbm = dependency('gbm')
-drm = dependency('libdrm')
-uuid = dependency('uuid')
-
-epoll = dependency('', required: false)
-if (not cc.has_function('timerfd_create', prefix: '#include <sys/timerfd.h>') or
-    not cc.has_function('signalfd', prefix: '#include <sys/signalfd.h>'))
-	epoll = dependency('epoll-shim')
-endif
-
-if get_option('sd-bus-provider') == 'auto'
-	assert(get_option('auto_features').auto(), 'sd-bus-provider must not be set to auto since auto_features != auto')
-	sdbus = dependency('libsystemd',
-		required: false,
-		not_found_message: 'libsystemd not found, trying libelogind',
-	)
-	if not sdbus.found()
-		sdbus = dependency('libelogind',
-			required: false,
-			not_found_message: 'libelogind not found, trying basu',
-		)
-	endif
-	if not sdbus.found()
-		sdbus = dependency('basu',
-			required: false,
-		)
-	endif
-	if not sdbus.found()
-		error('Neither libsystemd, nor libelogind, nor basu was found')
-	endif
-else
-	sdbus = dependency(get_option('sd-bus-provider'))
-endif
-add_project_arguments('-DHAVE_' + sdbus.name().to_upper() + '=1', language: 'c')
-
-subdir('protocols')
-
-xdpw_files = files([
-	'src/core/main.c',
-	'src/core/logger.c',
-	'src/core/config.c',
-	'src/core/request.c',
-	'src/core/session.c',
-	'src/core/timer.c',
-	'src/core/timespec_util.c',
-	'src/core/utils.c',
-	'src/screenshot/screenshot.c',
-	'src/screencast/screencast.c',
-	'src/screencast/screencast_common.c',
-	'src/screencast/wlr_screencast.c',
-	'src/screencast/pipewire_screencast.c',
-	'src/screencast/fps_limit.c',
-	'src/globalshortcuts/global_shortcuts.c'
-])
-
-executable(
-	'xdg-desktop-portal-hyprland',
-	[xdpw_files, wl_proto_files],
-	dependencies: [
-		wayland_client,
-		sdbus,
-		pipewire,
-		rt,
-		iniparser,
-		gbm,
-		drm,
-		epoll,
-		uuid,
+	meson_version: '>=0.63.0',
+	default_options: [
+		'warning_level=2',
+		'optimization=3',
+		'buildtype=release',
+		'debug=false',
+    # 'cpp_std=c++23' # not yet supported by meson, as of version 0.63.0
 	],
-	include_directories: [inc],
-	install: true,
-	install_dir: get_option('libexecdir'),
 )
+
+# clang v14.0.6 uses C++2b instead of C++23, so we've gotta account for that
+# replace the following with a project default option once meson gets support for C++23
+cpp_compiler = meson.get_compiler('cpp')
+if cpp_compiler.has_argument('-std=c++23')
+  add_global_arguments('-std=c++23', language: 'cpp')
+elif cpp_compiler.has_argument('-std=c++2b')
+  add_global_arguments('-std=c++2b', language: 'cpp')
+else
+  error('Could not configure current C++ compiler (' + cpp_compiler.get_id() + ' ' + cpp_compiler.version() + ') with required C++ standard (C++23)')
+endif
+
+add_project_arguments(cpp_compiler.get_supported_arguments([
+  '-Wno-missing-field-initializers',
+  '-Wno-narrowing',
+	'-Wno-pointer-arith',
+  '-Wno-unused-parameter',
+  '-Wno-unused-value',
+	'-fpermissive'
+]), language: 'cpp')
 
 conf_data = configuration_data()
-conf_data.set('libexecdir',
-	join_paths(get_option('prefix'), get_option('libexecdir')))
+conf_data.set('libexecdir', join_paths(get_option('prefix'), get_option('libexecdir')))
 conf_data.set('systemd_service', '')
 
 systemd = dependency('systemd', required: get_option('systemd'))
@@ -136,3 +63,7 @@ install_data(
 	install_dir: join_paths(get_option('datadir'), 'xdg-desktop-portal', 'portals'),
 )
 
+inc = include_directories('.', 'protocols')
+
+subdir('protocols')
+subdir('src')
