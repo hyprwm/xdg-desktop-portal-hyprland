@@ -506,7 +506,7 @@ static void pwStreamParamChanged(void* data, uint32_t id, const spa_pod* param) 
     }
 
     spa_pod_dynamic_builder dynBuilder[3];
-    const spa_pod*          params[4];
+    const spa_pod*          params[2];
     uint8_t                 params_buffer[3][1024];
 
     spa_pod_dynamic_builder_init(&dynBuilder[0], params_buffer[0], sizeof(params_buffer[0]), 2048);
@@ -537,14 +537,7 @@ static void pwStreamParamChanged(void* data, uint32_t id, const spa_pod* param) 
     params[1] = (const spa_pod*)spa_pod_builder_add_object(&dynBuilder[1].b, SPA_TYPE_OBJECT_ParamMeta, SPA_PARAM_Meta, SPA_PARAM_META_type, SPA_POD_Id(SPA_META_Header),
                                                            SPA_PARAM_META_size, SPA_POD_Int(sizeof(struct spa_meta_header)));
 
-    params[2] = (const spa_pod*)spa_pod_builder_add_object(&dynBuilder[1].b, SPA_TYPE_OBJECT_ParamMeta, SPA_PARAM_Meta, SPA_PARAM_META_type, SPA_POD_Id(SPA_META_VideoTransform),
-                                                           SPA_PARAM_META_size, SPA_POD_Int(sizeof(struct spa_meta_videotransform)));
-
-    params[3] = (const spa_pod*)spa_pod_builder_add_object(
-        &dynBuilder[2].b, SPA_TYPE_OBJECT_ParamMeta, SPA_PARAM_Meta, SPA_PARAM_META_type, SPA_POD_Id(SPA_META_VideoDamage), SPA_PARAM_META_size,
-        SPA_POD_CHOICE_RANGE_Int(sizeof(struct spa_meta_region) * 4, sizeof(struct spa_meta_region) * 1, sizeof(struct spa_meta_region) * 4));
-
-    pw_stream_update_params(PSTREAM->stream, params, 4);
+    pw_stream_update_params(PSTREAM->stream, params, 2);
     spa_pod_dynamic_builder_clean(&dynBuilder[0]);
     spa_pod_dynamic_builder_clean(&dynBuilder[1]);
     spa_pod_dynamic_builder_clean(&dynBuilder[2]);
