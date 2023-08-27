@@ -791,5 +791,5 @@ std::unique_ptr<SBuffer> CPipewireConnection::createBuffer(CPipewireConnection::
         }
     }
 
-    return std::move(pBuffer);
+    return pBuffer;
 }
