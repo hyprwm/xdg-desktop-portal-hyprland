@@ -137,7 +137,8 @@ class CPipewireConnection {
         std::vector<std::unique_ptr<SBuffer>> buffers;
     };
 
-    SPWStream* streamFromSession(CScreencopyPortal::SSession* pSession);
+    std::unique_ptr<SBuffer> createBuffer(SPWStream* pStream, bool dmabuf);
+    SPWStream*               streamFromSession(CScreencopyPortal::SSession* pSession);
 
   private:
     std::vector<std::unique_ptr<SPWStream>> m_vStreams;

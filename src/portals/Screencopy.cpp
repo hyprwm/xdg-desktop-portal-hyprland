@@ -491,9 +491,8 @@ static void pwStreamStateChange(void* data, pw_stream_state old, pw_stream_state
         default: PSTREAM->streamState = false;
     }
 
-    if (state == PW_STREAM_STATE_UNCONNECTED) {
+    if (state == PW_STREAM_STATE_UNCONNECTED)
         g_pPortalManager->m_sPortals.screencopy->m_pPipewire->destroyStream(PSTREAM->pSession);
-    }
 }
 
 static void pwStreamParamChanged(void* data, uint32_t id, const spa_pod* param) {
@@ -568,44 +567,10 @@ static void pwStreamAddBuffer(void* data, pw_buffer* buffer) {
         return;
     }
 
-    const auto PBUFFER = PSTREAM->buffers.emplace_back(std::make_unique<SBuffer>()).get();
+    const auto PBUFFER = PSTREAM->buffers.emplace_back(g_pPortalManager->m_sPortals.screencopy->m_pPipewire->createBuffer(PSTREAM, type == SPA_DATA_DmaBuf)).get();
 
-    buffer->user_data = PBUFFER;
-
-    PBUFFER->fmt      = PSTREAM->pSession->sharingData.frameInfoSHM.fmt;
-    PBUFFER->h        = PSTREAM->pSession->sharingData.frameInfoSHM.h;
-    PBUFFER->w        = PSTREAM->pSession->sharingData.frameInfoSHM.w;
-    PBUFFER->isDMABUF = type == SPA_DATA_DmaBuf;
     PBUFFER->pwBuffer = buffer;
-
-    Debug::log(TRACE, "[pw] Adding buffer of type {}", PBUFFER->isDMABUF ? "DMA" : "SHM");
-
-    // wl_shm only
-    PBUFFER->planeCount = 1;
-    PBUFFER->size[0]    = PSTREAM->pSession->sharingData.frameInfoSHM.size;
-    PBUFFER->stride[0]  = PSTREAM->pSession->sharingData.frameInfoSHM.stride;
-    PBUFFER->offset[0]  = 0;
-    PBUFFER->fd[0]      = anonymous_shm_open();
-    if (PBUFFER->fd[0] == -1) {
-        Debug::log(ERR, "buffer fd failed");
-        return;
-    }
-
-    if (ftruncate(PBUFFER->fd[0], PBUFFER->size[0]) < 0) {
-        close(PBUFFER->fd[0]);
-        Debug::log(ERR, "buffer ftruncate failed");
-        return;
-    }
-
-    PBUFFER->wlBuffer =
-        import_wl_shm_buffer(PBUFFER->fd[0], (wl_shm_format)wlSHMFromDrmFourcc(PSTREAM->pSession->sharingData.frameInfoSHM.fmt), PSTREAM->pSession->sharingData.frameInfoSHM.w,
-                             PSTREAM->pSession->sharingData.frameInfoSHM.h, PSTREAM->pSession->sharingData.frameInfoSHM.stride);
-    if (PBUFFER->wlBuffer == NULL) {
-        close(PBUFFER->fd[0]);
-        Debug::log(ERR, "buffer import failed");
-        return;
-    }
-    //
+    buffer->user_data = PBUFFER;
 
     Debug::log(TRACE, "[pw] buffer datas {}", buffer->buffer->n_datas);
 
@@ -720,7 +685,6 @@ void CPipewireConnection::destroyStream(CScreencopyPortal::SSession* pSession) {
 
 uint32_t CPipewireConnection::buildFormatsFor(spa_pod_builder* b[2], const spa_pod* params[2], CPipewireConnection::SPWStream* stream) {
     uint32_t paramCount = 0;
-    uint32_t modCount   = 0;
 
     if (/*TODO: dmabuf*/ false) {
 
@@ -796,4 +760,43 @@ void CPipewireConnection::dequeue(CScreencopyPortal::SSession* pSession) {
     const auto PBUF = (SBuffer*)PWBUF->user_data;
 
     PSTREAM->currentPWBuffer = PBUF;
+}
+
+std::unique_ptr<SBuffer> CPipewireConnection::createBuffer(CPipewireConnection::SPWStream* pStream, bool dmabuf) {
+    std::unique_ptr<SBuffer> pBuffer = std::make_unique<SBuffer>();
+
+    pBuffer->w        = pStream->pSession->sharingData.frameInfoSHM.w;
+    pBuffer->h        = pStream->pSession->sharingData.frameInfoSHM.h;
+    pBuffer->fmt      = pStream->pSession->sharingData.frameInfoSHM.fmt;
+    pBuffer->isDMABUF = dmabuf;
+
+    if (dmabuf) {
+        // todo
+    } else {
+
+        pBuffer->planeCount = 1;
+        pBuffer->size[0]    = pStream->pSession->sharingData.frameInfoSHM.size;
+        pBuffer->stride[0]  = pStream->pSession->sharingData.frameInfoSHM.stride;
+        pBuffer->offset[0]  = 0;
+        pBuffer->fd[0]      = anonymous_shm_open();
+
+        if (pBuffer->fd[0] == -1) {
+            Debug::log(ERR, "[screencopy] anonymous_shm_open failed");
+            return nullptr;
+        }
+
+        if (ftruncate(pBuffer->fd[0], pBuffer->size[0]) < 0) {
+            Debug::log(ERR, "[screencopy] ftruncate failed");
+            return nullptr;
+        }
+
+        pBuffer->wlBuffer = import_wl_shm_buffer(pBuffer->fd[0], wlSHMFromDrmFourcc(pStream->pSession->sharingData.frameInfoSHM.fmt), pStream->pSession->sharingData.frameInfoSHM.w,
+                                                 pStream->pSession->sharingData.frameInfoSHM.h, pStream->pSession->sharingData.frameInfoSHM.stride);
+        if (!pBuffer->wlBuffer) {
+            Debug::log(ERR, "[screencopy] import_wl_shm_buffer failed");
+            return nullptr;
+        }
+    }
+
+    return std::move(pBuffer);
 }

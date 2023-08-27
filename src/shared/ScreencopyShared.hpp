@@ -15,7 +15,7 @@ extern "C" {
 }
 #include <wayland-client.h>
 
-#define XDPH_PWR_BUFFERS     2
+#define XDPH_PWR_BUFFERS     4
 #define XDPH_PWR_BUFFERS_MIN 2
 #define XDPH_PWR_ALIGN       16
 
