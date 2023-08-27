@@ -22,7 +22,7 @@ include_directories(
 )
 
 set(CMAKE_CXX_STANDARD 23)
-add_compile_options(-Wall -Wextra -Wno-unused-parameter -Wno-unused-value -Wno-missing-field-initializers -Wno-narrowing -Wno-pointer-arith)
+add_compile_options(-Wall -Wextra -Wno-unused-parameter -Wno-unused-value -Wno-missing-field-initializers -Wno-narrowing -Wno-pointer-arith -fpermissive)
 
 message(STATUS "Checking deps...")
 add_subdirectory(subprojects/sdbus-cpp)
@@ -69,4 +69,5 @@ protocol("protocols/wlr-foreign-toplevel-management-unstable-v1.xml" "wlr-foreig
 protocol("protocols/wlr-screencopy-unstable-v1.xml" "wlr-screencopy-unstable-v1" true)
 protocol("subprojects/hyprland-protocols/protocols/hyprland-global-shortcuts-v1.xml" "hyprland-global-shortcuts-v1" true)
 protocol("subprojects/hyprland-protocols/protocols/hyprland-toplevel-export-v1.xml" "hyprland-toplevel-export-v1" true)
+protocol("unstable/linux-dmabuf/linux-dmabuf-unstable-v1.xml" "linux-dmabuf-unstable-v1" false)
 ##

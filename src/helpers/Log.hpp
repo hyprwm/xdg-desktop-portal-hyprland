@@ -5,7 +5,8 @@
 
 enum eLogLevel
 {
-    INFO = 0,
+    TRACE = 0,
+    INFO,
     LOG,
     WARN,
     ERR,
@@ -18,6 +19,7 @@ namespace Debug {
         std::cout << '[';
 
         switch (level) {
+            case TRACE: std::cout << "TRACE"; break;
             case INFO: std::cout << "INFO"; break;
             case LOG: std::cout << "LOG"; break;
             case WARN: std::cout << "WARN"; break;

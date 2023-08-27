@@ -1,8 +1,12 @@
 #pragma once
 
 #include <protocols/wlr-screencopy-unstable-v1-protocol.h>
+#include <protocols/hyprland-toplevel-export-v1-protocol.h>
 #include <sdbus-c++/sdbus-c++.h>
 #include "../shared/ScreencopyShared.hpp"
+#include <gbm.h>
+
+#define FRAMERATE 60
 
 enum cursorModes
 {
@@ -18,24 +22,40 @@ enum sourceTypes
     VIRTUAL = 4,
 };
 
+enum frameStatus
+{
+    FRAME_NONE = 0,
+    FRAME_QUEUED,
+    FRAME_READY,
+    FRAME_FAILED,
+};
+
 struct pw_context;
 struct pw_core;
+struct pw_stream;
+struct pw_buffer;
 
-class CPipewireConnection {
-  public:
-    CPipewireConnection();
-    ~CPipewireConnection();
+struct SBuffer {
+    bool       isDMABUF = false;
+    uint32_t   w = 0, h = 0, fmt = 0;
+    int        planeCount = 0;
 
-    bool good();
+    int        fd[4];
+    uint32_t   size[4], stride[4], offset[4];
 
-  private:
-    pw_context* m_pContext = nullptr;
-    pw_core*    m_pCore    = nullptr;
+    gbm_bo*    bo = nullptr;
+
+    wl_buffer* wlBuffer = nullptr;
+    pw_buffer* pwBuffer = nullptr;
 };
+
+class CPipewireConnection;
 
 class CScreencopyPortal {
   public:
     CScreencopyPortal(zwlr_screencopy_manager_v1*);
+
+    void appendToplevelExport(void*);
 
     void onCreateSession(sdbus::MethodCall& call);
     void onSelectSources(sdbus::MethodCall& call);
@@ -50,9 +70,30 @@ class CScreencopyPortal {
         std::unique_ptr<sdbus::IObject> request, session;
         SSelectionData                  selection;
 
-        void                            onCloseRequest(sdbus::MethodCall&);
-        void                            onCloseSession(sdbus::MethodCall&);
+        struct {
+            bool                      active        = false;
+            zwlr_screencopy_frame_v1* frameCallback = nullptr;
+            frameStatus               status        = FRAME_NONE;
+            uint64_t                  tvSec         = 0;
+            uint32_t                  tvNsec        = 0;
+            uint32_t                  nodeID        = 0;
+
+            struct {
+                uint32_t w = 0, h = 0, size = 0, stride = 0, fmt = 0;
+            } frameInfoSHM;
+
+            struct {
+                uint32_t w = 0, h = 0, fmt = 0;
+            } frameInfoDMA;
+        } sharingData;
+
+        void onCloseRequest(sdbus::MethodCall&);
+        void onCloseSession(sdbus::MethodCall&);
     };
+
+    void                                 startFrameCopy(SSession* pSession);
+
+    std::unique_ptr<CPipewireConnection> m_pPipewire;
 
   private:
     std::unique_ptr<sdbus::IObject>        m_pObject;
@@ -60,13 +101,50 @@ class CScreencopyPortal {
     std::vector<std::unique_ptr<SSession>> m_vSessions;
 
     SSession*                              getSession(sdbus::ObjectPath& path);
-
-    std::unique_ptr<CPipewireConnection>   m_pPipewire;
+    void                                   startSharing(SSession* pSession);
 
     struct {
-        zwlr_screencopy_manager_v1* screencopy = nullptr;
+        zwlr_screencopy_manager_v1*          screencopy = nullptr;
+        hyprland_toplevel_export_manager_v1* toplevel   = nullptr;
     } m_sState;
 
     const std::string INTERFACE_NAME = "org.freedesktop.impl.portal.ScreenCast";
     const std::string OBJECT_PATH    = "/org/freedesktop/portal/desktop";
+};
+
+class CPipewireConnection {
+  public:
+    CPipewireConnection();
+    ~CPipewireConnection();
+
+    bool good();
+
+    void createStream(CScreencopyPortal::SSession* pSession);
+    void destroyStream(CScreencopyPortal::SSession* pSession);
+
+    void enqueue(CScreencopyPortal::SSession* pSession);
+    void dequeue(CScreencopyPortal::SSession* pSession);
+
+    struct SPWStream {
+        CScreencopyPortal::SSession*          pSession    = nullptr;
+        pw_stream*                            stream      = nullptr;
+        bool                                  streamState = false;
+        spa_hook                              streamListener;
+        SBuffer*                              currentPWBuffer = nullptr;
+        spa_video_info_raw                    pwVideoInfo;
+        uint32_t                              seq = 0;
+
+        std::vector<std::unique_ptr<SBuffer>> buffers;
+    };
+
+    SPWStream* streamFromSession(CScreencopyPortal::SSession* pSession);
+
+  private:
+    std::vector<std::unique_ptr<SPWStream>> m_vStreams;
+
+    uint32_t                                buildFormatsFor(spa_pod_builder* b[2], const spa_pod* params[2], SPWStream* stream);
+    bool                                    buildModListFor(SPWStream* stream, uint32_t drmFmt, uint64_t** mods, uint32_t* modCount);
+
+    pw_context*                             m_pContext = nullptr;
+    pw_core*                                m_pCore    = nullptr;
 };
