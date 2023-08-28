@@ -237,7 +237,12 @@ void CPortalManager::onGlobalRemoved(void* data, struct wl_registry* registry, u
 }
 
 void CPortalManager::init() {
-    m_pConnection = sdbus::createDefaultBusConnection("org.freedesktop.impl.portal.desktop.hyprland");
+    try {
+        m_pConnection = sdbus::createDefaultBusConnection("org.freedesktop.impl.portal.desktop.hyprland");
+    } catch (std::exception& e) {
+        Debug::log(CRIT, "Couldn't create the dbus connection ({})", e.what());
+        exit(1);
+    }
 
     if (!m_pConnection) {
         Debug::log(CRIT, "Couldn't connect to dbus");
