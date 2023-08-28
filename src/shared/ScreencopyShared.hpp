@@ -41,6 +41,7 @@ SSelectionData   promptForScreencopySelection();
 uint32_t         drmFourccFromSHM(wl_shm_format format);
 spa_video_format pwFromDrmFourcc(uint32_t format);
 wl_shm_format    wlSHMFromDrmFourcc(uint32_t format);
+spa_video_format pwStripAlpha(spa_video_format format);
 std::string      getRandName(std::string prefix);
 spa_pod*         build_format(spa_pod_builder* b, spa_video_format format, uint32_t width, uint32_t height, uint32_t framerate, uint64_t* modifiers, int modifier_count);
 spa_pod*         fixate_format(spa_pod_builder* b, spa_video_format format, uint32_t width, uint32_t height, uint32_t framerate, uint64_t* modifier);

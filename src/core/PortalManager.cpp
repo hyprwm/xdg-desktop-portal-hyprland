@@ -9,6 +9,8 @@
 
 #include <pipewire/pipewire.h>
 #include <sys/poll.h>
+#include <sys/mman.h>
+#include <fcntl.h>
 
 #include <thread>
 
@@ -78,6 +80,117 @@ inline const zwp_linux_dmabuf_v1_listener dmabufListener = {
     .modifier = handleDMABUFModifier,
 };
 
+static void dmabufFeedbackMainDevice(void* data, zwp_linux_dmabuf_feedback_v1* feedback, wl_array* device_arr) {
+    Debug::log(LOG, "[core] dmabufFeedbackMainDevice");
+
+    RASSERT(!g_pPortalManager->m_sWaylandConnection.gbm, "double dmabuf feedback");
+
+    dev_t device;
+    assert(device_arr->size == sizeof(device));
+    memcpy(&device, device_arr->data, sizeof(device));
+
+    drmDevice* drmDev;
+    if (drmGetDeviceFromDevId(device, /* flags */ 0, &drmDev) != 0) {
+        Debug::log(WARN, "[dmabuf] unable to open main device?");
+        exit(1);
+    }
+
+    g_pPortalManager->m_sWaylandConnection.gbmDevice = g_pPortalManager->createGBMDevice(drmDev);
+}
+
+static void dmabufFeedbackFormatTable(void* data, zwp_linux_dmabuf_feedback_v1* feedback, int fd, uint32_t size) {
+    Debug::log(TRACE, "[core] dmabufFeedbackFormatTable");
+
+    g_pPortalManager->m_vDMABUFMods.clear();
+
+    g_pPortalManager->m_sWaylandConnection.dma.formatTable = mmap(NULL, size, PROT_READ, MAP_PRIVATE, fd, 0);
+
+    if (g_pPortalManager->m_sWaylandConnection.dma.formatTable == MAP_FAILED) {
+        Debug::log(ERR, "[core] format table failed to mmap");
+        g_pPortalManager->m_sWaylandConnection.dma.formatTable     = nullptr;
+        g_pPortalManager->m_sWaylandConnection.dma.formatTableSize = 0;
+        return;
+    }
+
+    g_pPortalManager->m_sWaylandConnection.dma.formatTableSize = size;
+}
+
+static void dmabufFeedbackDone(void* data, zwp_linux_dmabuf_feedback_v1* feedback) {
+    Debug::log(TRACE, "[core] dmabufFeedbackDone");
+
+    if (g_pPortalManager->m_sWaylandConnection.dma.formatTable)
+        munmap(g_pPortalManager->m_sWaylandConnection.dma.formatTable, g_pPortalManager->m_sWaylandConnection.dma.formatTableSize);
+
+    g_pPortalManager->m_sWaylandConnection.dma.formatTable     = nullptr;
+    g_pPortalManager->m_sWaylandConnection.dma.formatTableSize = 0;
+}
+
+static void dmabufFeedbackTrancheTargetDevice(void* data, zwp_linux_dmabuf_feedback_v1* feedback, wl_array* device_arr) {
+    Debug::log(TRACE, "[core] dmabufFeedbackTrancheTargetDevice");
+
+    dev_t device;
+    assert(device_arr->size == sizeof(device));
+    memcpy(&device, device_arr->data, sizeof(device));
+
+    drmDevice* drmDev;
+    if (drmGetDeviceFromDevId(device, /* flags */ 0, &drmDev) != 0)
+        return;
+
+    if (g_pPortalManager->m_sWaylandConnection.gbmDevice) {
+        drmDevice* drmDevRenderer = NULL;
+        drmGetDevice2(gbm_device_get_fd(g_pPortalManager->m_sWaylandConnection.gbmDevice), /* flags */ 0, &drmDevRenderer);
+        g_pPortalManager->m_sWaylandConnection.dma.deviceUsed = drmDevicesEqual(drmDevRenderer, drmDev);
+    } else {
+        g_pPortalManager->m_sWaylandConnection.gbmDevice      = g_pPortalManager->createGBMDevice(drmDev);
+        g_pPortalManager->m_sWaylandConnection.dma.deviceUsed = g_pPortalManager->m_sWaylandConnection.gbm;
+    }
+}
+
+static void dmabufFeedbackTrancheFlags(void* data, zwp_linux_dmabuf_feedback_v1* feedback, uint32_t flags) {
+    ;
+}
+
+static void dmabufFeedbackTrancheFormats(void* data, zwp_linux_dmabuf_feedback_v1* feedback, wl_array* indices) {
+    Debug::log(TRACE, "[core] dmabufFeedbackTrancheFormats");
+
+    if (!g_pPortalManager->m_sWaylandConnection.dma.deviceUsed || !g_pPortalManager->m_sWaylandConnection.dma.formatTable)
+        return;
+
+    struct fm_entry {
+        uint32_t format;
+        uint32_t padding;
+        uint64_t modifier;
+    };
+    // An entry in the table has to be 16 bytes long
+    assert(sizeof(struct fm_entry) == 16);
+
+    uint32_t  n_modifiers = g_pPortalManager->m_sWaylandConnection.dma.formatTableSize / sizeof(struct fm_entry);
+    fm_entry* fm_entry    = (struct fm_entry*)g_pPortalManager->m_sWaylandConnection.dma.formatTable;
+    uint16_t* idx;
+    wl_array_for_each(idx, indices) {
+        if (*idx >= n_modifiers)
+            continue;
+
+        g_pPortalManager->m_vDMABUFMods.push_back({(fm_entry + *idx)->format, (fm_entry + *idx)->modifier});
+    }
+}
+
+static void dmabufFeedbackTrancheDone(void* data, struct zwp_linux_dmabuf_feedback_v1* zwp_linux_dmabuf_feedback_v1) {
+    Debug::log(TRACE, "[core] dmabufFeedbackTrancheDone");
+
+    g_pPortalManager->m_sWaylandConnection.dma.deviceUsed = false;
+}
+
+inline const zwp_linux_dmabuf_feedback_v1_listener dmabufFeedbackListener = {
+    .done                  = dmabufFeedbackDone,
+    .format_table          = dmabufFeedbackFormatTable,
+    .main_device           = dmabufFeedbackMainDevice,
+    .tranche_done          = dmabufFeedbackTrancheDone,
+    .tranche_target_device = dmabufFeedbackTrancheTargetDevice,
+    .tranche_formats       = dmabufFeedbackTrancheFormats,
+    .tranche_flags         = dmabufFeedbackTrancheFlags,
+};
+
 //
 
 void CPortalManager::onGlobal(void* data, struct wl_registry* registry, uint32_t name, const char* interface, uint32_t version) {
@@ -106,7 +219,7 @@ void CPortalManager::onGlobal(void* data, struct wl_registry* registry, uint32_t
 
         m_sWaylandConnection.linuxDmabuf         = wl_registry_bind(registry, name, &zwp_linux_dmabuf_v1_interface, version);
         m_sWaylandConnection.linuxDmabufFeedback = zwp_linux_dmabuf_v1_get_default_feedback((zwp_linux_dmabuf_v1*)m_sWaylandConnection.linuxDmabuf);
-        // TODO: dmabuf
+        zwp_linux_dmabuf_feedback_v1_add_listener((zwp_linux_dmabuf_feedback_v1*)m_sWaylandConnection.linuxDmabufFeedback, &dmabufFeedbackListener, nullptr);
     }
 
     else if (INTERFACE == wl_shm_interface.name)
@@ -211,4 +324,46 @@ SOutput* CPortalManager::getOutputFromName(const std::string& name) {
             return o.get();
     }
     return nullptr;
+}
+
+static char* gbm_find_render_node(drmDevice* device) {
+    drmDevice* devices[64];
+    char*      render_node = NULL;
+
+    int        n = drmGetDevices2(0, devices, sizeof(devices) / sizeof(devices[0]));
+    for (int i = 0; i < n; ++i) {
+        drmDevice* dev = devices[i];
+        if (device && !drmDevicesEqual(device, dev)) {
+            continue;
+        }
+        if (!(dev->available_nodes & (1 << DRM_NODE_RENDER)))
+            continue;
+
+        render_node = strdup(dev->nodes[DRM_NODE_RENDER]);
+        break;
+    }
+
+    drmFreeDevices(devices, n);
+    return render_node;
+}
+
+gbm_device* CPortalManager::createGBMDevice(drmDevice* dev) {
+    char* renderNode = gbm_find_render_node(dev);
+
+    if (!renderNode) {
+        Debug::log(ERR, "[core] Couldn't find a render node");
+        return nullptr;
+    }
+
+    Debug::log(TRACE, "[core] createGBMDevice: render node {}", renderNode);
+
+    int fd = open(renderNode, O_RDWR | O_CLOEXEC);
+    if (fd < 0) {
+        Debug::log(ERR, "[core] couldn't open render node");
+        free(renderNode);
+        return NULL;
+    }
+
+    free(renderNode);
+    return gbm_create_device(fd);
 }

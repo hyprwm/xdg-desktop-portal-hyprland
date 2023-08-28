@@ -6,6 +6,8 @@
 
 #include "../portals/Screencopy.hpp"
 #include "../helpers/Timer.hpp"
+#include <gbm.h>
+#include <xf86drm.h>
 
 #include <mutex>
 
@@ -46,11 +48,20 @@ class CPortalManager {
         void*       linuxDmabuf         = nullptr;
         void*       linuxDmabufFeedback = nullptr;
         wl_shm*     shm                 = nullptr;
+        gbm_bo*     gbm;
+        gbm_device* gbmDevice;
+        struct {
+            void*  formatTable     = nullptr;
+            size_t formatTableSize = 0;
+            bool   deviceUsed      = false;
+        } dma;
     } m_sWaylandConnection;
 
     std::vector<SDMABUFModifier>         m_vDMABUFMods;
 
     std::vector<std::unique_ptr<CTimer>> m_vTimers;
+
+    gbm_device*                          createGBMDevice(drmDevice* dev);
 
   private:
     std::unique_ptr<sdbus::IConnection>   m_pConnection;

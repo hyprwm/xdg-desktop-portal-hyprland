@@ -6,8 +6,6 @@
 #include "../shared/ScreencopyShared.hpp"
 #include <gbm.h>
 
-#define FRAMERATE 60
-
 enum cursorModes
 {
     HIDDEN   = 1,
@@ -28,6 +26,7 @@ enum frameStatus
     FRAME_QUEUED,
     FRAME_READY,
     FRAME_FAILED,
+    FRAME_RENEG,
 };
 
 struct pw_context;
@@ -78,6 +77,7 @@ class CScreencopyPortal {
             uint32_t                  tvNsec        = 0;
             uint64_t                  tvTimestampNs = 0;
             uint32_t                  nodeID        = 0;
+            uint32_t                  framerate     = 60;
 
             struct {
                 uint32_t w = 0, h = 0, size = 0, stride = 0, fmt = 0;
@@ -93,6 +93,7 @@ class CScreencopyPortal {
     };
 
     void                                 startFrameCopy(SSession* pSession);
+    void                                 queueNextShareFrame(SSession* pSession);
 
     std::unique_ptr<CPipewireConnection> m_pPipewire;
 
@@ -133,18 +134,20 @@ class CPipewireConnection {
         spa_hook                              streamListener;
         SBuffer*                              currentPWBuffer = nullptr;
         spa_video_info_raw                    pwVideoInfo;
-        uint32_t                              seq = 0;
+        uint32_t                              seq   = 0;
+        bool                                  isDMA = false;
 
         std::vector<std::unique_ptr<SBuffer>> buffers;
     };
 
     std::unique_ptr<SBuffer> createBuffer(SPWStream* pStream, bool dmabuf);
     SPWStream*               streamFromSession(CScreencopyPortal::SSession* pSession);
+    uint32_t                 buildFormatsFor(spa_pod_builder* b[2], const spa_pod* params[2], SPWStream* stream);
+    void                     updateStreamParam(SPWStream* pStream);
 
   private:
     std::vector<std::unique_ptr<SPWStream>> m_vStreams;
 
-    uint32_t                                buildFormatsFor(spa_pod_builder* b[2], const spa_pod* params[2], SPWStream* stream);
     bool                                    buildModListFor(SPWStream* stream, uint32_t drmFmt, uint64_t** mods, uint32_t* modCount);
 
     pw_context*                             m_pContext = nullptr;

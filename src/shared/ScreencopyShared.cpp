@@ -118,7 +118,7 @@ std::string getRandName(std::string prefix) {
                     (int)(std::rand() % 10));
 }
 
-spa_video_format xdph_format_pw_strip_alpha(spa_video_format format) {
+spa_video_format pwStripAlpha(spa_video_format format) {
     switch (format) {
         case SPA_VIDEO_FORMAT_BGRA: return SPA_VIDEO_FORMAT_BGRx;
         case SPA_VIDEO_FORMAT_ABGR: return SPA_VIDEO_FORMAT_xBGR;
@@ -154,7 +154,7 @@ spa_pod* build_buffer(spa_pod_builder* b, uint32_t blocks, uint32_t size, uint32
 spa_pod* fixate_format(spa_pod_builder* b, spa_video_format format, uint32_t width, uint32_t height, uint32_t framerate, uint64_t* modifier) {
     spa_pod_frame    f[1];
 
-    spa_video_format format_without_alpha = xdph_format_pw_strip_alpha(format);
+    spa_video_format format_without_alpha = pwStripAlpha(format);
 
     spa_pod_builder_push_object(b, &f[0], SPA_TYPE_OBJECT_Format, SPA_PARAM_EnumFormat);
     spa_pod_builder_add(b, SPA_FORMAT_mediaType, SPA_POD_Id(SPA_MEDIA_TYPE_video), 0);
@@ -182,7 +182,7 @@ spa_pod* build_format(spa_pod_builder* b, spa_video_format format, uint32_t widt
     spa_pod_frame    f[2];
     int              i, c;
 
-    spa_video_format format_without_alpha = xdph_format_pw_strip_alpha(format);
+    spa_video_format format_without_alpha = pwStripAlpha(format);
 
     spa_pod_builder_push_object(b, &f[0], SPA_TYPE_OBJECT_Format, SPA_PARAM_EnumFormat);
     spa_pod_builder_add(b, SPA_FORMAT_mediaType, SPA_POD_Id(SPA_MEDIA_TYPE_video), 0);
