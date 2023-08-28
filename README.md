@@ -1,7 +1,16 @@
-# v2 rewrite
+# xdg-desktop-portal-hyprland
+An [XDG Desktop Portal](https://github.com/flatpak/xdg-desktop-portal) backend for Hyprland.
 
-shit is being worked on.
+## Building
+```sh
+make all
+```
 
-going C++
+## Installing
+```sh
+sudo make install
+```
 
-idk I will write this some day
+## Running, FAQs, etc.
+See [the Hyprland wiki](https://wiki.hyprland.org/Useful-Utilities/Hyprland-desktop-portal/)
+

@@ -26,6 +26,7 @@ add_compile_options(-Wall -Wextra -Wno-unused-parameter -Wno-unused-value -Wno-m
 
 message(STATUS "Checking deps...")
 add_subdirectory(subprojects/sdbus-cpp)
+add_subdirectory(hyprland-share-picker)
 find_package(Threads REQUIRED)
 
 find_package(PkgConfig REQUIRED)
