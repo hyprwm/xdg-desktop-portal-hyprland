@@ -37,8 +37,11 @@ static void wlrOnReady(void* data, struct zwlr_screencopy_frame_v1* frame, uint3
 
     PSESSION->sharingData.status = FRAME_READY;
 
-    PSESSION->sharingData.tvSec  = ((((uint64_t)tv_sec_hi) << 32) | tv_sec_lo);
-    PSESSION->sharingData.tvNsec = tv_nsec;
+    PSESSION->sharingData.tvSec         = ((((uint64_t)tv_sec_hi) << 32) + (uint64_t)tv_sec_lo);
+    PSESSION->sharingData.tvNsec        = tv_nsec;
+    PSESSION->sharingData.tvTimestampNs = PSESSION->sharingData.tvSec * SPA_NSEC_PER_SEC + PSESSION->sharingData.tvNsec;
+
+    Debug::log(TRACE, "[sc] frame timestamp sec: {} nsec: {} combined: {}ns", PSESSION->sharingData.tvSec, PSESSION->sharingData.tvNsec, PSESSION->sharingData.tvTimestampNs);
 
     g_pPortalManager->m_sPortals.screencopy->m_pPipewire->enqueue(PSESSION);
 
@@ -717,20 +720,35 @@ void CPipewireConnection::enqueue(CScreencopyPortal::SSession* pSession) {
     if (corrupt)
         Debug::log(TRACE, "[pw] buffer corrupt");
 
+    Debug::log(TRACE, "[pw] Enqueue data:");
+
     spa_meta_header* header;
     if ((header = (spa_meta_header*)spa_buffer_find_meta_data(spaBuf, SPA_META_Header, sizeof(*header)))) {
-        header->pts        = PSTREAM->pSession->sharingData.tvSec + SPA_NSEC_PER_SEC * PSTREAM->pSession->sharingData.tvNsec;
+        header->pts        = PSTREAM->pSession->sharingData.tvTimestampNs;
         header->flags      = corrupt ? SPA_META_HEADER_FLAG_CORRUPTED : 0;
         header->seq        = PSTREAM->seq++;
         header->dts_offset = 0;
-        Debug::log(TRACE, "[pw] enqueue: seq {} pts {}", header->seq, header->pts);
+        Debug::log(TRACE, "[pw]  | seq {}", header->seq);
+        Debug::log(TRACE, "[pw]  | pts {}", header->pts);
     }
 
     spa_data* datas = spaBuf->datas;
 
+    Debug::log(TRACE, "[pw]  | size {}x{}", PSTREAM->pSession->sharingData.frameInfoSHM.w, PSTREAM->pSession->sharingData.frameInfoSHM.h);
+
     for (uint32_t plane = 0; plane < spaBuf->n_datas; plane++) {
         datas[plane].chunk->flags = corrupt ? SPA_CHUNK_FLAG_CORRUPTED : SPA_CHUNK_FLAG_NONE;
+
+        Debug::log(TRACE, "[pw]  | plane {}", plane);
+        Debug::log(TRACE, "[pw]     | fd {}", datas[plane].fd);
+        Debug::log(TRACE, "[pw]     | maxsize {}", datas[plane].maxsize);
+        Debug::log(TRACE, "[pw]     | size {}", datas[plane].chunk->size);
+        Debug::log(TRACE, "[pw]     | stride {}", datas[plane].chunk->stride);
+        Debug::log(TRACE, "[pw]     | offset {}", datas[plane].chunk->offset);
+        Debug::log(TRACE, "[pw]     | flags {}", datas[plane].chunk->flags);
     }
+
+    Debug::log(TRACE, "[pw] --------------------------------- End enqueue");
 
     pw_stream_queue_buffer(PSTREAM->stream, PSTREAM->currentPWBuffer->pwBuffer);
 

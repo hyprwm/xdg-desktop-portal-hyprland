@@ -76,6 +76,7 @@ class CScreencopyPortal {
             frameStatus               status        = FRAME_NONE;
             uint64_t                  tvSec         = 0;
             uint32_t                  tvNsec        = 0;
+            uint64_t                  tvTimestampNs = 0;
             uint32_t                  nodeID        = 0;
 
             struct {
