@@ -78,6 +78,7 @@ class CScreencopyPortal {
             uint64_t                  tvTimestampNs = 0;
             uint32_t                  nodeID        = 0;
             uint32_t                  framerate     = 60;
+            wl_output_transform       transform     = WL_OUTPUT_TRANSFORM_NORMAL;
 
             struct {
                 uint32_t w = 0, h = 0, size = 0, stride = 0, fmt = 0;
@@ -86,6 +87,11 @@ class CScreencopyPortal {
             struct {
                 uint32_t w = 0, h = 0, fmt = 0;
             } frameInfoDMA;
+
+            struct {
+                uint32_t x = 0, y = 0, w = 0, h = 0;
+            } damage[4];
+            uint32_t damageCount = 0;
         } sharingData;
 
         void onCloseRequest(sdbus::MethodCall&);

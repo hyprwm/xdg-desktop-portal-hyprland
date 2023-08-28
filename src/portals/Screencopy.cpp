@@ -65,7 +65,14 @@ static void wlrOnDamage(void* data, struct zwlr_screencopy_frame_v1* frame, uint
 
     Debug::log(TRACE, "[sc] wlrOnDamage for {}", (void*)PSESSION);
 
-    // todo
+    if (PSESSION->sharingData.damageCount > 3) {
+        PSESSION->sharingData.damage[0] = {0, 0, PSESSION->sharingData.frameInfoDMA.w, PSESSION->sharingData.frameInfoDMA.h};
+        return;
+    }
+
+    PSESSION->sharingData.damage[PSESSION->sharingData.damageCount++] = {x, y, width, height};
+
+    Debug::log(TRACE, "[sc] wlr damage: {} {} {} {}", x, y, width, height);
 }
 
 static void wlrOnDmabuf(void* data, struct zwlr_screencopy_frame_v1* frame, uint32_t format, uint32_t width, uint32_t height) {
@@ -364,7 +371,7 @@ void CScreencopyPortal::startSharing(CScreencopyPortal::SSession* pSession) {
     wl_display_roundtrip(g_pPortalManager->m_sWaylandConnection.display);
 
     if (pSession->sharingData.frameInfoDMA.fmt == DRM_FORMAT_INVALID) {
-        Debug::log(ERR, "[screencopy] Couldn't obtain a format from dma");
+        Debug::log(ERR, "[screencopy] Couldn't obtain a format from dma"); // todo: blocks shm
         return;
     }
 
@@ -403,12 +410,14 @@ void CScreencopyPortal::startFrameCopy(CScreencopyPortal::SSession* pSession) {
         return;
     }
 
-    if (pSession->selection.type == TYPE_GEOMETRY)
+    if (pSession->selection.type == TYPE_GEOMETRY) {
         pSession->sharingData.frameCallback = zwlr_screencopy_manager_v1_capture_output_region(m_sState.screencopy, pSession->cursorMode, POUTPUT->output, pSession->selection.x,
                                                                                                pSession->selection.y, pSession->selection.w, pSession->selection.h);
-    else if (pSession->selection.type == TYPE_OUTPUT)
+        pSession->sharingData.transform     = POUTPUT->transform;
+    } else if (pSession->selection.type == TYPE_OUTPUT) {
         pSession->sharingData.frameCallback = zwlr_screencopy_manager_v1_capture_output(m_sState.screencopy, pSession->cursorMode, POUTPUT->output);
-    else {
+        pSession->sharingData.transform     = POUTPUT->transform;
+    } else {
         Debug::log(ERR, "[screencopy] Unsupported selection {}", (int)pSession->selection.type);
         return;
     }
@@ -526,7 +535,7 @@ static void pwStreamParamChanged(void* data, uint32_t id, const spa_pod* param) 
     }
 
     spa_pod_dynamic_builder dynBuilder[3];
-    const spa_pod*          params[2];
+    const spa_pod*          params[4];
     uint8_t                 params_buffer[3][1024];
 
     spa_pod_dynamic_builder_init(&dynBuilder[0], params_buffer[0], sizeof(params_buffer[0]), 2048);
@@ -601,8 +610,8 @@ static void pwStreamParamChanged(void* data, uint32_t id, const spa_pod* param) 
             spa_pod_dynamic_builder_clean(&dynBuilder[1]);
             spa_pod_dynamic_builder_clean(&dynBuilder[2]);
 
-            Debug::log(TRACE, "[pw] Format renegotiated:");
-            Debug::log(TRACE, "[pw]  | buffer_type {}", "DMA");
+            Debug::log(TRACE, "[pw] Format fixated:");
+            Debug::log(TRACE, "[pw]  | buffer_type {}", "DMA (No fixate)");
             Debug::log(TRACE, "[pw]  | format: {}", (int)PSTREAM->pwVideoInfo.format);
             Debug::log(TRACE, "[pw]  | modifier: {}", PSTREAM->pwVideoInfo.modifier);
             Debug::log(TRACE, "[pw]  | size: {}x{}", PSTREAM->pwVideoInfo.size.width, PSTREAM->pwVideoInfo.size.height);
@@ -613,7 +622,7 @@ static void pwStreamParamChanged(void* data, uint32_t id, const spa_pod* param) 
     }
 
     Debug::log(TRACE, "[pw] Format renegotiated:");
-    Debug::log(TRACE, "[pw]  | buffer_type {}", "SHM");
+    Debug::log(TRACE, "[pw]  | buffer_type {}", PSTREAM->isDMA ? "DMA" : "SHM");
     Debug::log(TRACE, "[pw]  | format: {}", (int)PSTREAM->pwVideoInfo.format);
     Debug::log(TRACE, "[pw]  | modifier: {}", PSTREAM->pwVideoInfo.modifier);
     Debug::log(TRACE, "[pw]  | size: {}x{}", PSTREAM->pwVideoInfo.size.width, PSTREAM->pwVideoInfo.size.height);
@@ -623,10 +632,16 @@ static void pwStreamParamChanged(void* data, uint32_t id, const spa_pod* param) 
 
     params[0] = build_buffer(&dynBuilder[0].b, blocks, PSTREAM->pSession->sharingData.frameInfoSHM.size, PSTREAM->pSession->sharingData.frameInfoSHM.stride, data_type);
 
-    params[1] = (const spa_pod*)spa_pod_builder_add_object(&dynBuilder[1].b, SPA_TYPE_OBJECT_ParamMeta, SPA_PARAM_Meta, SPA_PARAM_META_type, SPA_POD_Id(SPA_META_Header),
-                                                           SPA_PARAM_META_size, SPA_POD_Int(sizeof(struct spa_meta_header)));
+    params[1] = spa_pod_builder_add_object(&dynBuilder[1].b, SPA_TYPE_OBJECT_ParamMeta, SPA_PARAM_Meta, SPA_PARAM_META_type, SPA_POD_Id(SPA_META_Header), SPA_PARAM_META_size,
+                                           SPA_POD_Int(sizeof(struct spa_meta_header)));
 
-    pw_stream_update_params(PSTREAM->stream, params, 2);
+    params[2] = spa_pod_builder_add_object(&dynBuilder[1].b, SPA_TYPE_OBJECT_ParamMeta, SPA_PARAM_Meta, SPA_PARAM_META_type, SPA_POD_Id(SPA_META_VideoTransform),
+                                           SPA_PARAM_META_size, SPA_POD_Int(sizeof(struct spa_meta_videotransform)));
+
+    params[3] = spa_pod_builder_add_object(&dynBuilder[2].b, SPA_TYPE_OBJECT_ParamMeta, SPA_PARAM_Meta, SPA_PARAM_META_type, SPA_POD_Id(SPA_META_VideoDamage), SPA_PARAM_META_size,
+                                           SPA_POD_CHOICE_RANGE_Int(sizeof(struct spa_meta_region) * 4, sizeof(struct spa_meta_region) * 1, sizeof(struct spa_meta_region) * 4));
+
+    pw_stream_update_params(PSTREAM->stream, params, 4);
     spa_pod_dynamic_builder_clean(&dynBuilder[0]);
     spa_pod_dynamic_builder_clean(&dynBuilder[1]);
     spa_pod_dynamic_builder_clean(&dynBuilder[2]);
@@ -875,6 +890,40 @@ void CPipewireConnection::enqueue(CScreencopyPortal::SSession* pSession) {
         header->dts_offset = 0;
         Debug::log(TRACE, "[pw]  | seq {}", header->seq);
         Debug::log(TRACE, "[pw]  | pts {}", header->pts);
+    }
+
+    spa_meta_videotransform* vt = (spa_meta_videotransform*)spa_buffer_find_meta_data(spaBuf, SPA_META_VideoTransform, sizeof(*vt));
+    if (vt) {
+        vt->transform = pSession->sharingData.transform;
+        Debug::log(TRACE, "[pw]  | meta transform {}", vt->transform);
+    }
+
+    spa_meta* damage = spa_buffer_find_meta(spaBuf, SPA_META_VideoDamage);
+    if (damage) {
+        Debug::log(TRACE, "[pw]  | meta has damage");
+
+        spa_region* damageRegion  = (spa_region*)spa_meta_first(damage);
+        uint32_t    damageCounter = 0;
+        do {
+            if (damageCounter >= pSession->sharingData.damageCount) {
+                *damageRegion = SPA_REGION(0, 0, 0, 0);
+                Debug::log(TRACE, "[pw]  | end damage @ {}: {} {} {} {}", damageCounter, damageRegion->position.x, damageRegion->position.y, damageRegion->size.width,
+                           damageRegion->size.height);
+                break;
+            }
+
+            *damageRegion = SPA_REGION(pSession->sharingData.damage[damageCounter].x, pSession->sharingData.damage[damageCounter].y, pSession->sharingData.damage[damageCounter].w,
+                                       pSession->sharingData.damage[damageCounter].h);
+            Debug::log(TRACE, "[pw]  | damage @ {}: {} {} {} {}", damageCounter, damageRegion->position.x, damageRegion->position.y, damageRegion->size.width,
+                       damageRegion->size.height);
+            damageCounter++;
+        } while (spa_meta_check(damageRegion + 1, damage) && damageRegion++);
+
+        if (damageCounter < pSession->sharingData.damageCount) {
+            // TODO: merge damage properly
+            *damageRegion = SPA_REGION(0, 0, pSession->sharingData.frameInfoDMA.w, pSession->sharingData.frameInfoDMA.h);
+            Debug::log(TRACE, "[pw]  | damage overflow, damaged whole");
+        }
     }
 
     spa_data* datas = spaBuf->datas;

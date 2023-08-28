@@ -29,7 +29,9 @@ inline const wl_registry_listener registryListener = {
 
 static void handleOutputGeometry(void* data, struct wl_output* wl_output, int32_t x, int32_t y, int32_t physical_width, int32_t physical_height, int32_t subpixel, const char* make,
                                  const char* model, int32_t transform) {
-    ;
+    const auto POUTPUT = (SOutput*)data;
+
+    POUTPUT->transform = (wl_output_transform)transform;
 }
 
 static void handleOutputDone(void* data, struct wl_output* wl_output) {
