@@ -9,7 +9,7 @@
 
 // --------------- Wayland Protocol Handlers --------------- //
 
-static void wlrOnBuffer(void* data, struct zwlr_screencopy_frame_v1* frame, uint32_t format, uint32_t width, uint32_t height, uint32_t stride) {
+static void wlrOnBuffer(void* data, zwlr_screencopy_frame_v1* frame, uint32_t format, uint32_t width, uint32_t height, uint32_t stride) {
     const auto PSESSION = (CScreencopyPortal::SSession*)data;
 
     Debug::log(TRACE, "[sc] wlrOnBuffer for {}", (void*)PSESSION);
@@ -23,7 +23,7 @@ static void wlrOnBuffer(void* data, struct zwlr_screencopy_frame_v1* frame, uint
     // todo: done if ver < 3
 }
 
-static void wlrOnFlags(void* data, struct zwlr_screencopy_frame_v1* frame, uint32_t flags) {
+static void wlrOnFlags(void* data, zwlr_screencopy_frame_v1* frame, uint32_t flags) {
     const auto PSESSION = (CScreencopyPortal::SSession*)data;
 
     Debug::log(TRACE, "[sc] wlrOnFlags for {}", (void*)PSESSION);
@@ -31,7 +31,7 @@ static void wlrOnFlags(void* data, struct zwlr_screencopy_frame_v1* frame, uint3
     // todo: maybe check for y invert?
 }
 
-static void wlrOnReady(void* data, struct zwlr_screencopy_frame_v1* frame, uint32_t tv_sec_hi, uint32_t tv_sec_lo, uint32_t tv_nsec) {
+static void wlrOnReady(void* data, zwlr_screencopy_frame_v1* frame, uint32_t tv_sec_hi, uint32_t tv_sec_lo, uint32_t tv_nsec) {
     const auto PSESSION = (CScreencopyPortal::SSession*)data;
 
     Debug::log(TRACE, "[sc] wlrOnReady for {}", (void*)PSESSION);
@@ -52,7 +52,7 @@ static void wlrOnReady(void* data, struct zwlr_screencopy_frame_v1* frame, uint3
     PSESSION->sharingData.frameCallback = nullptr;
 }
 
-static void wlrOnFailed(void* data, struct zwlr_screencopy_frame_v1* frame) {
+static void wlrOnFailed(void* data, zwlr_screencopy_frame_v1* frame) {
     const auto PSESSION = (CScreencopyPortal::SSession*)data;
 
     Debug::log(TRACE, "[sc] wlrOnFailed for {}", (void*)PSESSION);
@@ -60,7 +60,7 @@ static void wlrOnFailed(void* data, struct zwlr_screencopy_frame_v1* frame) {
     PSESSION->sharingData.status = FRAME_FAILED;
 }
 
-static void wlrOnDamage(void* data, struct zwlr_screencopy_frame_v1* frame, uint32_t x, uint32_t y, uint32_t width, uint32_t height) {
+static void wlrOnDamage(void* data, zwlr_screencopy_frame_v1* frame, uint32_t x, uint32_t y, uint32_t width, uint32_t height) {
     const auto PSESSION = (CScreencopyPortal::SSession*)data;
 
     Debug::log(TRACE, "[sc] wlrOnDamage for {}", (void*)PSESSION);
@@ -75,7 +75,7 @@ static void wlrOnDamage(void* data, struct zwlr_screencopy_frame_v1* frame, uint
     Debug::log(TRACE, "[sc] wlr damage: {} {} {} {}", x, y, width, height);
 }
 
-static void wlrOnDmabuf(void* data, struct zwlr_screencopy_frame_v1* frame, uint32_t format, uint32_t width, uint32_t height) {
+static void wlrOnDmabuf(void* data, zwlr_screencopy_frame_v1* frame, uint32_t format, uint32_t width, uint32_t height) {
     const auto PSESSION = (CScreencopyPortal::SSession*)data;
 
     Debug::log(TRACE, "[sc] wlrOnDmabuf for {}", (void*)PSESSION);
@@ -85,7 +85,7 @@ static void wlrOnDmabuf(void* data, struct zwlr_screencopy_frame_v1* frame, uint
     PSESSION->sharingData.frameInfoDMA.fmt = format;
 }
 
-static void wlrOnBufferDone(void* data, struct zwlr_screencopy_frame_v1* frame) {
+static void wlrOnBufferDone(void* data, zwlr_screencopy_frame_v1* frame) {
     const auto PSESSION = (CScreencopyPortal::SSession*)data;
 
     Debug::log(TRACE, "[sc] wlrOnBufferDone for {}", (void*)PSESSION);
@@ -141,6 +141,141 @@ static const zwlr_screencopy_frame_v1_listener wlrFrameListener = {
     .damage       = wlrOnDamage,
     .linux_dmabuf = wlrOnDmabuf,
     .buffer_done  = wlrOnBufferDone,
+};
+
+static void hlOnBuffer(void* data, hyprland_toplevel_export_frame_v1* frame, uint32_t format, uint32_t width, uint32_t height, uint32_t stride) {
+    const auto PSESSION = (CScreencopyPortal::SSession*)data;
+
+    Debug::log(TRACE, "[sc] hlOnBuffer for {}", (void*)PSESSION);
+
+    PSESSION->sharingData.frameInfoSHM.w      = width;
+    PSESSION->sharingData.frameInfoSHM.h      = height;
+    PSESSION->sharingData.frameInfoSHM.fmt    = drmFourccFromSHM((wl_shm_format)format);
+    PSESSION->sharingData.frameInfoSHM.size   = stride * height;
+    PSESSION->sharingData.frameInfoSHM.stride = stride;
+
+    // todo: done if ver < 3
+}
+
+static void hlOnFlags(void* data, hyprland_toplevel_export_frame_v1* frame, uint32_t flags) {
+    const auto PSESSION = (CScreencopyPortal::SSession*)data;
+
+    Debug::log(TRACE, "[sc] hlOnFlags for {}", (void*)PSESSION);
+
+    // todo: maybe check for y invert?
+}
+
+static void hlOnReady(void* data, hyprland_toplevel_export_frame_v1* frame, uint32_t tv_sec_hi, uint32_t tv_sec_lo, uint32_t tv_nsec) {
+    const auto PSESSION = (CScreencopyPortal::SSession*)data;
+
+    Debug::log(TRACE, "[sc] hlOnReady for {}", (void*)PSESSION);
+
+    PSESSION->sharingData.status = FRAME_READY;
+
+    PSESSION->sharingData.tvSec         = ((((uint64_t)tv_sec_hi) << 32) + (uint64_t)tv_sec_lo);
+    PSESSION->sharingData.tvNsec        = tv_nsec;
+    PSESSION->sharingData.tvTimestampNs = PSESSION->sharingData.tvSec * SPA_NSEC_PER_SEC + PSESSION->sharingData.tvNsec;
+
+    Debug::log(TRACE, "[sc] frame timestamp sec: {} nsec: {} combined: {}ns", PSESSION->sharingData.tvSec, PSESSION->sharingData.tvNsec, PSESSION->sharingData.tvTimestampNs);
+
+    g_pPortalManager->m_sPortals.screencopy->m_pPipewire->enqueue(PSESSION);
+
+    g_pPortalManager->m_sPortals.screencopy->queueNextShareFrame(PSESSION);
+
+    hyprland_toplevel_export_frame_v1_destroy(frame);
+    PSESSION->sharingData.windowFrameCallback = nullptr;
+}
+
+static void hlOnFailed(void* data, hyprland_toplevel_export_frame_v1* frame) {
+    const auto PSESSION = (CScreencopyPortal::SSession*)data;
+
+    Debug::log(TRACE, "[sc] hlOnFailed for {}", (void*)PSESSION);
+
+    PSESSION->sharingData.status = FRAME_FAILED;
+}
+
+static void hlOnDamage(void* data, hyprland_toplevel_export_frame_v1* frame, uint32_t x, uint32_t y, uint32_t width, uint32_t height) {
+    const auto PSESSION = (CScreencopyPortal::SSession*)data;
+
+    Debug::log(TRACE, "[sc] hlOnDamage for {}", (void*)PSESSION);
+
+    if (PSESSION->sharingData.damageCount > 3) {
+        PSESSION->sharingData.damage[0] = {0, 0, PSESSION->sharingData.frameInfoDMA.w, PSESSION->sharingData.frameInfoDMA.h};
+        return;
+    }
+
+    PSESSION->sharingData.damage[PSESSION->sharingData.damageCount++] = {x, y, width, height};
+
+    Debug::log(TRACE, "[sc] hl damage: {} {} {} {}", x, y, width, height);
+}
+
+static void hlOnDmabuf(void* data, hyprland_toplevel_export_frame_v1* frame, uint32_t format, uint32_t width, uint32_t height) {
+    const auto PSESSION = (CScreencopyPortal::SSession*)data;
+
+    Debug::log(TRACE, "[sc] hlOnDmabuf for {}", (void*)PSESSION);
+
+    PSESSION->sharingData.frameInfoDMA.w   = width;
+    PSESSION->sharingData.frameInfoDMA.h   = height;
+    PSESSION->sharingData.frameInfoDMA.fmt = format;
+}
+
+static void hlOnBufferDone(void* data, hyprland_toplevel_export_frame_v1* frame) {
+    const auto PSESSION = (CScreencopyPortal::SSession*)data;
+
+    Debug::log(TRACE, "[sc] hlOnBufferDone for {}", (void*)PSESSION);
+
+    const auto PSTREAM = g_pPortalManager->m_sPortals.screencopy->m_pPipewire->streamFromSession(PSESSION);
+
+    if (!PSTREAM) {
+        Debug::log(TRACE, "[sc] hlOnBufferDone: no stream");
+        hyprland_toplevel_export_frame_v1_destroy(frame);
+        PSESSION->sharingData.windowFrameCallback = nullptr;
+        PSESSION->sharingData.status              = FRAME_NONE;
+        return;
+    }
+
+    Debug::log(TRACE, "[sc] pw format {} size {}x{}", (int)PSTREAM->pwVideoInfo.format, PSTREAM->pwVideoInfo.size.width, PSTREAM->pwVideoInfo.size.height);
+    Debug::log(TRACE, "[sc] hl format {} size {}x{}", (int)PSESSION->sharingData.frameInfoSHM.fmt, PSESSION->sharingData.frameInfoSHM.w, PSESSION->sharingData.frameInfoSHM.h);
+
+    const auto FMT = PSTREAM->isDMA ? PSESSION->sharingData.frameInfoDMA.fmt : PSESSION->sharingData.frameInfoSHM.fmt;
+    if ((PSTREAM->pwVideoInfo.format != pwFromDrmFourcc(FMT) && PSTREAM->pwVideoInfo.format != pwStripAlpha(pwFromDrmFourcc(FMT))) ||
+        (PSTREAM->pwVideoInfo.size.width != PSESSION->sharingData.frameInfoDMA.w || PSTREAM->pwVideoInfo.size.height != PSESSION->sharingData.frameInfoDMA.h)) {
+        Debug::log(LOG, "[sc] Incompatible formats, renegotiate stream");
+        PSESSION->sharingData.status = FRAME_RENEG;
+        hyprland_toplevel_export_frame_v1_destroy(frame);
+        PSESSION->sharingData.windowFrameCallback = nullptr;
+        g_pPortalManager->m_sPortals.screencopy->m_pPipewire->updateStreamParam(PSTREAM);
+        g_pPortalManager->m_sPortals.screencopy->queueNextShareFrame(PSESSION);
+        PSESSION->sharingData.status = FRAME_NONE;
+        return;
+    }
+
+    if (!PSTREAM->currentPWBuffer) {
+        Debug::log(TRACE, "[sc] wlrOnBufferDone: dequeue, no current buffer");
+        g_pPortalManager->m_sPortals.screencopy->m_pPipewire->dequeue(PSESSION);
+    }
+
+    if (!PSTREAM->currentPWBuffer) {
+        hyprland_toplevel_export_frame_v1_destroy(frame);
+        PSESSION->sharingData.windowFrameCallback = nullptr;
+        Debug::log(LOG, "[screencopy/pipewire] Out of buffers");
+        PSESSION->sharingData.status = FRAME_NONE;
+        return;
+    }
+
+    hyprland_toplevel_export_frame_v1_copy(frame, PSTREAM->currentPWBuffer->wlBuffer, false);
+
+    Debug::log(TRACE, "[sc] wlr frame copied");
+}
+
+static const hyprland_toplevel_export_frame_v1_listener hyprlandFrameListener = {
+    .buffer       = hlOnBuffer,
+    .damage       = hlOnDamage,
+    .flags        = hlOnFlags,
+    .ready        = hlOnReady,
+    .failed       = hlOnFailed,
+    .linux_dmabuf = hlOnDmabuf,
+    .buffer_done  = hlOnBufferDone,
 };
 
 // --------------------------------------------------------- //
@@ -403,13 +538,14 @@ void CScreencopyPortal::startFrameCopy(CScreencopyPortal::SSession* pSession) {
         return;
     }
 
-    if (!POUTPUT) {
+    if (!POUTPUT && (pSession->selection.type == TYPE_GEOMETRY || pSession->selection.type == TYPE_OUTPUT)) {
         Debug::log(ERR, "[screencopy] Output {} not found??", pSession->selection.output);
         return;
     }
 
-    if (pSession->sharingData.frameCallback) {
-        Debug::log(ERR, "[screencopy] tried scheduling on already scheduled cb");
+    if ((pSession->sharingData.frameCallback && (pSession->selection.type == TYPE_GEOMETRY || pSession->selection.type == TYPE_OUTPUT)) ||
+        (pSession->sharingData.windowFrameCallback && pSession->selection.type == TYPE_WINDOW)) {
+        Debug::log(ERR, "[screencopy] tried scheduling on already scheduled cb (type {})", (int)pSession->selection.type);
         return;
     }
 
@@ -420,6 +556,14 @@ void CScreencopyPortal::startFrameCopy(CScreencopyPortal::SSession* pSession) {
     } else if (pSession->selection.type == TYPE_OUTPUT) {
         pSession->sharingData.frameCallback = zwlr_screencopy_manager_v1_capture_output(m_sState.screencopy, pSession->cursorMode, POUTPUT->output);
         pSession->sharingData.transform     = POUTPUT->transform;
+    } else if (pSession->selection.type == TYPE_WINDOW) {
+        if (!pSession->selection.windowHandle) {
+            Debug::log(ERR, "[screencopy] selected invalid window?");
+            return;
+        }
+        pSession->sharingData.windowFrameCallback =
+            hyprland_toplevel_export_manager_v1_capture_toplevel_with_wlr_toplevel_handle(m_sState.toplevel, pSession->cursorMode, pSession->selection.windowHandle);
+        pSession->sharingData.transform = WL_OUTPUT_TRANSFORM_NORMAL;
     } else {
         Debug::log(ERR, "[screencopy] Unsupported selection {}", (int)pSession->selection.type);
         return;
@@ -427,7 +571,10 @@ void CScreencopyPortal::startFrameCopy(CScreencopyPortal::SSession* pSession) {
 
     pSession->sharingData.status = FRAME_QUEUED;
 
-    zwlr_screencopy_frame_v1_add_listener(pSession->sharingData.frameCallback, &wlrFrameListener, pSession);
+    if (pSession->sharingData.frameCallback)
+        zwlr_screencopy_frame_v1_add_listener(pSession->sharingData.frameCallback, &wlrFrameListener, pSession);
+    else if (pSession->sharingData.windowFrameCallback)
+        hyprland_toplevel_export_frame_v1_add_listener(pSession->sharingData.windowFrameCallback, &hyprlandFrameListener, pSession);
 
     Debug::log(LOG, "[screencopy] frame callbacks initialized");
 }
@@ -440,6 +587,9 @@ void CScreencopyPortal::queueNextShareFrame(CScreencopyPortal::SSession* pSessio
 
     g_pPortalManager->m_vTimers.emplace_back(
         std::make_unique<CTimer>(1000.0 / pSession->sharingData.framerate, [pSession]() { g_pPortalManager->m_sPortals.screencopy->startFrameCopy(pSession); }));
+}
+bool CScreencopyPortal::hasToplevelCapabilities() {
+    return m_sState.toplevel;
 }
 
 CScreencopyPortal::SSession* CScreencopyPortal::getSession(sdbus::ObjectPath& path) {

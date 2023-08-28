@@ -6,6 +6,7 @@
 
 #include "../portals/Screencopy.hpp"
 #include "../helpers/Timer.hpp"
+#include "../shared/ToplevelManager.hpp"
 #include <gbm.h>
 #include <xf86drm.h>
 
@@ -42,6 +43,10 @@ class CPortalManager {
     struct {
         std::unique_ptr<CScreencopyPortal> screencopy;
     } m_sPortals;
+
+    struct {
+        std::unique_ptr<CToplevelManager> toplevel;
+    } m_sHelpers;
 
     struct {
         wl_display* display             = nullptr;

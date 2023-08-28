@@ -70,15 +70,16 @@ class CScreencopyPortal {
         SSelectionData                  selection;
 
         struct {
-            bool                      active        = false;
-            zwlr_screencopy_frame_v1* frameCallback = nullptr;
-            frameStatus               status        = FRAME_NONE;
-            uint64_t                  tvSec         = 0;
-            uint32_t                  tvNsec        = 0;
-            uint64_t                  tvTimestampNs = 0;
-            uint32_t                  nodeID        = 0;
-            uint32_t                  framerate     = 60;
-            wl_output_transform       transform     = WL_OUTPUT_TRANSFORM_NORMAL;
+            bool                               active              = false;
+            zwlr_screencopy_frame_v1*          frameCallback       = nullptr;
+            hyprland_toplevel_export_frame_v1* windowFrameCallback = nullptr;
+            frameStatus                        status              = FRAME_NONE;
+            uint64_t                           tvSec               = 0;
+            uint32_t                           tvNsec              = 0;
+            uint64_t                           tvTimestampNs       = 0;
+            uint32_t                           nodeID              = 0;
+            uint32_t                           framerate           = 60;
+            wl_output_transform                transform           = WL_OUTPUT_TRANSFORM_NORMAL;
 
             struct {
                 uint32_t w = 0, h = 0, size = 0, stride = 0, fmt = 0;
@@ -100,6 +101,7 @@ class CScreencopyPortal {
 
     void                                 startFrameCopy(SSession* pSession);
     void                                 queueNextShareFrame(SSession* pSession);
+    bool                                 hasToplevelCapabilities();
 
     std::unique_ptr<CPipewireConnection> m_pPipewire;
 

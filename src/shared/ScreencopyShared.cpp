@@ -9,10 +9,43 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 
+std::string sanitizeNameForWindowList(const std::string& name) {
+    std::string result = name;
+    for (size_t i = 1; i < result.size(); ++i) {
+        if (result[i - 1] == '>' && result[i] == ']')
+            result[i] = ' ';
+        if (result[i] == '\"')
+            result[i] = ' ';
+    }
+    return result;
+}
+
+std::string buildWindowList() {
+    std::string result = "";
+    if (!g_pPortalManager->m_sPortals.screencopy->hasToplevelCapabilities())
+        return result;
+
+    for (auto& e : g_pPortalManager->m_sHelpers.toplevel->m_vToplevels) {
+
+        result += std::format("{}[HC>]{}[HT>]{}[HE>]", (uint32_t)(((uint64_t)e->handle) & 0xFFFFFFFF), sanitizeNameForWindowList(e->windowClass),
+                              sanitizeNameForWindowList(e->windowTitle));
+    }
+
+    return result;
+}
+
 SSelectionData promptForScreencopySelection() {
     SSelectionData data;
 
-    const auto     RETVAL = execAndGet("hyprland-share-picker");
+    const char*    WAYLAND_DISPLAY             = getenv("WAYLAND_DISPLAY");
+    const char*    XCURSOR_SIZE                = getenv("XCURSOR_SIZE");
+    const char*    HYPRLAND_INSTANCE_SIGNATURE = getenv("HYPRLAND_INSTANCE_SIGNATURE");
+
+    std::string    cmd =
+        std::format("WAYLAND_DISPLAY={} QT_QPA_PLATFORM=\"wayland\" XCURSOR_SIZE={} HYPRLAND_INSTANCE_SIGNATURE={} XDPH_WINDOW_SHARING_LIST=\"{}\" hyprland-share-picker",
+                    WAYLAND_DISPLAY ? WAYLAND_DISPLAY : "", XCURSOR_SIZE ? XCURSOR_SIZE : "24", HYPRLAND_INSTANCE_SIGNATURE ? HYPRLAND_INSTANCE_SIGNATURE : "0", buildWindowList());
+
+    const auto RETVAL = execAndGet(cmd.c_str());
 
     Debug::log(LOG, "[sc] Selection: {}", RETVAL);
 
@@ -22,7 +55,19 @@ SSelectionData promptForScreencopySelection() {
 
         data.output.pop_back();
     } else if (RETVAL.find("window:") == 0) {
-        // todo
+        data.type         = TYPE_WINDOW;
+        uint32_t handleLo = std::stoull(RETVAL.substr(7));
+        data.windowHandle = nullptr;
+
+        for (auto& e : g_pPortalManager->m_sHelpers.toplevel->m_vToplevels) {
+            uint32_t handleLoE = (uint32_t)(((uint64_t)e->handle) & 0xFFFFFFFF);
+
+            if (handleLoE == handleLo) {
+                data.windowHandle = e->handle;
+                break;
+            }
+        }
+
     } else if (RETVAL.find("region:") == 0) {
         std::string running = RETVAL;
         running             = running.substr(7);

@@ -28,11 +28,13 @@ enum eSelectionType
     TYPE_WORKSPACE,
 };
 
+struct zwlr_foreign_toplevel_handle_v1;
+
 struct SSelectionData {
-    eSelectionType type = TYPE_INVALID;
-    std::string    output;
-    uint64_t       windowHandle = 0;
-    uint32_t       x = 0, y = 0, w = 0, h = 0; // for TYPE_GEOMETRY
+    eSelectionType                   type = TYPE_INVALID;
+    std::string                      output;
+    zwlr_foreign_toplevel_handle_v1* windowHandle = nullptr;
+    uint32_t                         x = 0, y = 0, w = 0, h = 0; // for TYPE_GEOMETRY
 };
 
 struct wl_buffer;
