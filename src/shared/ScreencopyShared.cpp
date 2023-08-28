@@ -14,6 +14,8 @@ SSelectionData promptForScreencopySelection() {
 
     const auto     RETVAL = execAndGet("hyprland-share-picker");
 
+    Debug::log(LOG, "[sc] Selection: {}", RETVAL);
+
     if (RETVAL.find("screen:") == 0) {
         data.type   = TYPE_OUTPUT;
         data.output = RETVAL.substr(7);
@@ -28,15 +30,13 @@ SSelectionData promptForScreencopySelection() {
         data.output         = running.substr(0, running.find_first_of('@'));
         running             = running.substr(running.find_first_of('@') + 1);
 
-        data.x  = std::stoi(running.substr(running.find_first_of(',')));
+        data.x  = std::stoi(running.substr(0, running.find_first_of(',')));
         running = running.substr(running.find_first_of(',') + 1);
-        data.y  = std::stoi(running.substr(running.find_first_of(',')));
+        data.y  = std::stoi(running.substr(0, running.find_first_of(',')));
         running = running.substr(running.find_first_of(',') + 1);
-        data.w  = std::stoi(running.substr(running.find_first_of(',')));
+        data.w  = std::stoi(running.substr(0, running.find_first_of(',')));
         running = running.substr(running.find_first_of(',') + 1);
         data.h  = std::stoi(running);
-
-        data.output.pop_back();
     }
 
     return data;

@@ -96,6 +96,7 @@ static void wlrOnBufferDone(void* data, struct zwlr_screencopy_frame_v1* frame) 
         Debug::log(TRACE, "[sc] wlrOnBufferDone: no stream");
         zwlr_screencopy_frame_v1_destroy(frame);
         PSESSION->sharingData.frameCallback = nullptr;
+        PSESSION->sharingData.status        = FRAME_NONE;
         return;
     }
 
@@ -110,6 +111,7 @@ static void wlrOnBufferDone(void* data, struct zwlr_screencopy_frame_v1* frame) 
         zwlr_screencopy_frame_v1_destroy(frame);
         g_pPortalManager->m_sPortals.screencopy->m_pPipewire->updateStreamParam(PSTREAM);
         g_pPortalManager->m_sPortals.screencopy->queueNextShareFrame(PSESSION);
+        PSESSION->sharingData.status = FRAME_NONE;
         return;
     }
 
@@ -122,6 +124,7 @@ static void wlrOnBufferDone(void* data, struct zwlr_screencopy_frame_v1* frame) 
         zwlr_screencopy_frame_v1_destroy(frame);
         PSESSION->sharingData.frameCallback = nullptr;
         Debug::log(LOG, "[screencopy/pipewire] Out of buffers");
+        PSESSION->sharingData.status = FRAME_NONE;
         return;
     }
 
@@ -430,6 +433,11 @@ void CScreencopyPortal::startFrameCopy(CScreencopyPortal::SSession* pSession) {
 }
 
 void CScreencopyPortal::queueNextShareFrame(CScreencopyPortal::SSession* pSession) {
+    const auto PSTREAM = m_pPipewire->streamFromSession(pSession);
+
+    if (PSTREAM && !PSTREAM->streamState)
+        return;
+
     g_pPortalManager->m_vTimers.emplace_back(
         std::make_unique<CTimer>(1000.0 / pSession->sharingData.framerate, [pSession]() { g_pPortalManager->m_sPortals.screencopy->startFrameCopy(pSession); }));
 }
@@ -512,12 +520,7 @@ static void pwStreamStateChange(void* data, pw_stream_state old, pw_stream_state
             if (PSTREAM->pSession->sharingData.status == FRAME_NONE)
                 g_pPortalManager->m_sPortals.screencopy->startFrameCopy(PSTREAM->pSession);
             break;
-        case PW_STREAM_STATE_PAUSED:
-            if (old == PW_STREAM_STATE_STREAMING)
-                g_pPortalManager->m_sPortals.screencopy->m_pPipewire->enqueue(PSTREAM->pSession);
-            PSTREAM->streamState = false;
-            break;
-        default: PSTREAM->streamState = false;
+        default: PSTREAM->streamState = false; break;
     }
 
     if (state == PW_STREAM_STATE_UNCONNECTED)
@@ -698,6 +701,9 @@ static void pwStreamRemoveBuffer(void* data, pw_buffer* buffer) {
 
     if (!PBUFFER)
         return;
+
+    if (PSTREAM->currentPWBuffer == PBUFFER)
+        PSTREAM->currentPWBuffer = nullptr;
 
     wl_buffer_destroy(PBUFFER->wlBuffer);
     for (int plane = 0; plane < PBUFFER->planeCount; plane++) {
