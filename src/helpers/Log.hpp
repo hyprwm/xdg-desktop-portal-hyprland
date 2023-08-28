@@ -25,8 +25,18 @@ enum eLogLevel
 #define ASSERT(expr) RASSERT(expr, "?")
 
 namespace Debug {
+    inline bool quiet   = false;
+    inline bool verbose = false;
+
     template <typename... Args>
     void log(eLogLevel level, const std::string& fmt, Args&&... args) {
+
+        if (!verbose && level == TRACE)
+            return;
+
+        if (quiet)
+            return;
+
         std::cout << '[';
 
         switch (level) {
