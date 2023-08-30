@@ -363,7 +363,7 @@ void CScreencopyPortal::onSelectSources(sdbus::MethodCall& call) {
     struct {
         bool        exists = false;
         std::string token, output;
-        uint32_t    windowHandle;
+        uint64_t    windowHandle;
         bool        withCursor;
         uint64_t    timeIssued;
     } restoreData;
@@ -375,7 +375,8 @@ void CScreencopyPortal::onSelectSources(sdbus::MethodCall& call) {
             Debug::log(LOG, "[screencopy] option cursor_mode to {}", PSESSION->cursorMode);
         } else if (key == "restore_data") {
             // suv
-            // v -> r(susbt)
+            // v -> r(susbt) -> v2
+            // v -> a(sv) -> v3
             std::string issuer;
             uint32_t    version;
             auto        suv = val.get<sdbus::Struct<std::string, uint32_t, sdbus::Variant>>();
@@ -391,23 +392,80 @@ void CScreencopyPortal::onSelectSources(sdbus::MethodCall& call) {
 
             Debug::log(LOG, "[screencopy] Restore token from {} ver {}", issuer, version);
 
-            if (version != 2) {
+            if (version != 2 && version != 3) {
                 Debug::log(LOG, "[screencopy] Restore token ver unsupported, skipping", issuer);
                 continue;
             }
 
-            auto susbt = data.get<sdbus::Struct<std::string, uint32_t, std::string, bool, uint64_t>>();
+            if (version == 2) {
+                auto susbt = data.get<sdbus::Struct<std::string, uint32_t, std::string, bool, uint64_t>>();
 
-            restoreData.exists = true;
+                restoreData.exists = true;
 
-            restoreData.token        = susbt.get<0>();
-            restoreData.windowHandle = susbt.get<1>();
-            restoreData.output       = susbt.get<2>();
-            restoreData.withCursor   = susbt.get<3>();
-            restoreData.timeIssued   = susbt.get<4>();
+                restoreData.token        = susbt.get<0>();
+                restoreData.windowHandle = susbt.get<1>();
+                restoreData.output       = susbt.get<2>();
+                restoreData.withCursor   = susbt.get<3>();
+                restoreData.timeIssued   = susbt.get<4>();
 
-            Debug::log(LOG, "[screencopy] Restore token {} with data: {} {} {} {}", restoreData.token, restoreData.windowHandle, restoreData.output, restoreData.withCursor,
-                       restoreData.timeIssued);
+                Debug::log(LOG, "[screencopy] Restore token v2 {} with data: {} {} {} {}", restoreData.token, restoreData.windowHandle, restoreData.output, restoreData.withCursor,
+                           restoreData.timeIssued);
+            } else {
+                // ver 3
+                auto        sv = data.get<std::unordered_map<std::string, sdbus::Variant>>();
+
+                uint64_t    windowHandle = 0;
+                std::string windowClass;
+
+                restoreData.windowHandle = 0;
+                restoreData.exists       = true;
+
+                for (auto& [tkkey, tkval] : sv) {
+                    if (tkkey == "output") {
+                        restoreData.output = tkval.get<std::string>();
+                    } else if (tkkey == "windowHandle") {
+                        windowHandle = tkval.get<uint64_t>();
+                    } else if (tkkey == "windowClass") {
+                        windowClass = tkval.get<std::string>();
+                    } else if (tkkey == "withCursor") {
+                        restoreData.withCursor = (bool)tkval.get<uint32_t>();
+                    } else if (tkkey == "timeIssued") {
+                        restoreData.timeIssued = tkval.get<uint64_t>();
+                    } else if (tkkey == "token") {
+                        restoreData.token = tkval.get<std::string>();
+                    } else {
+                        Debug::log(LOG, "[screencopy] restore token v3, unknown prop {}", tkkey);
+                    }
+                }
+
+                Debug::log(LOG, "[screencopy] Restore token v3 {} with data: {} {} {} {} {}", restoreData.token, windowHandle, windowClass, restoreData.output,
+                           restoreData.withCursor, restoreData.timeIssued);
+
+                // find window
+                if (windowHandle != 0 || !windowClass.empty()) {
+                    if (windowHandle != 0) {
+                        for (auto& h : g_pPortalManager->m_sHelpers.toplevel->m_vToplevels) {
+                            if (h->handle == windowHandle) {
+                                restoreData.windowHandle = h->handle;
+                                Debug::log(LOG, "[screencopy] token v3 window found by handle {}", (void*)windowHandle);
+                                break;
+                            }
+                        }
+                    }
+
+                    if (restoreData.windowHandle == 0 && !windowClass.empty()) {
+                        // try class
+                        for (auto& h : g_pPortalManager->m_sHelpers.toplevel->m_vToplevels) {
+                            if (h->windowClass == windowClass) {
+                                restoreData.windowHandle = h->handle;
+                                Debug::log(LOG, "[screencopy] token v3 window found by class {}", windowClass);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
         } else if (key == "persist_mode") {
             PSESSION->persistMode = val.get<uint32_t>();
             Debug::log(LOG, "[screencopy] option persist_mode to {}", PSESSION->persistMode);
@@ -416,7 +474,22 @@ void CScreencopyPortal::onSelectSources(sdbus::MethodCall& call) {
         }
     }
 
-    auto SHAREDATA = promptForScreencopySelection();
+    const bool RESTOREDATAVALID = restoreData.exists &&
+        (g_pPortalManager->m_sHelpers.toplevel->exists((zwlr_foreign_toplevel_handle_v1*)restoreData.windowHandle) || g_pPortalManager->getOutputFromName(restoreData.output));
+
+    SSelectionData SHAREDATA;
+    if (RESTOREDATAVALID) {
+        Debug::log(LOG, "[screencopy] restore data valid, not prompting");
+
+        SHAREDATA.output       = restoreData.output;
+        SHAREDATA.windowHandle = (zwlr_foreign_toplevel_handle_v1*)restoreData.windowHandle;
+        SHAREDATA.type         = restoreData.windowHandle ? TYPE_WINDOW : TYPE_OUTPUT;
+        PSESSION->cursorMode   = restoreData.withCursor;
+    } else {
+        Debug::log(LOG, "[screencopy] restore data invalid / missing, prompting");
+
+        SHAREDATA = promptForScreencopySelection();
+    }
 
     Debug::log(LOG, "[screencopy] SHAREDATA returned selection {}", (int)SHAREDATA.type);
 
@@ -468,10 +541,28 @@ void CScreencopyPortal::onStart(sdbus::MethodCall& call) {
 
     if (PSESSION->persistMode != 0) {
         // give them a token :)
-        sdbus::Struct<std::string, uint32_t, std::string, bool, uint64_t> structData{"todo", (uint32_t)PSESSION->selection.windowHandle, PSESSION->selection.output,
-                                                                                     (bool)PSESSION->cursorMode, (uint64_t)time(NULL)};
-        sdbus::Variant                                                    restoreData{structData};
-        sdbus::Struct<std::string, uint32_t, sdbus::Variant>              fullRestoreStruct{"hyprland", 2, restoreData};
+        std::unordered_map<std::string, sdbus::Variant> mapData;
+
+        switch (PSESSION->selection.type) {
+            case TYPE_GEOMETRY:
+            case TYPE_OUTPUT: mapData["output"] = PSESSION->selection.output; break;
+            case TYPE_WINDOW:
+                mapData["windowHandle"] = (uint64_t)PSESSION->selection.windowHandle;
+                for (auto& w : g_pPortalManager->m_sHelpers.toplevel->m_vToplevels) {
+                    if (w->handle == PSESSION->selection.windowHandle) {
+                        mapData["windowClass"] = w->windowClass;
+                        break;
+                    }
+                }
+                break;
+            default: Debug::log(ERR, "[screencopy] wonk selection in token saving"); break;
+        }
+        mapData["timeIssued"] = uint64_t(time(nullptr));
+        mapData["token"]      = std::string("todo");
+        mapData["withCursor"] = PSESSION->cursorMode;
+
+        sdbus::Variant                                       restoreData{mapData};
+        sdbus::Struct<std::string, uint32_t, sdbus::Variant> fullRestoreStruct{"hyprland", 3, restoreData};
         options["restore_data"] = sdbus::Variant{fullRestoreStruct};
     }
 

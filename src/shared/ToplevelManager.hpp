@@ -19,6 +19,8 @@ class CToplevelManager {
   public:
     CToplevelManager(zwlr_foreign_toplevel_manager_v1* mgr);
 
+    bool                                          exists(zwlr_foreign_toplevel_handle_v1* handle);
+
     std::vector<std::unique_ptr<SToplevelHandle>> m_vToplevels;
 
   private:

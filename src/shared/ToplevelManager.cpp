@@ -85,3 +85,12 @@ CToplevelManager::CToplevelManager(zwlr_foreign_toplevel_manager_v1* mgr) {
     m_pManager = mgr;
     zwlr_foreign_toplevel_manager_v1_add_listener(mgr, &managerListener, this);
 }
+
+bool CToplevelManager::exists(zwlr_foreign_toplevel_handle_v1* handle) {
+    for (auto& h : m_vToplevels) {
+        if (h->handle == handle)
+            return true;
+    }
+
+    return false;
+}
