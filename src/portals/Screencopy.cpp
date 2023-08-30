@@ -281,6 +281,8 @@ static const hyprland_toplevel_export_frame_v1_listener hyprlandFrameListener = 
 // --------------------------------------------------------- //
 
 void onCloseRequest(sdbus::MethodCall& call, CScreencopyPortal::SSession* sess) {
+    Debug::log(TRACE, "[screencopy] Close Request {}", (void*)sess);
+
     if (!sess || !sess->request)
         return;
 
@@ -291,6 +293,8 @@ void onCloseRequest(sdbus::MethodCall& call, CScreencopyPortal::SSession* sess) 
 }
 
 void onCloseSession(sdbus::MethodCall& call, CScreencopyPortal::SSession* sess) {
+    Debug::log(TRACE, "[screencopy] Close Session {}", (void*)sess);
+
     if (!sess || !sess->session)
         return;
 
@@ -320,8 +324,8 @@ void CScreencopyPortal::onCreateSession(sdbus::MethodCall& call) {
     PSESSION->request = sdbus::createObject(*g_pPortalManager->getConnection(), requestHandle);
     PSESSION->session = sdbus::createObject(*g_pPortalManager->getConnection(), sessionHandle);
 
-    PSESSION->request->registerMethod("org.freedesktop.impl.portal.Request", "Close", "", "", [&](sdbus::MethodCall c) { onCloseRequest(c, PSESSION); });
-    PSESSION->session->registerMethod("org.freedesktop.impl.portal.Session", "Close", "", "", [&](sdbus::MethodCall c) { onCloseSession(c, PSESSION); });
+    PSESSION->request->registerMethod("org.freedesktop.impl.portal.Request", "Close", "", "", [PSESSION](sdbus::MethodCall c) { onCloseRequest(c, PSESSION); });
+    PSESSION->session->registerMethod("org.freedesktop.impl.portal.Session", "Close", "", "", [PSESSION](sdbus::MethodCall c) { onCloseSession(c, PSESSION); });
 
     PSESSION->request->finishRegistration();
     PSESSION->session->finishRegistration();
