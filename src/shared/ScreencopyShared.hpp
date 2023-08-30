@@ -35,6 +35,7 @@ struct SSelectionData {
     std::string                      output;
     zwlr_foreign_toplevel_handle_v1* windowHandle = nullptr;
     uint32_t                         x = 0, y = 0, w = 0, h = 0; // for TYPE_GEOMETRY
+    bool                             allowToken = false;
 };
 
 struct wl_buffer;

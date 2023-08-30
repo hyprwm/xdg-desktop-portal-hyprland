@@ -49,14 +49,25 @@ SSelectionData promptForScreencopySelection() {
 
     Debug::log(LOG, "[sc] Selection: {}", RETVAL);
 
-    if (RETVAL.find("screen:") == 0) {
+    const auto FLAGS = RETVAL.substr(0, RETVAL.find_first_of('/'));
+    const auto SEL   = RETVAL.substr(RETVAL.find_first_of('/') + 1);
+
+    for (auto& flag : FLAGS) {
+        if (flag == 'r') {
+            data.allowToken = true;
+        } else {
+            Debug::log(LOG, "[screencopy] unknown flag from share-picker: {}", flag);
+        }
+    }
+
+    if (SEL.find("screen:") == 0) {
         data.type   = TYPE_OUTPUT;
-        data.output = RETVAL.substr(7);
+        data.output = SEL.substr(7);
 
         data.output.pop_back();
-    } else if (RETVAL.find("window:") == 0) {
+    } else if (SEL.find("window:") == 0) {
         data.type         = TYPE_WINDOW;
-        uint32_t handleLo = std::stoull(RETVAL.substr(7));
+        uint32_t handleLo = std::stoull(SEL.substr(7));
         data.windowHandle = nullptr;
 
         for (auto& e : g_pPortalManager->m_sHelpers.toplevel->m_vToplevels) {
@@ -68,8 +79,8 @@ SSelectionData promptForScreencopySelection() {
             }
         }
 
-    } else if (RETVAL.find("region:") == 0) {
-        std::string running = RETVAL;
+    } else if (SEL.find("region:") == 0) {
+        std::string running = SEL;
         running             = running.substr(7);
         data.type           = TYPE_GEOMETRY;
         data.output         = running.substr(0, running.find_first_of('@'));

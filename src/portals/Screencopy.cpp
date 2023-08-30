@@ -539,7 +539,7 @@ void CScreencopyPortal::onStart(sdbus::MethodCall& call) {
 
     std::unordered_map<std::string, sdbus::Variant> options;
 
-    if (PSESSION->persistMode != 0) {
+    if (PSESSION->persistMode != 0 && PSESSION->selection.allowToken) {
         // give them a token :)
         std::unordered_map<std::string, sdbus::Variant> mapData;
 
@@ -564,6 +564,8 @@ void CScreencopyPortal::onStart(sdbus::MethodCall& call) {
         sdbus::Variant                                       restoreData{mapData};
         sdbus::Struct<std::string, uint32_t, sdbus::Variant> fullRestoreStruct{"hyprland", 3, restoreData};
         options["restore_data"] = sdbus::Variant{fullRestoreStruct};
+
+        Debug::log(LOG, "[screencopy] Sent restore token to {}", PSESSION->sessionHandle.c_str());
     }
 
     uint32_t type = 0;

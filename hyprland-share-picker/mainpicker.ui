@@ -66,7 +66,7 @@
      <enum>QTabWidget::North</enum>
     </property>
     <property name="currentIndex">
-     <number>0</number>
+     <number>1</number>
     </property>
     <widget class="QWidget" name="screens">
      <attribute name="title">
@@ -78,8 +78,11 @@
         <x>9</x>
         <y>9</y>
         <width>461</width>
-        <height>241</height>
+        <height>201</height>
        </rect>
+      </property>
+      <property name="horizontalScrollBarPolicy">
+       <enum>Qt::ScrollBarAlwaysOff</enum>
       </property>
       <property name="widgetResizable">
        <bool>false</bool>
@@ -115,8 +118,11 @@
         <x>9</x>
         <y>9</y>
         <width>461</width>
-        <height>241</height>
+        <height>201</height>
        </rect>
+      </property>
+      <property name="horizontalScrollBarPolicy">
+       <enum>Qt::ScrollBarAlwaysOff</enum>
       </property>
       <property name="widgetResizable">
        <bool>false</bool>
@@ -147,6 +153,22 @@
       <string>Region</string>
      </attribute>
     </widget>
+   </widget>
+   <widget class="QCheckBox" name="checkBox">
+    <property name="geometry">
+     <rect>
+      <x>340</x>
+      <y>256</y>
+      <width>140</width>
+      <height>21</height>
+     </rect>
+    </property>
+    <property name="toolTip">
+     <string>By selecting this, the application will be given a restore token that it can use to skip prompting you next time. Only select if you trust the application.</string>
+    </property>
+    <property name="text">
+     <string>Allow a restore token</string>
+    </property>
    </widget>
   </widget>
  </widget>
