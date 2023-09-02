@@ -321,14 +321,10 @@ void CScreencopyPortal::onCreateSession(sdbus::MethodCall& call) {
     const auto PSESSION = m_vSessions.emplace_back(std::make_unique<SSession>(appID, requestHandle, sessionHandle)).get();
 
     // create objects
-    PSESSION->request = sdbus::createObject(*g_pPortalManager->getConnection(), requestHandle);
-    PSESSION->session = sdbus::createObject(*g_pPortalManager->getConnection(), sessionHandle);
-
-    PSESSION->request->registerMethod("org.freedesktop.impl.portal.Request", "Close", "", "", [PSESSION](sdbus::MethodCall c) { onCloseRequest(c, PSESSION); });
-    PSESSION->session->registerMethod("org.freedesktop.impl.portal.Session", "Close", "", "", [PSESSION](sdbus::MethodCall c) { onCloseSession(c, PSESSION); });
-
-    PSESSION->request->finishRegistration();
-    PSESSION->session->finishRegistration();
+    PSESSION->session            = createDBusSession(sessionHandle);
+    PSESSION->session->onDestroy = [PSESSION]() { PSESSION->session.release(); };
+    PSESSION->request            = createDBusRequest(requestHandle);
+    PSESSION->request->onDestroy = [PSESSION]() { PSESSION->request.release(); };
 
     auto reply = call.createReply();
     reply << (uint32_t)0;

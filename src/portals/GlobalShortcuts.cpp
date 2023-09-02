@@ -23,30 +23,6 @@ static const hyprland_global_shortcut_v1_listener shortcutListener = {
 
 //
 
-static void onCloseRequest(sdbus::MethodCall& call, CGlobalShortcutsPortal::SSession* sess) {
-    Debug::log(TRACE, "[globalshortcuts] Close Request {}", (void*)sess);
-
-    if (!sess || !sess->request)
-        return;
-
-    auto r = call.createReply();
-    r.send();
-
-    sess->request.release();
-}
-
-static void onCloseSession(sdbus::MethodCall& call, CGlobalShortcutsPortal::SSession* sess) {
-    Debug::log(TRACE, "[globalshortcuts] Close Session {}", (void*)sess);
-
-    if (!sess || !sess->session)
-        return;
-
-    auto r = call.createReply();
-    r.send();
-
-    sess->session.release();
-}
-
 CGlobalShortcutsPortal::SSession* CGlobalShortcutsPortal::getSession(sdbus::ObjectPath& path) {
     for (auto& s : m_vSessions) {
         if (s->sessionHandle == path)
@@ -73,14 +49,10 @@ void CGlobalShortcutsPortal::onCreateSession(sdbus::MethodCall& call) {
     const auto PSESSION = m_vSessions.emplace_back(std::make_unique<SSession>(appID, requestHandle, sessionHandle)).get();
 
     // create objects
-    PSESSION->request = sdbus::createObject(*g_pPortalManager->getConnection(), requestHandle);
-    PSESSION->session = sdbus::createObject(*g_pPortalManager->getConnection(), sessionHandle);
-
-    PSESSION->request->registerMethod("org.freedesktop.impl.portal.Request", "Close", "", "", [PSESSION](sdbus::MethodCall c) { onCloseRequest(c, PSESSION); });
-    PSESSION->session->registerMethod("org.freedesktop.impl.portal.Session", "Close", "", "", [PSESSION](sdbus::MethodCall c) { onCloseSession(c, PSESSION); });
-
-    PSESSION->request->finishRegistration();
-    PSESSION->session->finishRegistration();
+    PSESSION->session            = createDBusSession(sessionHandle);
+    PSESSION->session->onDestroy = [PSESSION]() { PSESSION->session.release(); };
+    PSESSION->request            = createDBusRequest(requestHandle);
+    PSESSION->request->onDestroy = [PSESSION]() { PSESSION->request.release(); };
 
     std::unordered_map<std::string, sdbus::Variant> opts;
     call >> opts;

@@ -5,6 +5,7 @@
 #include <sdbus-c++/sdbus-c++.h>
 #include "../shared/ScreencopyShared.hpp"
 #include <gbm.h>
+#include "../shared/Session.hpp"
 
 enum cursorModes
 {
@@ -61,13 +62,14 @@ class CScreencopyPortal {
     void onStart(sdbus::MethodCall& call);
 
     struct SSession {
-        std::string                     appid;
-        sdbus::ObjectPath               requestHandle, sessionHandle;
-        uint32_t                        cursorMode  = HIDDEN;
-        uint32_t                        persistMode = 0;
+        std::string                   appid;
+        sdbus::ObjectPath             requestHandle, sessionHandle;
+        uint32_t                      cursorMode  = HIDDEN;
+        uint32_t                      persistMode = 0;
 
-        std::unique_ptr<sdbus::IObject> request, session;
-        SSelectionData                  selection;
+        std::unique_ptr<SDBusRequest> request;
+        std::unique_ptr<SDBusSession> session;
+        SSelectionData                selection;
 
         struct {
             bool                               active              = false;

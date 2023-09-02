@@ -2,6 +2,7 @@
 
 #include <sdbus-c++/sdbus-c++.h>
 #include <protocols/hyprland-global-shortcuts-v1-protocol.h>
+#include "../shared/Session.hpp"
 
 struct SKeybind {
     std::string                  id, description, preferredTrigger;
@@ -23,7 +24,8 @@ class CGlobalShortcutsPortal {
     struct SSession {
         std::string                            appid;
         sdbus::ObjectPath                      requestHandle, sessionHandle;
-        std::unique_ptr<sdbus::IObject>        request, session;
+        std::unique_ptr<SDBusRequest>          request;
+        std::unique_ptr<SDBusSession>          session;
 
         bool                                   registered = false;
 
