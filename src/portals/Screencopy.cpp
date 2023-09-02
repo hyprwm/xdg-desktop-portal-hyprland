@@ -280,7 +280,7 @@ static const hyprland_toplevel_export_frame_v1_listener hyprlandFrameListener = 
 
 // --------------------------------------------------------- //
 
-void onCloseRequest(sdbus::MethodCall& call, CScreencopyPortal::SSession* sess) {
+static void onCloseRequest(sdbus::MethodCall& call, CScreencopyPortal::SSession* sess) {
     Debug::log(TRACE, "[screencopy] Close Request {}", (void*)sess);
 
     if (!sess || !sess->request)
@@ -292,7 +292,7 @@ void onCloseRequest(sdbus::MethodCall& call, CScreencopyPortal::SSession* sess) 
     sess->request.release();
 }
 
-void onCloseSession(sdbus::MethodCall& call, CScreencopyPortal::SSession* sess) {
+static void onCloseSession(sdbus::MethodCall& call, CScreencopyPortal::SSession* sess) {
     Debug::log(TRACE, "[screencopy] Close Session {}", (void*)sess);
 
     if (!sess || !sess->session)

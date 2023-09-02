@@ -203,6 +203,10 @@ void CPortalManager::onGlobal(void* data, struct wl_registry* registry, uint32_t
     if (INTERFACE == zwlr_screencopy_manager_v1_interface.name && m_sPipewire.loop)
         m_sPortals.screencopy = std::make_unique<CScreencopyPortal>((zwlr_screencopy_manager_v1*)wl_registry_bind(registry, name, &zwlr_screencopy_manager_v1_interface, version));
 
+    if (INTERFACE == hyprland_global_shortcuts_manager_v1_interface.name)
+        m_sPortals.globalShortcuts = std::make_unique<CGlobalShortcutsPortal>(
+            (hyprland_global_shortcuts_manager_v1*)wl_registry_bind(registry, name, &hyprland_global_shortcuts_manager_v1_interface, version));
+
     else if (INTERFACE == hyprland_toplevel_export_manager_v1_interface.name)
         m_sWaylandConnection.hyprlandToplevelMgr = wl_registry_bind(registry, name, &hyprland_toplevel_export_manager_v1_interface, version);
 
