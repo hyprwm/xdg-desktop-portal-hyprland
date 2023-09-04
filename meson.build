@@ -1,6 +1,6 @@
 project('xdg-desktop-portal-hyprland', 'cpp', 'c',
 	version: '2.0.0',
-	license: 'MIT',
+	license: 'BSD-3-Clause',
 	meson_version: '>=0.63.0',
 	default_options: [
 		'warning_level=2',
