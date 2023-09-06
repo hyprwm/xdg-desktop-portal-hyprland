@@ -3,14 +3,18 @@
   inputs,
   lib,
 }: let
+  ver = lib.removeSuffix "\n" (builtins.readFile ../VERSION);
+
   mkJoinedOverlays = overlays: final: prev:
     lib.foldl' (attrs: overlay: attrs // (overlay final prev)) {} overlays;
+
   mkDate = longDate: (lib.concatStringsSep "-" [
     (builtins.substring 0 4 longDate)
     (builtins.substring 4 2 longDate)
     (builtins.substring 6 2 longDate)
   ]);
-  version = "0.pre" + "+date=" + (mkDate (self.lastModifiedDate or "19700101")) + "_" + (self.shortRev or "dirty");
+
+  version = ver + "+date=" + (mkDate (self.lastModifiedDate or "19700101")) + "_" + (self.shortRev or "dirty");
 in {
   default = mkJoinedOverlays (with self.overlays; [
     xdg-desktop-portal-hyprland

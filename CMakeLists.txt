@@ -1,8 +1,11 @@
 cmake_minimum_required(VERSION 3.19)
 
+file(READ ${CMAKE_CURRENT_SOURCE_DIR}/VERSION VER)
+string(STRIP ${VER} VER)
+
 project(xdg-desktop-portal-hyprland
     DESCRIPTION "An XDG-Destop-Portal backend for Hyprland (and wlroots)"
-    VERSION "2.0"
+    VERSION ${VER}
 )
 
 set(CMAKE_MESSAGE_LOG_LEVEL "STATUS")
