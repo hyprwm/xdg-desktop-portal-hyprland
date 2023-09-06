@@ -1,5 +1,5 @@
 project('xdg-desktop-portal-hyprland', 'cpp', 'c',
-	version: '2.0.0',
+	version: run_command('cat', files('VERSION'), check: true).stdout().strip(),
 	license: 'BSD-3-Clause',
 	meson_version: '>=0.63.0',
 	default_options: [
