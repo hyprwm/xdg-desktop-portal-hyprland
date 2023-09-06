@@ -55,6 +55,10 @@ dkms.conf
 build/
 build-*/
 
+.cache
 .vscode/
 
 hyprland-share-picker/build/
+
+protocols/*.c
+protocols/*.h
