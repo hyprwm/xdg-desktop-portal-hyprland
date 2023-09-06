@@ -29,7 +29,10 @@ in {
     };
   };
   hyprland-share-picker = final: prev: {
-    hyprland-share-picker = final.libsForQt5.callPackage ./hyprland-share-picker.nix {inherit version;};
+    hyprland-share-picker = final.callPackage ./hyprland-share-picker.nix {
+      inherit (final.qt6) qtbase wrapQtAppsHook qtwayland;
+      inherit version;
+    };
   };
   package-overrides = final: prev: {
     sdbus-cpp = prev.sdbus-cpp.overrideAttrs (self: super: {
