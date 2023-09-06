@@ -3,12 +3,12 @@
   lib,
   cmake,
   qtbase,
+  qtwayland,
   makeShellWrapper,
   wrapQtAppsHook,
   hyprland,
   slurp,
   version ? "git",
-  ...
 }:
 stdenv.mkDerivation {
   pname = "hyprland-share-picker";
@@ -22,6 +22,7 @@ stdenv.mkDerivation {
   ];
   buildInputs = [
     qtbase
+    qtwayland
   ];
 
   dontWrapQtApps = true;
