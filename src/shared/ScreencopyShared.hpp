@@ -4,6 +4,8 @@
 #include <cstdint>
 extern "C" {
 #include <spa/pod/builder.h>
+
+#undef SPA_VERSION_POD_BUILDER_CALLBACKS
 #define SPA_VERSION_POD_BUILDER_CALLBACKS .version = 0
 #include <spa/buffer/meta.h>
 #include <spa/utils/result.h>
@@ -11,6 +13,7 @@ extern "C" {
 #include <spa/param/format-utils.h>
 #include <spa/param/video/format-utils.h>
 #include <spa/pod/dynamic.h>
+#undef SPA_VERSION_POD_BUILDER_CALLBACKS
 #define SPA_VERSION_POD_BUILDER_CALLBACKS 0
 }
 #include <wayland-client.h>

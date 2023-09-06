@@ -280,30 +280,6 @@ static const hyprland_toplevel_export_frame_v1_listener hyprlandFrameListener = 
 
 // --------------------------------------------------------- //
 
-static void onCloseRequest(sdbus::MethodCall& call, CScreencopyPortal::SSession* sess) {
-    Debug::log(TRACE, "[screencopy] Close Request {}", (void*)sess);
-
-    if (!sess || !sess->request)
-        return;
-
-    auto r = call.createReply();
-    r.send();
-
-    sess->request.release();
-}
-
-static void onCloseSession(sdbus::MethodCall& call, CScreencopyPortal::SSession* sess) {
-    Debug::log(TRACE, "[screencopy] Close Session {}", (void*)sess);
-
-    if (!sess || !sess->session)
-        return;
-
-    auto r = call.createReply();
-    r.send();
-
-    sess->session.release();
-}
-
 void CScreencopyPortal::onCreateSession(sdbus::MethodCall& call) {
     sdbus::ObjectPath requestHandle, sessionHandle;
 
@@ -445,8 +421,8 @@ void CScreencopyPortal::onSelectSources(sdbus::MethodCall& call) {
                 if (windowHandle != 0 || !windowClass.empty()) {
                     if (windowHandle != 0) {
                         for (auto& h : g_pPortalManager->m_sHelpers.toplevel->m_vToplevels) {
-                            if (h->handle == windowHandle) {
-                                restoreData.windowHandle = h->handle;
+                            if ((uint64_t)h->handle == windowHandle) {
+                                restoreData.windowHandle = (uint64_t)h->handle;
                                 Debug::log(LOG, "[screencopy] token v3 window found by handle {}", (void*)windowHandle);
                                 break;
                             }
@@ -457,7 +433,7 @@ void CScreencopyPortal::onSelectSources(sdbus::MethodCall& call) {
                         // try class
                         for (auto& h : g_pPortalManager->m_sHelpers.toplevel->m_vToplevels) {
                             if (h->windowClass == windowClass) {
-                                restoreData.windowHandle = h->handle;
+                                restoreData.windowHandle = (uint64_t)h->handle;
                                 Debug::log(LOG, "[screencopy] token v3 window found by class {}", windowClass);
                                 break;
                             }
