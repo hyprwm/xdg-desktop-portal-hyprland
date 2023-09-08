@@ -30,10 +30,9 @@ add_compile_options(-Wall -Wextra -Wno-unused-parameter -Wno-unused-value -Wno-m
 message(STATUS "Checking deps...")
 add_subdirectory(subprojects/sdbus-cpp)
 add_subdirectory(hyprland-share-picker)
-find_package(Threads REQUIRED)
 
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(deps REQUIRED IMPORTED_TARGET wayland-client wayland-protocols cairo pango pangocairo libjpeg libpipewire-0.3 libspa-0.2 libdrm gbm)
+pkg_check_modules(deps REQUIRED IMPORTED_TARGET wayland-client wayland-protocols libpipewire-0.3 libspa-0.2 libdrm gbm)
 
 file(GLOB_RECURSE SRCFILES CONFIGURE_DEPENDS "src/*.cpp")
 add_executable(xdg-desktop-portal-hyprland ${SRCFILES})

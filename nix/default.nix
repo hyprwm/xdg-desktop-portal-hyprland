@@ -5,12 +5,9 @@
   meson,
   ninja,
   pkg-config,
-  cairo,
   hyprland-share-picker,
   libdrm,
-  libjpeg,
   mesa,
-  pango,
   pipewire,
   sdbus-cpp,
   systemd,
@@ -37,12 +34,9 @@ stdenv.mkDerivation {
   ];
 
   buildInputs = [
-    cairo
     hyprland-protocols
     libdrm
-    libjpeg
     mesa
-    pango
     pipewire
     sdbus-cpp
     systemd
