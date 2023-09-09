@@ -18,19 +18,13 @@
 in {
   default = mkJoinedOverlays (with self.overlays; [
     xdg-desktop-portal-hyprland
-    hyprland-share-picker
     package-overrides
   ]);
   xdg-desktop-portal-hyprland = final: prev: {
     xdg-desktop-portal-hyprland = final.callPackage ./default.nix {
       stdenv = prev.gcc13Stdenv;
-      inherit (final) hyprland-protocols hyprland-share-picker;
-      inherit version;
-    };
-  };
-  hyprland-share-picker = final: prev: {
-    hyprland-share-picker = final.callPackage ./hyprland-share-picker.nix {
-      inherit (final.qt6) qtbase wrapQtAppsHook qtwayland;
+      inherit (final) hyprland-protocols;
+      inherit (final.qt6) qtbase qttools wrapQtAppsHook qtwayland;
       inherit version;
     };
   };
