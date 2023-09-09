@@ -41,7 +41,6 @@ if systemd.found()
 	systemd_service_file = 'xdg-desktop-portal-hyprland.service'
 	user_unit_dir = systemd.get_variable(pkgconfig: 'systemduserunitdir',
 		pkgconfig_define: ['prefix', get_option('prefix')])
-	conf_data.set('systemd_service', 'SystemdService=' + systemd_service_file)
 
 	configure_file(
 		configuration: conf_data,
@@ -67,3 +66,4 @@ inc = include_directories('.', 'protocols')
 
 subdir('protocols')
 subdir('src')
+subdir('hyprland-share-picker')

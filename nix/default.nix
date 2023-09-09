@@ -5,7 +5,6 @@
   meson,
   ninja,
   pkg-config,
-  hyprland-share-picker,
   libdrm,
   mesa,
   pipewire,
@@ -13,7 +12,11 @@
   systemd,
   wayland-protocols,
   wayland-scanner,
-  grim,
+  qtbase,
+  qttools,
+  qtwayland,
+  wrapQtAppsHook,
+  hyprland,
   slurp,
   hyprland-protocols,
   wayland,
@@ -31,6 +34,7 @@ stdenv.mkDerivation {
     pkg-config
     wayland-scanner
     makeWrapper
+    wrapQtAppsHook
   ];
 
   buildInputs = [
@@ -38,14 +42,24 @@ stdenv.mkDerivation {
     libdrm
     mesa
     pipewire
+    qtbase
+    qttools
+    qtwayland
     sdbus-cpp
     systemd
     wayland
     wayland-protocols
   ];
 
+  dontWrapQtApps = true;
+
   postInstall = ''
-    wrapProgram $out/libexec/xdg-desktop-portal-hyprland --prefix PATH ":" ${lib.makeBinPath [hyprland-share-picker grim slurp]}
+    wrapProgramShell $out/bin/hyprland-share-picker \
+      "''${qtWrapperArgs[@]}" \
+      --prefix PATH ":" ${lib.makeBinPath [slurp hyprland]}
+
+    wrapProgramShell $out/libexec/xdg-desktop-portal-hyprland \
+      --prefix PATH ":" ${lib.makeBinPath [(placeholder "out")]}
   '';
 
   meta = with lib; {

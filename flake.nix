@@ -28,7 +28,6 @@
         overlays = [
           inputs.hyprland-protocols.overlays.default
           self.overlays.xdg-desktop-portal-hyprland
-          self.overlays.hyprland-share-picker
           self.overlays.package-overrides
         ];
       });
@@ -36,7 +35,7 @@
     overlays = import ./nix/overlays.nix {inherit self inputs lib;};
 
     packages = eachSystem (system: {
-      inherit (pkgsFor.${system}) xdg-desktop-portal-hyprland hyprland-share-picker;
+      inherit (pkgsFor.${system}) xdg-desktop-portal-hyprland;
       default = self.packages.${system}.xdg-desktop-portal-hyprland;
     });
 
