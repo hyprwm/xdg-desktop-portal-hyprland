@@ -18,7 +18,6 @@
 in {
   default = mkJoinedOverlays (with self.overlays; [
     xdg-desktop-portal-hyprland
-    package-overrides
   ]);
   xdg-desktop-portal-hyprland = final: prev: {
     xdg-desktop-portal-hyprland = final.callPackage ./default.nix {
@@ -27,16 +26,5 @@ in {
       inherit (final.qt6) qtbase qttools wrapQtAppsHook qtwayland;
       inherit version;
     };
-  };
-  package-overrides = final: prev: {
-    sdbus-cpp = prev.sdbus-cpp.overrideAttrs (self: super: {
-      version = "1.3.0";
-      src = prev.fetchFromGitHub {
-        repo = "sdbus-cpp";
-        owner = "Kistler-Group";
-        rev = "v${self.version}";
-        hash = "sha256-S/8/I2wmWukpP+RGPxKbuO44wIExzeYZL49IO+KOqg4=";
-      };
-    });
   };
 }
