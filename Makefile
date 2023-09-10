@@ -15,7 +15,8 @@ debug:
 
 install:
 	$(MAKE) release
-	cp ./build/hyprland-share-picker/hyprland-share-picker ${PREFIX}/bin
-	cp ./build/xdg-desktop-portal-hyprland ${LIBEXEC}/
-	cp ./hyprland.portal ${SHARE}/xdg-desktop-portal/portals/
-	cp ./org.freedesktop.impl.portal.desktop.hyprland.service ${SHARE}/dbus-1/services/
+	cp -f ./build/hyprland-share-picker/hyprland-share-picker ${PREFIX}/bin
+	cp -f ./build/xdg-desktop-portal-hyprland ${LIBEXEC}/
+	cp -f ./hyprland.portal ${SHARE}/xdg-desktop-portal/portals/
+	sed "s|@libexecdir@|${LIBEXEC}|g" ./org.freedesktop.impl.portal.desktop.hyprland.service.in > ${SHARE}/dbus-1/services/org.freedesktop.impl.portal.desktop.hyprland
+	sed "s|@libexecdir@|${LIBEXEC}|g" ./contrib/systemd/xdg-desktop-portal-hyprland.service.in > ${LIBEXEC}/systemd/user/xdg-desktop-portal-hyprland.service
