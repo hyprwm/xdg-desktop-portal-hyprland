@@ -114,6 +114,7 @@ int main(int argc, char* argv[]) {
             ID             = ID.substr(ID.find_last_of('(') + 1);
             ID             = ID.substr(0, ID.find_last_of(')'));
 
+            std::cout << "[SELECTION]";
             std::cout << (ALLOWTOKENBUTTON->isChecked() ? "r" : "");
             std::cout << "/";
 
@@ -141,6 +142,7 @@ int main(int argc, char* argv[]) {
         mainPickerPtr->windowIDs[button] = window.id;
 
         QObject::connect(button, &QPushButton::clicked, [=]() {
+            std::cout << "[SELECTION]";
             std::cout << (ALLOWTOKENBUTTON->isChecked() ? "r" : "");
             std::cout << "/";
 
@@ -199,6 +201,7 @@ int main(int argc, char* argv[]) {
             REGION       = REGION.substr(REGION.find_first_of(' ') + 1);
             const auto H = std::stoi(REGION);
 
+            std::cout << "[SELECTION]";
             std::cout << (ALLOWTOKENBUTTON->isChecked() ? "r" : "");
             std::cout << "/";
 

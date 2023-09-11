@@ -42,15 +42,28 @@ SSelectionData promptForScreencopySelection() {
     const char*    HYPRLAND_INSTANCE_SIGNATURE = getenv("HYPRLAND_INSTANCE_SIGNATURE");
 
     std::string    cmd =
-        std::format("WAYLAND_DISPLAY={} QT_QPA_PLATFORM=\"wayland\" XCURSOR_SIZE={} HYPRLAND_INSTANCE_SIGNATURE={} XDPH_WINDOW_SHARING_LIST=\"{}\" hyprland-share-picker",
+        std::format("WAYLAND_DISPLAY={} QT_QPA_PLATFORM=\"wayland\" XCURSOR_SIZE={} HYPRLAND_INSTANCE_SIGNATURE={} XDPH_WINDOW_SHARING_LIST=\"{}\" hyprland-share-picker 2>&1",
                     WAYLAND_DISPLAY ? WAYLAND_DISPLAY : "", XCURSOR_SIZE ? XCURSOR_SIZE : "24", HYPRLAND_INSTANCE_SIGNATURE ? HYPRLAND_INSTANCE_SIGNATURE : "0", buildWindowList());
 
     const auto RETVAL = execAndGet(cmd.c_str());
 
-    Debug::log(LOG, "[sc] Selection: {}", RETVAL);
+    if (!RETVAL.contains("[SELECTION]")) {
+        // failed
 
-    const auto FLAGS = RETVAL.substr(0, RETVAL.find_first_of('/'));
-    const auto SEL   = RETVAL.substr(RETVAL.find_first_of('/') + 1);
+        if (RETVAL.contains("qt.qpa.plugin: Could not find the Qt platform plugin")) {
+            // prompt the user to install qt5-wayland and qt6-wayland
+            addHyprlandNotification("3", 7000, "0", "[xdph] Could not open the picker: qt5-wayland or qt6-wayland doesn't seem to be installed.");
+        }
+
+        return data;
+    }
+
+    const auto SELECTION = RETVAL.substr(RETVAL.find("[SELECTION]") + 11);
+
+    Debug::log(LOG, "[sc] Selection: {}", SELECTION);
+
+    const auto FLAGS = SELECTION.substr(0, SELECTION.find_first_of('/'));
+    const auto SEL   = SELECTION.substr(SELECTION.find_first_of('/') + 1);
 
     for (auto& flag : FLAGS) {
         if (flag == 'r') {
