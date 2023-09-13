@@ -645,7 +645,7 @@ void CScreencopyPortal::startFrameCopy(CScreencopyPortal::SSession* pSession) {
     else if (pSession->sharingData.windowFrameCallback)
         hyprland_toplevel_export_frame_v1_add_listener(pSession->sharingData.windowFrameCallback, &hyprlandFrameListener, pSession);
 
-    Debug::log(LOG, "[screencopy] frame callbacks initialized");
+    Debug::log(TRACE, "[screencopy] frame callbacks initialized");
 }
 
 void CScreencopyPortal::queueNextShareFrame(CScreencopyPortal::SSession* pSession) {
