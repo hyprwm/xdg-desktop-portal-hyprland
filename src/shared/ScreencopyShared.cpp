@@ -11,7 +11,8 @@
 
 std::string sanitizeNameForWindowList(const std::string& name) {
     std::string result = name;
-	if (result[0] == '\"') result[0] = ' ';
+    if (result[0] == '\"')
+        result[0] = ' ';
     for (size_t i = 1; i < result.size(); ++i) {
         if (result[i - 1] == '>' && result[i] == ']')
             result[i] = ' ';
@@ -22,14 +23,14 @@ std::string sanitizeNameForWindowList(const std::string& name) {
 }
 
 std::string buildWindowList() {
-    std::string result     = "";
+    std::string result = "";
     if (!g_pPortalManager->m_sPortals.screencopy->hasToplevelCapabilities())
         return result;
 
     for (auto& e : g_pPortalManager->m_sHelpers.toplevel->m_vToplevels) {
 
         result += std::format("{}[HC>]{}[HT>]{}[HE>]", (uint32_t)(((uint64_t)e->handle) & 0xFFFFFFFF), sanitizeNameForWindowList(e->windowClass),
-                                  sanitizeNameForWindowList(e->windowTitle));
+                              sanitizeNameForWindowList(e->windowTitle));
     }
 
     return result;
