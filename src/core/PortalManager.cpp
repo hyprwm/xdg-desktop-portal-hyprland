@@ -290,16 +290,125 @@ void CPortalManager::init() {
 
     wl_display_roundtrip(m_sWaylandConnection.display);
 
-    while (1) {
-        // dbus events
+    startEventLoop();
+}
+
+void CPortalManager::startEventLoop() {
+
+    pollfd pollfds[] = {
+        {
+            .fd     = m_pConnection->getEventLoopPollData().fd,
+            .events = POLLIN,
+        },
+        {
+            .fd     = wl_display_get_fd(m_sWaylandConnection.display),
+            .events = POLLIN,
+        },
+        {
+            .fd     = pw_loop_get_fd(m_sPipewire.loop),
+            .events = POLLIN,
+        },
+    };
+
+    std::thread pollThr([this, &pollfds]() {
+        while (1) {
+            int ret = poll(pollfds, 3, -1);
+            if (ret < 0) {
+                Debug::log(CRIT, "[core] Polling fds failed with {}", strerror(errno));
+                exit(1);
+            }
+
+            for (size_t i = 0; i < 3; ++i) {
+                if (pollfds[0].revents & POLLHUP) {
+                    Debug::log(CRIT, "[core] Disconnected from pollfd id {}", i);
+                    exit(1);
+                }
+            }
+
+            {
+                Debug::log(TRACE, "[core] got poll event");
+                std::lock_guard<std::mutex> lg(m_sEventLoopInternals.loopRequestMutex);
+                m_sEventLoopInternals.shouldProcess = true;
+                m_sEventLoopInternals.loopSignal.notify_all();
+            }
+        }
+    });
+
+    m_sTimersThread.thread = std::make_unique<std::thread>([this] {
+        while (1) {
+            std::unique_lock lk(m_sTimersThread.loopMutex);
+
+            // find nearest timer ms
+            m_mEventLock.lock();
+            float nearest = 60000; /* reasonable timeout */
+            for (auto& t : m_sTimersThread.timers) {
+                float until = t->duration() - t->passedMs();
+                if (until < nearest)
+                    nearest = until;
+            }
+            m_mEventLock.unlock();
+
+            m_sTimersThread.loopSignal.wait_for(lk, std::chrono::milliseconds((int)nearest), [this] { return m_sTimersThread.shouldProcess; });
+            m_sTimersThread.shouldProcess = false;
+
+            // awakened. Check if any timers passed
+            m_mEventLock.lock();
+            bool notify = false;
+            for (auto& t : m_sTimersThread.timers) {
+                if (t->passed()) {
+                    Debug::log(TRACE, "[core] got timer event");
+                    notify = true;
+                    break;
+                }
+            }
+            m_mEventLock.unlock();
+
+            if (notify) {
+                std::lock_guard<std::mutex> lg(m_sEventLoopInternals.loopRequestMutex);
+                m_sEventLoopInternals.shouldProcess = true;
+                m_sEventLoopInternals.loopSignal.notify_all();
+            }
+        }
+    });
+
+    while (1) { // dbus events
+        // wait for being awakened
+        m_sEventLoopInternals.loopRequestMutex.unlock(); // unlock, we are ready to take events
+
+        std::unique_lock lk(m_sEventLoopInternals.loopMutex);
+        if (m_sEventLoopInternals.shouldProcess == false) // avoid a lock if a thread managed to request something already since we .unlock()ed
+            m_sEventLoopInternals.loopSignal.wait(lk, [this] { return m_sEventLoopInternals.shouldProcess == true; }); // wait for events
+
+        m_sEventLoopInternals.loopRequestMutex.lock(); // lock incoming events
+
+        m_sEventLoopInternals.shouldProcess = false;
+
         m_mEventLock.lock();
 
-        while (m_pConnection->processPendingRequest()) {
-            ;
+        if (pollfds[0].revents & POLLIN /* dbus */) {
+            while (m_pConnection->processPendingRequest()) {
+                ;
+            }
+        }
+
+        if (pollfds[1].revents & POLLIN /* wl */) {
+            wl_display_flush(m_sWaylandConnection.display);
+            if (wl_display_prepare_read(m_sWaylandConnection.display) == 0) {
+                wl_display_read_events(m_sWaylandConnection.display);
+                wl_display_dispatch_pending(m_sWaylandConnection.display);
+            } else {
+                wl_display_dispatch(m_sWaylandConnection.display);
+            }
+        }
+
+        if (pollfds[2].revents & POLLIN /* pw */) {
+            while (pw_loop_iterate(m_sPipewire.loop, 0) != 0) {
+                ;
+            }
         }
 
         std::vector<CTimer*> toRemove;
-        for (auto& t : m_vTimers) {
+        for (auto& t : m_sTimersThread.timers) {
             if (t->passed()) {
                 t->m_fnCallback();
                 toRemove.emplace_back(t.get());
@@ -307,26 +416,21 @@ void CPortalManager::init() {
             }
         }
 
-        while (pw_loop_iterate(m_sPipewire.loop, 0) != 0) {
-            ;
-        }
-
-        wl_display_flush(m_sWaylandConnection.display);
-        if (wl_display_prepare_read(m_sWaylandConnection.display) == 0) {
-            wl_display_read_events(m_sWaylandConnection.display);
-            wl_display_dispatch_pending(m_sWaylandConnection.display);
-        } else {
-            wl_display_dispatch(m_sWaylandConnection.display);
-        }
+        // finalize wayland dispatching. Dispatch pending on the queue
+        int ret = 0;
+        do {
+            ret = wl_display_dispatch_pending(m_sWaylandConnection.display);
+            wl_display_flush(m_sWaylandConnection.display);
+        } while (ret > 0);
 
         if (!toRemove.empty())
-            std::erase_if(m_vTimers,
+            std::erase_if(m_sTimersThread.timers,
                           [&](const auto& t) { return std::find_if(toRemove.begin(), toRemove.end(), [&](const auto& other) { return other == t.get(); }) != toRemove.end(); });
 
         m_mEventLock.unlock();
-
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
+
+    m_sTimersThread.thread.release();
 }
 
 sdbus::IConnection* CPortalManager::getConnection() {
@@ -381,4 +485,11 @@ gbm_device* CPortalManager::createGBMDevice(drmDevice* dev) {
 
     free(renderNode);
     return gbm_create_device(fd);
+}
+
+void CPortalManager::addTimer(const CTimer& timer) {
+    Debug::log(TRACE, "[core] adding timer for {}ms", timer.duration());
+    m_sTimersThread.timers.emplace_back(std::make_unique<CTimer>(timer));
+    m_sTimersThread.shouldProcess = true;
+    m_sTimersThread.loopSignal.notify_all();
 }

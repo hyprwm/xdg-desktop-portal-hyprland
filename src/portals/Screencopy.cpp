@@ -654,8 +654,7 @@ void CScreencopyPortal::queueNextShareFrame(CScreencopyPortal::SSession* pSessio
     if (PSTREAM && !PSTREAM->streamState)
         return;
 
-    g_pPortalManager->m_vTimers.emplace_back(
-        std::make_unique<CTimer>(1000.0 / pSession->sharingData.framerate, [pSession]() { g_pPortalManager->m_sPortals.screencopy->startFrameCopy(pSession); }));
+    g_pPortalManager->addTimer({1000.0 / pSession->sharingData.framerate, [pSession]() { g_pPortalManager->m_sPortals.screencopy->startFrameCopy(pSession); }});
 }
 bool CScreencopyPortal::hasToplevelCapabilities() {
     return m_sState.toplevel;

@@ -65,13 +65,30 @@ class CPortalManager {
         } dma;
     } m_sWaylandConnection;
 
-    std::vector<SDMABUFModifier>         m_vDMABUFMods;
+    std::vector<SDMABUFModifier> m_vDMABUFMods;
 
-    std::vector<std::unique_ptr<CTimer>> m_vTimers;
+    void                         addTimer(const CTimer& timer);
 
-    gbm_device*                          createGBMDevice(drmDevice* dev);
+    gbm_device*                  createGBMDevice(drmDevice* dev);
 
   private:
+    void startEventLoop();
+
+    struct {
+        std::condition_variable loopSignal;
+        std::mutex              loopMutex;
+        std::atomic<bool>       shouldProcess = false;
+        std::mutex              loopRequestMutex;
+    } m_sEventLoopInternals;
+
+    struct {
+        std::condition_variable              loopSignal;
+        std::mutex                           loopMutex;
+        bool                                 shouldProcess = false;
+        std::vector<std::unique_ptr<CTimer>> timers;
+        std::unique_ptr<std::thread>         thread;
+    } m_sTimersThread;
+
     std::unique_ptr<sdbus::IConnection>   m_pConnection;
     std::vector<std::unique_ptr<SOutput>> m_vOutputs;
 

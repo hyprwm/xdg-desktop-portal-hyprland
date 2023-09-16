@@ -8,6 +8,8 @@ class CTimer {
     CTimer(float ms, std::function<void()> callback);
 
     bool                  passed() const;
+    float                 passedMs() const;
+    float                 duration() const;
 
     std::function<void()> m_fnCallback;
 
