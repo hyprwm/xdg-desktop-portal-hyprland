@@ -11,6 +11,8 @@
 
 std::string sanitizeNameForWindowList(const std::string& name) {
     std::string result = name;
+    if (result[0] == '\"')
+        result[0] = ' ';
     for (size_t i = 1; i < result.size(); ++i) {
         if (result[i - 1] == '>' && result[i] == ']')
             result[i] = ' ';
