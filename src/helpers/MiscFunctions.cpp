@@ -1,5 +1,6 @@
 #include "MiscFunctions.hpp"
 #include <memory>
+#include <unistd.h>
 #include "../helpers/Log.hpp"
 
 std::string execAndGet(const char* cmd) {
