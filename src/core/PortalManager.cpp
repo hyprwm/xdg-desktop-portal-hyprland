@@ -1,6 +1,7 @@
 #include "PortalManager.hpp"
 #include "../helpers/Log.hpp"
 
+#include <cstdint>
 #include <protocols/hyprland-global-shortcuts-v1-protocol.h>
 #include <protocols/hyprland-toplevel-export-v1-protocol.h>
 #include <protocols/wlr-foreign-toplevel-management-unstable-v1-protocol.h>
@@ -169,7 +170,8 @@ static void dmabufFeedbackTrancheFormats(void* data, zwp_linux_dmabuf_feedback_v
     uint32_t  n_modifiers = g_pPortalManager->m_sWaylandConnection.dma.formatTableSize / sizeof(struct fm_entry);
     fm_entry* fm_entry    = (struct fm_entry*)g_pPortalManager->m_sWaylandConnection.dma.formatTable;
     uint16_t* idx;
-    wl_array_for_each(idx, indices) {
+
+    for (idx = reinterpret_cast<uint16_t*>(indices->data); reinterpret_cast<const char*>(idx) < reinterpret_cast<const char*>(indices->data) + indices->size; idx++) {
         if (*idx >= n_modifiers)
             continue;
 
