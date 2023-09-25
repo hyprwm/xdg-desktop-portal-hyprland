@@ -1,7 +1,6 @@
 #include "PortalManager.hpp"
 #include "../helpers/Log.hpp"
 
-#include <cstdint>
 #include <protocols/hyprland-global-shortcuts-v1-protocol.h>
 #include <protocols/hyprland-toplevel-export-v1-protocol.h>
 #include <protocols/wlr-foreign-toplevel-management-unstable-v1-protocol.h>
