@@ -25,10 +25,11 @@ endif
 add_project_arguments(cpp_compiler.get_supported_arguments([
   '-Wno-missing-field-initializers',
   '-Wno-narrowing',
-	'-Wno-pointer-arith',
+  '-Wno-pointer-arith',
   '-Wno-unused-parameter',
   '-Wno-unused-value',
-	'-fpermissive'
+  '-fpermissive',
+  '-Wno-address-of-temporary'
 ]), language: 'cpp')
 
 conf_data = configuration_data()

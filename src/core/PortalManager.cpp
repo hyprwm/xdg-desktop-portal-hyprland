@@ -169,7 +169,8 @@ static void dmabufFeedbackTrancheFormats(void* data, zwp_linux_dmabuf_feedback_v
     uint32_t  n_modifiers = g_pPortalManager->m_sWaylandConnection.dma.formatTableSize / sizeof(struct fm_entry);
     fm_entry* fm_entry    = (struct fm_entry*)g_pPortalManager->m_sWaylandConnection.dma.formatTable;
     uint16_t* idx;
-    wl_array_for_each(idx, indices) {
+
+    for (idx = (uint16_t*)indices->data; (const char*)idx < (const char*)indices->data + indices->size; idx++) {
         if (*idx >= n_modifiers)
             continue;
 
