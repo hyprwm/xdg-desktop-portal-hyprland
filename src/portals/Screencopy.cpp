@@ -968,6 +968,7 @@ void CPipewireConnection::createStream(CScreencopyPortal::SSession* pSession) {
     if (!PSTREAM->stream) {
         Debug::log(ERR, "[pipewire] refused to create stream");
         g_pPortalManager->terminate();
+        return;
     }
 
     spa_pod_builder* builder[2] = {&dynBuilder[0].b, &dynBuilder[1].b};
