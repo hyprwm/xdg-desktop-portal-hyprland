@@ -71,8 +71,13 @@ class CPortalManager {
 
     gbm_device*                  createGBMDevice(drmDevice* dev);
 
+    // terminate after the event loop has been created. Before we can exit()
+    void terminate();
+
   private:
     void startEventLoop();
+
+    bool m_bTerminate = false;
 
     struct {
         std::condition_variable loopSignal;

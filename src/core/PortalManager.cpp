@@ -313,20 +313,23 @@ void CPortalManager::startEventLoop() {
 
     std::thread pollThr([this, &pollfds]() {
         while (1) {
-            int ret = poll(pollfds, 3, -1);
+            int ret = poll(pollfds, 3, 5 /* 5 seconds, reasonable. It's because we might need to terminate */);
             if (ret < 0) {
                 Debug::log(CRIT, "[core] Polling fds failed with {}", strerror(errno));
-                exit(1);
+                g_pPortalManager->terminate();
             }
 
             for (size_t i = 0; i < 3; ++i) {
                 if (pollfds[0].revents & POLLHUP) {
                     Debug::log(CRIT, "[core] Disconnected from pollfd id {}", i);
-                    exit(1);
+                    g_pPortalManager->terminate();
                 }
             }
 
-            {
+            if (m_bTerminate)
+                break;
+
+            if (ret != 0) {
                 Debug::log(TRACE, "[core] got poll event");
                 std::lock_guard<std::mutex> lg(m_sEventLoopInternals.loopRequestMutex);
                 m_sEventLoopInternals.shouldProcess = true;
@@ -352,6 +355,9 @@ void CPortalManager::startEventLoop() {
             m_sTimersThread.loopSignal.wait_for(lk, std::chrono::milliseconds((int)nearest), [this] { return m_sTimersThread.shouldProcess; });
             m_sTimersThread.shouldProcess = false;
 
+            if (m_bTerminate)
+                break;
+
             // awakened. Check if any timers passed
             m_mEventLock.lock();
             bool notify = false;
@@ -372,6 +378,8 @@ void CPortalManager::startEventLoop() {
         }
     });
 
+    addTimer({10000, [this] { this->terminate(); }});
+
     while (1) { // dbus events
         // wait for being awakened
         m_sEventLoopInternals.loopRequestMutex.unlock(); // unlock, we are ready to take events
@@ -381,6 +389,9 @@ void CPortalManager::startEventLoop() {
             m_sEventLoopInternals.loopSignal.wait(lk, [this] { return m_sEventLoopInternals.shouldProcess == true; }); // wait for events
 
         m_sEventLoopInternals.loopRequestMutex.lock(); // lock incoming events
+
+        if (m_bTerminate)
+            break;
 
         m_sEventLoopInternals.shouldProcess = false;
 
@@ -431,7 +442,17 @@ void CPortalManager::startEventLoop() {
         m_mEventLock.unlock();
     }
 
+    Debug::log(ERR, "[core] Terminated");
+
+    m_sPortals.globalShortcuts.reset();
+    m_sPortals.screencopy.reset();
+
+    m_pConnection.reset();
+    pw_loop_destroy(m_sPipewire.loop);
+    wl_display_disconnect(m_sWaylandConnection.display);
+
     m_sTimersThread.thread.release();
+    pollThr.join(); // wait for poll to exit
 }
 
 sdbus::IConnection* CPortalManager::getConnection() {
@@ -491,6 +512,18 @@ gbm_device* CPortalManager::createGBMDevice(drmDevice* dev) {
 void CPortalManager::addTimer(const CTimer& timer) {
     Debug::log(TRACE, "[core] adding timer for {}ms", timer.duration());
     m_sTimersThread.timers.emplace_back(std::make_unique<CTimer>(timer));
+    m_sTimersThread.shouldProcess = true;
+    m_sTimersThread.loopSignal.notify_all();
+}
+
+void CPortalManager::terminate() {
+    m_bTerminate = true;
+
+    {
+        m_sEventLoopInternals.shouldProcess = true;
+        m_sEventLoopInternals.loopSignal.notify_all();
+    }
+
     m_sTimersThread.shouldProcess = true;
     m_sTimersThread.loopSignal.notify_all();
 }
