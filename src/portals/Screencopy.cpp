@@ -102,6 +102,7 @@ static void wlrOnBufferDone(void* data, zwlr_screencopy_frame_v1* frame) {
 
     Debug::log(TRACE, "[sc] pw format {} size {}x{}", (int)PSTREAM->pwVideoInfo.format, PSTREAM->pwVideoInfo.size.width, PSTREAM->pwVideoInfo.size.height);
     Debug::log(TRACE, "[sc] wlr format {} size {}x{}", (int)PSESSION->sharingData.frameInfoSHM.fmt, PSESSION->sharingData.frameInfoSHM.w, PSESSION->sharingData.frameInfoSHM.h);
+    Debug::log(TRACE, "[sc] wlr format dma {} size {}x{}", (int)PSESSION->sharingData.frameInfoDMA.fmt, PSESSION->sharingData.frameInfoDMA.w, PSESSION->sharingData.frameInfoDMA.h);
 
     const auto FMT = PSTREAM->isDMA ? PSESSION->sharingData.frameInfoDMA.fmt : PSESSION->sharingData.frameInfoSHM.fmt;
     if ((PSTREAM->pwVideoInfo.format != pwFromDrmFourcc(FMT) && PSTREAM->pwVideoInfo.format != pwStripAlpha(pwFromDrmFourcc(FMT))) ||
@@ -1062,7 +1063,7 @@ uint32_t CPipewireConnection::buildFormatsFor(spa_pod_builder* b[2], const spa_p
 
         paramCount = 2;
         params[0]  = build_format(b[0], pwFromDrmFourcc(stream->pSession->sharingData.frameInfoDMA.fmt), stream->pSession->sharingData.frameInfoDMA.w,
-                                  stream->pSession->sharingData.frameInfoDMA.h, stream->pSession->sharingData.framerate, modifiers, modCount);
+                                 stream->pSession->sharingData.frameInfoDMA.h, stream->pSession->sharingData.framerate, modifiers, modCount);
         assert(params[0] != NULL);
         params[1] = build_format(b[1], pwFromDrmFourcc(stream->pSession->sharingData.frameInfoSHM.fmt), stream->pSession->sharingData.frameInfoSHM.w,
                                  stream->pSession->sharingData.frameInfoSHM.h, stream->pSession->sharingData.framerate, NULL, 0);
@@ -1072,7 +1073,7 @@ uint32_t CPipewireConnection::buildFormatsFor(spa_pod_builder* b[2], const spa_p
 
         paramCount = 1;
         params[0]  = build_format(b[0], pwFromDrmFourcc(stream->pSession->sharingData.frameInfoSHM.fmt), stream->pSession->sharingData.frameInfoSHM.w,
-                                  stream->pSession->sharingData.frameInfoSHM.h, stream->pSession->sharingData.framerate, NULL, 0);
+                                 stream->pSession->sharingData.frameInfoSHM.h, stream->pSession->sharingData.framerate, NULL, 0);
     }
 
     return paramCount;
