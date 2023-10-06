@@ -1,7 +1,7 @@
 # xdg-desktop-portal-hyprland
 An [XDG Desktop Portal](https://github.com/flatpak/xdg-desktop-portal) backend for Hyprland.
 
-## Installation
+## Installing
 ```sh
 git clone --recursive https://github.com/hyprwm/xdg-desktop-portal-hyprland
 cd xdg-desktop-portal-hyprland/
