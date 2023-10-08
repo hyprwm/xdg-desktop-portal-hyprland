@@ -20,3 +20,4 @@ install:
 	cp -f ./hyprland.portal ${SHARE}/xdg-desktop-portal/portals/
 	sed "s|@libexecdir@|${LIBEXEC}|g" ./org.freedesktop.impl.portal.desktop.hyprland.service.in > ${SHARE}/dbus-1/services/org.freedesktop.impl.portal.desktop.hyprland
 	sed "s|@libexecdir@|${LIBEXEC}|g" ./contrib/systemd/xdg-desktop-portal-hyprland.service.in > ${LIBEXEC}/systemd/user/xdg-desktop-portal-hyprland.service
+	chmod 755 ${LIBEXEC}/xdg-desktop-portal-hyprland
