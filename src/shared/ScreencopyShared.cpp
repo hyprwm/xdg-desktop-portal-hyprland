@@ -132,7 +132,7 @@ wl_shm_format wlSHMFromDrmFourcc(uint32_t format) {
         case DRM_FORMAT_ABGR2101010:
         case DRM_FORMAT_RGBA1010102:
         case DRM_FORMAT_BGRA1010102: return (wl_shm_format)format;
-        default: Debug::log(ERR, "[screencopy] Unknown format {}", format); exit(1);
+        default: Debug::log(ERR, "[screencopy] Unknown format {}", format); abort();
     }
 }
 
@@ -155,7 +155,7 @@ uint32_t drmFourccFromSHM(wl_shm_format format) {
         case WL_SHM_FORMAT_ABGR2101010:
         case WL_SHM_FORMAT_RGBA1010102:
         case WL_SHM_FORMAT_BGRA1010102: return (uint32_t)format;
-        default: Debug::log(ERR, "[screencopy] Unknown format {}", (int)format); exit(1);
+        default: Debug::log(ERR, "[screencopy] Unknown format {}", (int)format); abort();
     }
 }
 
@@ -178,7 +178,7 @@ spa_video_format pwFromDrmFourcc(uint32_t format) {
         case DRM_FORMAT_ABGR2101010: return SPA_VIDEO_FORMAT_ABGR_210LE;
         case DRM_FORMAT_RGBA1010102: return SPA_VIDEO_FORMAT_RGBA_102LE;
         case DRM_FORMAT_BGRA1010102: return SPA_VIDEO_FORMAT_BGRA_102LE;
-        default: Debug::log(ERR, "[screencopy] Unknown format {}", (int)format); exit(1);
+        default: Debug::log(ERR, "[screencopy] Unknown format {}", (int)format); abort();
     }
 }
 
