@@ -378,8 +378,6 @@ void CPortalManager::startEventLoop() {
         }
     });
 
-    addTimer({10000, [this] { this->terminate(); }});
-
     while (1) { // dbus events
         // wait for being awakened
         m_sEventLoopInternals.loopRequestMutex.unlock(); // unlock, we are ready to take events
