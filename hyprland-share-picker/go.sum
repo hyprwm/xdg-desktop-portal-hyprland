@@ -1,0 +1,8 @@
+github.com/diamondburned/gotk4/pkg v0.0.5 h1:1NOpwNttT63zJdRItwf79ZyX6Bw2bkv8+YjfZCUevcc=
+github.com/diamondburned/gotk4/pkg v0.0.5/go.mod h1:Jr5xzUuGyLsoMtE9LzE/Lay1gD0ONiFWAmQ0+Z6KLeA=
+github.com/edjubert/hyprland-ipc-go v0.0.26 h1:+gG9YCJ2bLouADW4HiFZWSjQypCUSGozAcds7lk0tmc=
+github.com/edjubert/hyprland-ipc-go v0.0.26/go.mod h1:rUOpZlaFG+Aoa8lYMcVmkgD2m92H/Ojfn+buCNgmZHU=
+go4.org/unsafe/assume-no-moving-gc v0.0.0-20230221090011-e4bae7ad2296 h1:QJ/xcIANMLApehfgPCHnfK1hZiaMmbaTVmPv7DAoTbo=
+go4.org/unsafe/assume-no-moving-gc v0.0.0-20230221090011-e4bae7ad2296/go.mod h1:FftLjUGFEDu5k8lt0ddY+HcrH/qU/0qk+H8j9/nTl3E=
+golang.org/x/sync v0.0.0-20210220032951-036812b2e83c h1:5KslGYwFpkhGh+Q16bwMP3cOontH8FOep7tGV86Y7SQ=
+golang.org/x/sync v0.0.0-20210220032951-036812b2e83c/go.mod h1:RxMgew5VJxzue5/jJTE5uejpjVlOe/izrB70Jof72aM=

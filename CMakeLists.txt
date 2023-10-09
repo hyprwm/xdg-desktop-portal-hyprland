@@ -57,7 +57,7 @@ function(protocol protoPath protoName external)
             WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
         execute_process(
             COMMAND ${WaylandScanner} private-code ${protoPath} protocols/${protoName}-protocol.c
-            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})  
+            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
         target_sources(xdg-desktop-portal-hyprland PRIVATE protocols/${protoName}-protocol.c)
     else()
         execute_process(
@@ -65,7 +65,7 @@ function(protocol protoPath protoName external)
             WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
         execute_process(
             COMMAND ${WaylandScanner} private-code ${WAYLAND_PROTOCOLS_DIR}/${protoPath} protocols/${protoName}-protocol.c
-            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})  
+            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
         target_sources(xdg-desktop-portal-hyprland PRIVATE protocols/${protoName}-protocol.c)
     endif()
 endfunction()

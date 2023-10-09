@@ -57,6 +57,7 @@ build-*/
 
 .cache
 .vscode/
+.idea
 
 hyprland-share-picker/build/
 
