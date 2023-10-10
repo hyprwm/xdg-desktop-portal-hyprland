@@ -523,7 +523,7 @@ void CPortalManager::terminate() {
     // if we don't exit in 5s, we'll kill by force. Nuclear option. PIDs are not reused in linux until a wrap-around,
     // and I doubt anyone will make 4.2M PIDs within 5s.
     if (fork() == 0)
-        execl("/bin/sh", "/bin/sh", "-c", std::format("sleep 5 && kill -9 {}", m_iPID).c_str());
+        execl("/bin/sh", "/bin/sh", "-c", std::format("sleep 5 && kill -9 {}", m_iPID).c_str(), nullptr);
 
     {
         m_sEventLoopInternals.shouldProcess = true;
