@@ -1078,6 +1078,9 @@ uint32_t CPipewireConnection::buildFormatsFor(spa_pod_builder* b[2], const spa_p
                                  stream->pSession->sharingData.frameInfoSHM.h, stream->pSession->sharingData.framerate, NULL, 0);
     }
 
+    if (modifiers)
+        free(modifiers);
+
     return paramCount;
 }
 
