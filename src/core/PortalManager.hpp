@@ -75,9 +75,10 @@ class CPortalManager {
     void terminate();
 
   private:
-    void startEventLoop();
+    void  startEventLoop();
 
-    bool m_bTerminate = false;
+    bool  m_bTerminate = false;
+    pid_t m_iPID       = 0;
 
     struct {
         std::condition_variable loopSignal;
