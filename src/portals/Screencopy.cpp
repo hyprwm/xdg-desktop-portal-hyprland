@@ -1022,15 +1022,16 @@ static bool wlr_query_dmabuf_modifiers(uint32_t drm_format, uint32_t num_modifie
         return true;
     }
 
-    for (size_t i = 0; i < g_pPortalManager->m_vDMABUFMods.size(); ++i) {
+    size_t i = 0;
+    for (const auto& mod : g_pPortalManager->m_vDMABUFMods) {
         if (i >= num_modifiers)
             break;
 
-        const auto& mod = g_pPortalManager->m_vDMABUFMods[i];
-
         if (mod.fourcc == drm_format &&
-            (mod.mod == DRM_FORMAT_MOD_INVALID || gbm_device_get_format_modifier_plane_count(g_pPortalManager->m_sWaylandConnection.gbmDevice, mod.fourcc, mod.mod) > 0))
+            (mod.mod == DRM_FORMAT_MOD_INVALID || gbm_device_get_format_modifier_plane_count(g_pPortalManager->m_sWaylandConnection.gbmDevice, mod.fourcc, mod.mod) > 0)) {
             modifiers[i] = mod.mod;
+            ++i;
+        }
     }
 
     *max_modifiers = num_modifiers;
