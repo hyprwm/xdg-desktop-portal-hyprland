@@ -246,7 +246,7 @@ void CPortalManager::init() {
     m_iPID = getpid();
 
     try {
-        m_pConnection = sdbus::createDefaultBusConnection("org.freedesktop.impl.portal.desktop.hyprland");
+        m_pConnection = sdbus::createSessionBusConnection("org.freedesktop.impl.portal.desktop.hyprland");
     } catch (std::exception& e) {
         Debug::log(CRIT, "Couldn't create the dbus connection ({})", e.what());
         exit(1);
