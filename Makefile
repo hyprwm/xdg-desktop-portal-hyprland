@@ -6,11 +6,11 @@ all:
 
 release:
 	cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Release -H./ -B./build -G Ninja
-	cmake --build ./build --config Release --target all -j$(nproc)
+	cmake --build ./build --config Release --target all -j`nproc`
 
 debug:
 	cmake --no-warn-unused-cli -DCMAKE_BUILD_TYPE:STRING=Debug -H./ -B./build -G Ninja
-	cmake --build ./build --config Debug --target all -j$(nproc)
+	cmake --build ./build --config Debug --target all -j`nproc`
 
 install:
 	@if [ ! -f ./build/xdg-desktop-portal-hyprland ]; then echo -e "You need to run $(MAKE) all first.\n" && exit 1; fi
