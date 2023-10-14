@@ -323,7 +323,7 @@ void CPortalManager::startEventLoop() {
             }
 
             for (size_t i = 0; i < 3; ++i) {
-                if (pollfds[0].revents & POLLHUP) {
+                if (pollfds[i].revents & POLLHUP) {
                     Debug::log(CRIT, "[core] Disconnected from pollfd id {}", i);
                     g_pPortalManager->terminate();
                 }
