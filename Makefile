@@ -14,7 +14,7 @@ debug:
 
 install:
 	@if [ ! -f ./build/xdg-desktop-portal-hyprland ]; then echo -e "You need to run $(MAKE) all first.\n" && exit 1; fi
-	@echo -en "!NOTE: Please note make install does not compile xdg-desktop-portal-hyprland and only installs the already built files."
+	@echo -en "!NOTE: Please note make install does not compile xdg-desktop-portal-hyprland and only installs the already built files.\n"
 
 	mkdir -p ${PREFIX}/bin
 	mkdir -p ${PREFIX}/lib
