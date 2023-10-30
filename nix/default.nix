@@ -20,6 +20,7 @@
   slurp,
   hyprland-protocols,
   wayland,
+  debug ? false,
   version ? "git",
 }:
 stdenv.mkDerivation {
@@ -27,6 +28,11 @@ stdenv.mkDerivation {
   inherit version;
 
   src = ../.;
+
+  mesonBuildType =
+    if debug
+    then "debug"
+    else "release";
 
   nativeBuildInputs = [
     meson
