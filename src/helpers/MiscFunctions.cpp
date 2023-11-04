@@ -25,3 +25,7 @@ void addHyprlandNotification(const std::string& icon, float timeMs, const std::s
     if (fork() == 0)
         execl("/bin/sh", "/bin/sh", "-c", CMD.c_str(), nullptr);
 }
+
+bool fileExists(std::string path) {
+    return access(path.c_str(), F_OK) == 0;
+}
