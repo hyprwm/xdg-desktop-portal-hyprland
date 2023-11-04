@@ -202,8 +202,10 @@ void CPortalManager::onGlobal(void* data, struct wl_registry* registry, uint32_t
 
     Debug::log(LOG, " | Got interface: {} (ver {})", INTERFACE, version);
 
-    if (INTERFACE == zwlr_screencopy_manager_v1_interface.name && m_sPipewire.loop)
+    if (INTERFACE == zwlr_screencopy_manager_v1_interface.name && m_sPipewire.loop) {
         m_sPortals.screencopy = std::make_unique<CScreencopyPortal>((zwlr_screencopy_manager_v1*)wl_registry_bind(registry, name, &zwlr_screencopy_manager_v1_interface, version));
+        m_sPortals.screenshot = std::make_unique<CScreenshotPortal>();
+    }
 
     if (INTERFACE == hyprland_global_shortcuts_manager_v1_interface.name)
         m_sPortals.globalShortcuts = std::make_unique<CGlobalShortcutsPortal>(
