@@ -1,5 +1,6 @@
 #include "PortalManager.hpp"
 #include "../helpers/Log.hpp"
+#include "../helpers/MiscFunctions.hpp"
 
 #include <protocols/hyprland-global-shortcuts-v1-protocol.h>
 #include <protocols/hyprland-toplevel-export-v1-protocol.h>
@@ -291,6 +292,20 @@ void CPortalManager::init() {
         Debug::log(WARN, "Screencopy not started: compositor doesn't support zwlr_screencopy_v1 or pw refused a loop");
     else if (m_sWaylandConnection.hyprlandToplevelMgr)
         m_sPortals.screencopy->appendToplevelExport(m_sWaylandConnection.hyprlandToplevelMgr);
+
+    if (!inShellPath("grim"))
+        Debug::log(WARN, "grim not found. Screenshots will not work.");
+    else {
+        m_sPortals.screenshot = std::make_unique<CScreenshotPortal>();
+
+        if (!inShellPath("slurp"))
+            Debug::log(WARN, "slurp not found. You won't be able to select a region when screenshotting.");
+
+        if (!inShellPath("slurp") && !inShellPath("hyprpicker"))
+            Debug::log(WARN, "Neither slurp nor hyprpicker found. You won't be able to pick colors.");
+        else if (!inShellPath("hyprpicker"))
+            Debug::log(INFO, "hyprpicker not found. We suggest to use hyprpicker for color picking to be less meh.");
+    }
 
     wl_display_roundtrip(m_sWaylandConnection.display);
 

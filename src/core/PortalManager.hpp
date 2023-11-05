@@ -5,6 +5,7 @@
 #include <wayland-client.h>
 
 #include "../portals/Screencopy.hpp"
+#include "../portals/Screenshot.hpp"
 #include "../portals/GlobalShortcuts.hpp"
 #include "../helpers/Timer.hpp"
 #include "../shared/ToplevelManager.hpp"
@@ -43,6 +44,7 @@ class CPortalManager {
 
     struct {
         std::unique_ptr<CScreencopyPortal>      screencopy;
+        std::unique_ptr<CScreenshotPortal>      screenshot;
         std::unique_ptr<CGlobalShortcutsPortal> globalShortcuts;
     } m_sPortals;
 
