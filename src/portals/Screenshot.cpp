@@ -17,19 +17,25 @@ void pickHyprPicker(sdbus::MethodCall& call) {
     }
 
     std::array<uint8_t, 3> colors{0, 0, 0};
-    for (uint8_t i = 0; i < 2; i++) {
-        uint64_t next = rgbColor.find(' ');
 
-        if (next == std::string::npos) {
-            Debug::log(ERR, "hyprpicker returned strange output: " + rgbColor);
-            sendEmptyDbusMethodReply(call, 1);
-            return;
+    try {
+        for (uint8_t i = 0; i < 2; i++) {
+            uint64_t next = rgbColor.find(' ');
+
+            if (next == std::string::npos) {
+                Debug::log(ERR, "hyprpicker returned strange output: " + rgbColor);
+                sendEmptyDbusMethodReply(call, 1);
+                return;
+            }
+
+            colors[i] = std::stoi(rgbColor.substr(0, next));
+            rgbColor  = rgbColor.substr(next + 1, rgbColor.size() - next);
         }
-
-        colors[i] = std::stoi(rgbColor.substr(0, next));
-        rgbColor  = rgbColor.substr(next + 1, rgbColor.size() - next);
+        colors[2] = std::stoi(rgbColor);
+    } catch (...) {
+        Debug::log(ERR, "Reading RGB values from hyprpicker failed. This is likely a string to integer error.");
+        sendEmptyDbusMethodReply(call, 1);
     }
-    colors[2] = std::stoi(rgbColor);
 
     auto [r, g, b] = colors;
     std::unordered_map<std::string, sdbus::Variant> results;
@@ -57,36 +63,41 @@ void pickSlurp(sdbus::MethodCall& call) {
     }
 
     // convert it to a rgb value
-    std::string maxValString = ppmColor.substr(7, ppmColor.size());
-    maxValString             = maxValString.substr(0, maxValString.find(' '));
-    uint32_t maxVal          = std::stoi(maxValString);
+    try {
+        std::string maxValString = ppmColor.substr(7, ppmColor.size());
+        maxValString             = maxValString.substr(0, maxValString.find(' '));
+        uint32_t maxVal          = std::stoi(maxValString);
 
-    double r, g, b;
+        double r, g, b;
 
-    // 1 byte per triplet
-    if (maxVal < 256) {
-        std::string byteString = ppmColor.substr(11, 14);
+        // 1 byte per triplet
+        if (maxVal < 256) {
+            std::string byteString = ppmColor.substr(11, 14);
 
-        r = (uint8_t)byteString[0] / (maxVal * 1.0);
-        g = (uint8_t)byteString[1] / (maxVal * 1.0);
-        b = (uint8_t)byteString[2] / (maxVal * 1.0);
-    } else {
-        // 2 byte per triplet (MSB first)
-        std::string byteString = ppmColor.substr(11, 17);
+            r = (uint8_t)byteString[0] / (maxVal * 1.0);
+            g = (uint8_t)byteString[1] / (maxVal * 1.0);
+            b = (uint8_t)byteString[2] / (maxVal * 1.0);
+        } else {
+            // 2 byte per triplet (MSB first)
+            std::string byteString = ppmColor.substr(11, 17);
 
-        r = ((byteString[0] << 8) | byteString[1]) / (maxVal * 1.0);
-        g = ((byteString[2] << 8) | byteString[3]) / (maxVal * 1.0);
-        b = ((byteString[4] << 8) | byteString[5]) / (maxVal * 1.0);
+            r = ((byteString[0] << 8) | byteString[1]) / (maxVal * 1.0);
+            g = ((byteString[2] << 8) | byteString[3]) / (maxVal * 1.0);
+            b = ((byteString[4] << 8) | byteString[5]) / (maxVal * 1.0);
+        }
+
+        auto reply = call.createReply();
+
+        std::unordered_map<std::string, sdbus::Variant> results;
+        results["color"] = sdbus::Struct(std::tuple{r, g, b});
+
+        reply << (uint32_t)0;
+        reply << results;
+        reply.send();
+    } catch (...) {
+        Debug::log(ERR, "Converting PPM to RGB failed. This is likely a string to integer error.");
+        sendEmptyDbusMethodReply(call, 1);
     }
-
-    auto reply = call.createReply();
-
-    std::unordered_map<std::string, sdbus::Variant> results;
-    results["color"] = sdbus::Struct(std::tuple{r, g, b});
-
-    reply << (uint32_t)0;
-    reply << results;
-    reply.send();
 }
 
 CScreenshotPortal::CScreenshotPortal() {
@@ -134,11 +145,10 @@ void CScreenshotPortal::onScreenshot(sdbus::MethodCall& call) {
     std::filesystem::remove(FILE_PATH);
     std::filesystem::create_directory(HYPR_DIR);
 
-    if (isInteractive) {
+    if (isInteractive)
         execAndGet(SNAP_INTERACTIVE_CMD.c_str());
-    } else {
+    else
         execAndGet(SNAP_CMD.c_str());
-    }
 
     uint32_t responseCode = std::filesystem::exists(FILE_PATH) ? 0 : 1;
 
@@ -172,9 +182,8 @@ void CScreenshotPortal::onPickColor(sdbus::MethodCall& call) {
     }
 
     // use hyprpicker if installed, slurp as fallback
-    if (inShellPath("hyprpicker")) {
+    if (hyprPickerInstalled)
         pickHyprPicker(call);
-    } else {
+    else
         pickSlurp(call);
-    }
 }
