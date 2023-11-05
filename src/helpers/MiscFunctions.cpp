@@ -33,16 +33,14 @@ void addHyprlandNotification(const std::string& icon, float timeMs, const std::s
 
 bool inShellPath(const std::string& exec) {
 
-    if (exec.starts_with("/") || exec.starts_with("./") || exec.starts_with("../")) {
+    if (exec.starts_with("/") || exec.starts_with("./") || exec.starts_with("../"))
         return std::filesystem::exists(exec);
-    }
 
     // we are relative to our PATH
     const char* path = std::getenv("PATH");
 
-    if (!path) {
+    if (!path)
         return false;
-    }
 
     // collect paths
     std::string              pathString = path;
@@ -55,9 +53,8 @@ bool inShellPath(const std::string& exec) {
         }
     }
 
-    if (nextBegin < pathString.size()) {
+    if (nextBegin < pathString.size())
         paths.push_back(pathString.substr(nextBegin, pathString.size() - nextBegin));
-    }
 
     return std::ranges::any_of(paths, [&exec](std::string& path) { return std::filesystem::exists(path + "/" + exec); });
 }
