@@ -293,9 +293,9 @@ void CPortalManager::init() {
     else if (m_sWaylandConnection.hyprlandToplevelMgr)
         m_sPortals.screencopy->appendToplevelExport(m_sWaylandConnection.hyprlandToplevelMgr);
 
-    if (!inShellPath("grim")) {
+    if (!inShellPath("grim"))
         Debug::log(WARN, "grim not found. Screenshots will not work.");
-    } else {
+    else {
         m_sPortals.screenshot = std::make_unique<CScreenshotPortal>();
 
         if (!inShellPath("slurp"))
