@@ -988,6 +988,12 @@ void CPipewireConnection::createStream(CScreencopyPortal::SSession* pSession) {
 }
 
 void CPipewireConnection::destroyStream(CScreencopyPortal::SSession* pSession) {
+    // Disconnecting the stream can cause reentrance to this function.
+    if (pSession->sharingData.active == false) {
+        return;
+    }
+    pSession->sharingData.active = false;
+
     const auto PSTREAM = streamFromSession(pSession);
 
     if (!PSTREAM || !PSTREAM->stream)
@@ -1002,8 +1008,6 @@ void CPipewireConnection::destroyStream(CScreencopyPortal::SSession* pSession) {
     pw_stream_flush(PSTREAM->stream, false);
     pw_stream_disconnect(PSTREAM->stream);
     pw_stream_destroy(PSTREAM->stream);
-
-    pSession->sharingData.active = false;
 
     std::erase_if(m_vStreams, [&](const auto& other) { return other.get() == PSTREAM; });
 }
@@ -1065,7 +1069,7 @@ uint32_t CPipewireConnection::buildFormatsFor(spa_pod_builder* b[2], const spa_p
 
         paramCount = 2;
         params[0]  = build_format(b[0], pwFromDrmFourcc(stream->pSession->sharingData.frameInfoDMA.fmt), stream->pSession->sharingData.frameInfoDMA.w,
-                                 stream->pSession->sharingData.frameInfoDMA.h, stream->pSession->sharingData.framerate, modifiers, modCount);
+                                  stream->pSession->sharingData.frameInfoDMA.h, stream->pSession->sharingData.framerate, modifiers, modCount);
         assert(params[0] != NULL);
         params[1] = build_format(b[1], pwFromDrmFourcc(stream->pSession->sharingData.frameInfoSHM.fmt), stream->pSession->sharingData.frameInfoSHM.w,
                                  stream->pSession->sharingData.frameInfoSHM.h, stream->pSession->sharingData.framerate, NULL, 0);
@@ -1075,7 +1079,7 @@ uint32_t CPipewireConnection::buildFormatsFor(spa_pod_builder* b[2], const spa_p
 
         paramCount = 1;
         params[0]  = build_format(b[0], pwFromDrmFourcc(stream->pSession->sharingData.frameInfoSHM.fmt), stream->pSession->sharingData.frameInfoSHM.w,
-                                 stream->pSession->sharingData.frameInfoSHM.h, stream->pSession->sharingData.framerate, NULL, 0);
+                                  stream->pSession->sharingData.frameInfoSHM.h, stream->pSession->sharingData.framerate, NULL, 0);
     }
 
     if (modifiers)
