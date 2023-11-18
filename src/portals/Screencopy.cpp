@@ -996,9 +996,8 @@ void CPipewireConnection::createStream(CScreencopyPortal::SSession* pSession) {
 
 void CPipewireConnection::destroyStream(CScreencopyPortal::SSession* pSession) {
     // Disconnecting the stream can cause reentrance to this function.
-    if (pSession->sharingData.active == false) {
+    if (pSession->sharingData.active == false)
         return;
-    }
     pSession->sharingData.active = false;
 
     const auto PSTREAM = streamFromSession(pSession);
