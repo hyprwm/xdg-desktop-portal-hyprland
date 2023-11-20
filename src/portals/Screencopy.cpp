@@ -932,6 +932,9 @@ static void pwStreamRemoveBuffer(void* data, pw_buffer* buffer) {
     if (PSTREAM->currentPWBuffer == PBUFFER)
         PSTREAM->currentPWBuffer = nullptr;
 
+    if (PBUFFER->isDMABUF)
+        gbm_bo_destroy(PBUFFER->bo);
+
     wl_buffer_destroy(PBUFFER->wlBuffer);
     for (int plane = 0; plane < PBUFFER->planeCount; plane++) {
         close(PBUFFER->fd[plane]);
@@ -1075,7 +1078,7 @@ uint32_t CPipewireConnection::buildFormatsFor(spa_pod_builder* b[2], const spa_p
 
         paramCount = 2;
         params[0]  = build_format(b[0], pwFromDrmFourcc(stream->pSession->sharingData.frameInfoDMA.fmt), stream->pSession->sharingData.frameInfoDMA.w,
-                                  stream->pSession->sharingData.frameInfoDMA.h, stream->pSession->sharingData.framerate, modifiers, modCount);
+                                 stream->pSession->sharingData.frameInfoDMA.h, stream->pSession->sharingData.framerate, modifiers, modCount);
         assert(params[0] != NULL);
         params[1] = build_format(b[1], pwFromDrmFourcc(stream->pSession->sharingData.frameInfoSHM.fmt), stream->pSession->sharingData.frameInfoSHM.w,
                                  stream->pSession->sharingData.frameInfoSHM.h, stream->pSession->sharingData.framerate, NULL, 0);
@@ -1085,7 +1088,7 @@ uint32_t CPipewireConnection::buildFormatsFor(spa_pod_builder* b[2], const spa_p
 
         paramCount = 1;
         params[0]  = build_format(b[0], pwFromDrmFourcc(stream->pSession->sharingData.frameInfoSHM.fmt), stream->pSession->sharingData.frameInfoSHM.w,
-                                  stream->pSession->sharingData.frameInfoSHM.h, stream->pSession->sharingData.framerate, NULL, 0);
+                                 stream->pSession->sharingData.frameInfoSHM.h, stream->pSession->sharingData.framerate, NULL, 0);
     }
 
     if (modifiers)
