@@ -1009,7 +1009,13 @@ void CPipewireConnection::destroyStream(CScreencopyPortal::SSession* pSession) {
         return;
 
     if (!PSTREAM->buffers.empty()) {
+        std::vector<SBuffer*> bufs;
+
         for (auto& b : PSTREAM->buffers) {
+            bufs.push_back(b.get());
+        }
+
+        for (auto& b : bufs) {
             pwStreamRemoveBuffer(PSTREAM, b->pwBuffer);
         }
     }
