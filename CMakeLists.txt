@@ -25,7 +25,9 @@ include_directories(
 )
 
 set(CMAKE_CXX_STANDARD 23)
-add_compile_options(-Wall -Wextra -Wno-unused-parameter -Wno-unused-value -Wno-missing-field-initializers -Wno-narrowing -Wno-pointer-arith -fpermissive)
+add_compile_options(-Wall -Wextra -Wno-unused-parameter -Wno-unused-value
+	-Wno-missing-field-initializers -Wno-narrowing -Wno-pointer-arith
+	-fpermissive -Wno-address-of-temporary)
 
 message(STATUS "Checking deps...")
 add_subdirectory(subprojects/sdbus-cpp)
@@ -57,7 +59,7 @@ function(protocol protoPath protoName external)
             WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
         execute_process(
             COMMAND ${WaylandScanner} private-code ${protoPath} protocols/${protoName}-protocol.c
-            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})  
+            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
         target_sources(xdg-desktop-portal-hyprland PRIVATE protocols/${protoName}-protocol.c)
     else()
         execute_process(
@@ -65,7 +67,7 @@ function(protocol protoPath protoName external)
             WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
         execute_process(
             COMMAND ${WaylandScanner} private-code ${WAYLAND_PROTOCOLS_DIR}/${protoPath} protocols/${protoName}-protocol.c
-            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})  
+            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
         target_sources(xdg-desktop-portal-hyprland PRIVATE protocols/${protoName}-protocol.c)
     endif()
 endfunction()
