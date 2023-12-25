@@ -330,7 +330,7 @@ void CPortalManager::startEventLoop() {
 
     std::thread pollThr([this, &pollfds]() {
         while (1) {
-            int ret = poll(pollfds, 3, 5 /* 5 seconds, reasonable. It's because we might need to terminate */);
+            int ret = poll(pollfds, 3, 5000 /* 5 seconds, reasonable. It's because we might need to terminate */);
             if (ret < 0) {
                 Debug::log(CRIT, "[core] Polling fds failed with {}", strerror(errno));
                 g_pPortalManager->terminate();
