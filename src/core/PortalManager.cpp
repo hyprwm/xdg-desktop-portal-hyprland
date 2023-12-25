@@ -235,8 +235,7 @@ void CPortalManager::onGlobal(void* data, struct wl_registry* registry, uint32_t
         m_sWaylandConnection.shm = (wl_shm*)wl_registry_bind(registry, name, &wl_shm_interface, version);
 
     else if (INTERFACE == zwlr_foreign_toplevel_manager_v1_interface.name)
-        m_sHelpers.toplevel =
-            std::make_unique<CToplevelManager>((zwlr_foreign_toplevel_manager_v1*)wl_registry_bind(registry, name, &zwlr_foreign_toplevel_manager_v1_interface, version));
+        m_sHelpers.toplevel = std::make_unique<CToplevelManager>(registry, name, version);
 }
 
 void CPortalManager::onGlobalRemoved(void* data, struct wl_registry* registry, uint32_t name) {

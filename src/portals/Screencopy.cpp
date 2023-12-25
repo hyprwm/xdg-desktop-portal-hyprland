@@ -285,6 +285,8 @@ static const hyprland_toplevel_export_frame_v1_listener hyprlandFrameListener = 
 void CScreencopyPortal::onCreateSession(sdbus::MethodCall& call) {
     sdbus::ObjectPath requestHandle, sessionHandle;
 
+    g_pPortalManager->m_sHelpers.toplevel->activate();
+
     call >> requestHandle;
     call >> sessionHandle;
 
@@ -307,6 +309,9 @@ void CScreencopyPortal::onCreateSession(sdbus::MethodCall& call) {
         }
         PSESSION->session.release();
         Debug::log(LOG, "[screencopy] Session destroyed");
+
+        // deactivate toplevel so it doesn't listen and waste battery
+        g_pPortalManager->m_sHelpers.toplevel->deactivate();
     };
     PSESSION->request            = createDBusRequest(requestHandle);
     PSESSION->request->onDestroy = [PSESSION]() { PSESSION->request.release(); };
@@ -1085,7 +1090,7 @@ uint32_t CPipewireConnection::buildFormatsFor(spa_pod_builder* b[2], const spa_p
 
         paramCount = 2;
         params[0]  = build_format(b[0], pwFromDrmFourcc(stream->pSession->sharingData.frameInfoDMA.fmt), stream->pSession->sharingData.frameInfoDMA.w,
-                                 stream->pSession->sharingData.frameInfoDMA.h, stream->pSession->sharingData.framerate, modifiers, modCount);
+                                  stream->pSession->sharingData.frameInfoDMA.h, stream->pSession->sharingData.framerate, modifiers, modCount);
         assert(params[0] != NULL);
         params[1] = build_format(b[1], pwFromDrmFourcc(stream->pSession->sharingData.frameInfoSHM.fmt), stream->pSession->sharingData.frameInfoSHM.w,
                                  stream->pSession->sharingData.frameInfoSHM.h, stream->pSession->sharingData.framerate, NULL, 0);
@@ -1095,7 +1100,7 @@ uint32_t CPipewireConnection::buildFormatsFor(spa_pod_builder* b[2], const spa_p
 
         paramCount = 1;
         params[0]  = build_format(b[0], pwFromDrmFourcc(stream->pSession->sharingData.frameInfoSHM.fmt), stream->pSession->sharingData.frameInfoSHM.w,
-                                 stream->pSession->sharingData.frameInfoSHM.h, stream->pSession->sharingData.framerate, NULL, 0);
+                                  stream->pSession->sharingData.frameInfoSHM.h, stream->pSession->sharingData.framerate, NULL, 0);
     }
 
     if (modifiers)
