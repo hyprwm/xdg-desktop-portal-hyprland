@@ -234,8 +234,12 @@ void CPortalManager::onGlobal(void* data, struct wl_registry* registry, uint32_t
     else if (INTERFACE == wl_shm_interface.name)
         m_sWaylandConnection.shm = (wl_shm*)wl_registry_bind(registry, name, &wl_shm_interface, version);
 
-    else if (INTERFACE == zwlr_foreign_toplevel_manager_v1_interface.name)
+    else if (INTERFACE == zwlr_foreign_toplevel_manager_v1_interface.name) {
         m_sHelpers.toplevel = std::make_unique<CToplevelManager>(registry, name, version);
+
+        // remove when another fix is found for https://github.com/hyprwm/xdg-desktop-portal-hyprland/issues/147
+        m_sHelpers.toplevel->activate();
+    }
 }
 
 void CPortalManager::onGlobalRemoved(void* data, struct wl_registry* registry, uint32_t name) {
