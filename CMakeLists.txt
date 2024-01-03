@@ -21,26 +21,39 @@ endif()
 include_directories(
   .
   "protocols/"
-  "subprojects/sdbus-cpp/include/"
 )
+
+# configure
+set(LIBEXECDIR ${CMAKE_INSTALL_LIBEXECDIR})
+configure_file(org.freedesktop.impl.portal.desktop.hyprland.service.in org.freedesktop.impl.portal.desktop.hyprland.service @ONLY)
+configure_file(contrib/systemd/xdg-desktop-portal-hyprland.service.in contrib/systemd/xdg-desktop-portal-hyprland.service @ONLY)
 
 set(CMAKE_CXX_STANDARD 23)
 add_compile_options(-Wall -Wextra -Wno-unused-parameter -Wno-unused-value
 	-Wno-missing-field-initializers -Wno-narrowing -Wno-pointer-arith
-	-fpermissive -Wno-address-of-temporary)
+	-fpermissive)
 
+# dependencies
 message(STATUS "Checking deps...")
 add_subdirectory(hyprland-share-picker)
 
 find_package(Threads REQUIRED)
-
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(deps REQUIRED IMPORTED_TARGET wayland-client wayland-protocols libpipewire-0.3 libspa-0.2 libdrm gbm hyprlang>=0.2.0)
 
 # check whether we can find sdbus-c++ through pkg-config
 pkg_check_modules(SDBUS IMPORTED_TARGET sdbus-c++)
 if(NOT SDBUS_FOUND)
+    include_directories("subprojects/sdbus-cpp/include/")
     add_subdirectory(subprojects/sdbus-cpp)
+endif()
+
+# same for hyprland-protocols
+pkg_check_modules(HYPRLAND_PROTOS IMPORTED_TARGET hyprland-protocols)
+if(HYPRLAND_PROTOS_FOUND)
+    set(HYPRLAND_PROTOCOLS "${HYPRLAND_PROTOS_PREFIX}/share/hyprland-protocols")
+else()
+    set(HYPRLAND_PROTOCOLS "subprojects/hyprland-protocols")
 endif()
 
 file(GLOB_RECURSE SRCFILES CONFIGURE_DEPENDS "src/*.cpp")
@@ -79,7 +92,14 @@ endfunction()
 
 protocol("protocols/wlr-foreign-toplevel-management-unstable-v1.xml" "wlr-foreign-toplevel-management-unstable-v1" true)
 protocol("protocols/wlr-screencopy-unstable-v1.xml" "wlr-screencopy-unstable-v1" true)
-protocol("subprojects/hyprland-protocols/protocols/hyprland-global-shortcuts-v1.xml" "hyprland-global-shortcuts-v1" true)
-protocol("subprojects/hyprland-protocols/protocols/hyprland-toplevel-export-v1.xml" "hyprland-toplevel-export-v1" true)
+protocol("${HYPRLAND_PROTOCOLS}/protocols/hyprland-global-shortcuts-v1.xml" "hyprland-global-shortcuts-v1" true)
+protocol("${HYPRLAND_PROTOCOLS}/protocols/hyprland-toplevel-export-v1.xml" "hyprland-toplevel-export-v1" true)
 protocol("unstable/linux-dmabuf/linux-dmabuf-unstable-v1.xml" "linux-dmabuf-unstable-v1" false)
-##
+
+# Installation
+install(TARGETS hyprland-share-picker)
+install(TARGETS xdg-desktop-portal-hyprland DESTINATION ${CMAKE_INSTALL_LIBEXECDIR})
+
+install(FILES hyprland.portal DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/xdg-desktop-portal/portals")
+install(FILES ${CMAKE_BINARY_DIR}/org.freedesktop.impl.portal.desktop.hyprland.service DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/dbus-1/services")
+install(FILES ${CMAKE_BINARY_DIR}/contrib/systemd/xdg-desktop-portal-hyprland.service DESTINATION "${CMAKE_INSTALL_LIBDIR}/systemd/user")
