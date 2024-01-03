@@ -38,7 +38,6 @@
     packages = eachSystem (system: {
       inherit (pkgsFor.${system}) xdg-desktop-portal-hyprland;
       default = self.packages.${system}.xdg-desktop-portal-hyprland;
-      inherit (inputs.hyprlang.packages.${system}) hyprlang;
     });
 
     formatter = eachSystem (system: nixpkgs.legacyPackages.${system}.alejandra);

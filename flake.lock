@@ -1,23 +1,5 @@
 {
   "nodes": {
-    "hyprlang": {
-      "inputs": {
-        "nixpkgs": "nixpkgs"
-      },
-      "locked": {
-        "lastModified": 1704112024,
-        "narHash": "sha256-eKS5iEiyfxQYc4R0Bofxtd9rdCCDzw8kpYZx/xj6wb0=",
-        "owner": "hyprwm",
-        "repo": "hyprlang",
-        "rev": "5cb3d2ba62d94b1e470d308ae05a9589b22c3c07",
-        "type": "github"
-      },
-      "original": {
-        "owner": "hyprwm",
-        "repo": "hyprlang",
-        "type": "github"
-      }
-    },
     "hyprland-protocols": {
       "inputs": {
         "nixpkgs": [
@@ -41,7 +23,41 @@
         "type": "github"
       }
     },
+    "hyprlang": {
+      "inputs": {
+        "nixpkgs": "nixpkgs"
+      },
+      "locked": {
+        "lastModified": 1704112024,
+        "narHash": "sha256-eKS5iEiyfxQYc4R0Bofxtd9rdCCDzw8kpYZx/xj6wb0=",
+        "owner": "hyprwm",
+        "repo": "hyprlang",
+        "rev": "5cb3d2ba62d94b1e470d308ae05a9589b22c3c07",
+        "type": "github"
+      },
+      "original": {
+        "owner": "hyprwm",
+        "repo": "hyprlang",
+        "type": "github"
+      }
+    },
     "nixpkgs": {
+      "locked": {
+        "lastModified": 1694183432,
+        "narHash": "sha256-YyPGNapgZNNj51ylQMw9lAgvxtM2ai1HZVUu3GS8Fng=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "db9208ab987cdeeedf78ad9b4cf3c55f5ebd269b",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixos-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "nixpkgs_2": {
       "locked": {
         "lastModified": 1694183432,
         "narHash": "sha256-YyPGNapgZNNj51ylQMw9lAgvxtM2ai1HZVUu3GS8Fng=",
@@ -60,9 +76,9 @@
     "root": {
       "inputs": {
         "hyprland-protocols": "hyprland-protocols",
-        "nixpkgs": "nixpkgs",
-        "systems": "systems",
-        "hyprlang": "hyprlang"
+        "hyprlang": "hyprlang",
+        "nixpkgs": "nixpkgs_2",
+        "systems": "systems"
       }
     },
     "systems": {
