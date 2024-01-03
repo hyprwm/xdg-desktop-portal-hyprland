@@ -198,6 +198,25 @@ inline const zwp_linux_dmabuf_feedback_v1_listener dmabufFeedbackListener = {
 
 //
 
+CPortalManager::CPortalManager() {
+    const auto XDG_CONFIG_HOME = getenv("XDG_CONFIG_HOME");
+    const auto HOME            = getenv("HOME");
+
+    if (!HOME && !XDG_CONFIG_HOME) {
+        Debug::log(CRIT, "Cannot proceed: neither $HOME nor $XDG_CONFIG_HOME is present in env");
+        throw "$HOME and $XDG_CONFIG_HOME both missing from env";
+    }
+
+    std::string path = XDG_CONFIG_HOME ? std::string{XDG_CONFIG_HOME} + "/hypr/xdph.conf" : std::string{HOME} + "/.config/hypr/xdph.conf";
+
+    m_sConfig.config = std::make_unique<Hyprlang::CConfig>(path, Hyprlang::SConfigOptions{.allowMissingConfig = true});
+
+    m_sConfig.config->addConfigValue("general:toplevel_dynamic_bind", {0L});
+
+    m_sConfig.config->commence();
+    m_sConfig.config->parse();
+}
+
 void CPortalManager::onGlobal(void* data, struct wl_registry* registry, uint32_t name, const char* interface, uint32_t version) {
     const std::string INTERFACE = interface;
 
@@ -238,7 +257,8 @@ void CPortalManager::onGlobal(void* data, struct wl_registry* registry, uint32_t
         m_sHelpers.toplevel = std::make_unique<CToplevelManager>(registry, name, version);
 
         // remove when another fix is found for https://github.com/hyprwm/xdg-desktop-portal-hyprland/issues/147
-        m_sHelpers.toplevel->activate();
+        if (!std::any_cast<Hyprlang::INT>(m_sConfig.config->getConfigValue("general:toplevel_dynamic_bind")))
+            m_sHelpers.toplevel->activate();
     }
 }
 

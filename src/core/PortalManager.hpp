@@ -3,6 +3,7 @@
 #include <memory>
 #include <sdbus-c++/sdbus-c++.h>
 #include <wayland-client.h>
+#include <hyprlang.hpp>
 
 #include "../portals/Screencopy.hpp"
 #include "../portals/Screenshot.hpp"
@@ -30,6 +31,8 @@ struct SDMABUFModifier {
 
 class CPortalManager {
   public:
+    CPortalManager();
+
     void                init();
 
     void                onGlobal(void* data, struct wl_registry* registry, uint32_t name, const char* interface, uint32_t version);
@@ -66,6 +69,10 @@ class CPortalManager {
             bool   deviceUsed      = false;
         } dma;
     } m_sWaylandConnection;
+
+    struct {
+        std::unique_ptr<Hyprlang::CConfig> config;
+    } m_sConfig;
 
     std::vector<SDMABUFModifier> m_vDMABUFMods;
 
