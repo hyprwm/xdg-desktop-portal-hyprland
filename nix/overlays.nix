@@ -25,6 +25,7 @@ in {
       inherit (final) hyprland-protocols;
       inherit (final.qt6) qtbase qttools wrapQtAppsHook qtwayland;
       inherit version;
+      inherit (inputs.hyprlang.packages.${prev.system}) hyprlang;
     };
   };
 }

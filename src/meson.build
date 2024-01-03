@@ -5,6 +5,7 @@ executable('xdg-desktop-portal-hyprland',
   [src, wl_proto_files],
   dependencies: [
     dependency('gbm'),
+    dependency('hyprlang'),
     dependency('libdrm'),
     dependency('libpipewire-0.3'),
     dependency('sdbus-c++'),
