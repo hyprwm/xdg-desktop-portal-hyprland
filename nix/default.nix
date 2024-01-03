@@ -5,6 +5,7 @@
   meson,
   ninja,
   pkg-config,
+  hyprlang,
   libdrm,
   mesa,
   pipewire,
@@ -48,6 +49,7 @@ stdenv.mkDerivation {
     libdrm
     mesa
     pipewire
+    hyprlang
     qtbase
     qttools
     qtwayland

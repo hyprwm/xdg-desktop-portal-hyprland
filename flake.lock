@@ -1,5 +1,23 @@
 {
   "nodes": {
+    "hyprlang": {
+      "inputs": {
+        "nixpkgs": "nixpkgs"
+      },
+      "locked": {
+        "lastModified": 1704112024,
+        "narHash": "sha256-eKS5iEiyfxQYc4R0Bofxtd9rdCCDzw8kpYZx/xj6wb0=",
+        "owner": "hyprwm",
+        "repo": "hyprlang",
+        "rev": "5cb3d2ba62d94b1e470d308ae05a9589b22c3c07",
+        "type": "github"
+      },
+      "original": {
+        "owner": "hyprwm",
+        "repo": "hyprlang",
+        "type": "github"
+      }
+    },
     "hyprland-protocols": {
       "inputs": {
         "nixpkgs": [
@@ -43,7 +61,8 @@
       "inputs": {
         "hyprland-protocols": "hyprland-protocols",
         "nixpkgs": "nixpkgs",
-        "systems": "systems"
+        "systems": "systems",
+        "hyprlang": "hyprlang"
       }
     },
     "systems": {
