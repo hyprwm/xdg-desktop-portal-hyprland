@@ -33,8 +33,7 @@ add_project_arguments(cpp_compiler.get_supported_arguments([
 ]), language: 'cpp')
 
 conf_data = configuration_data()
-conf_data.set('libexecdir', join_paths(get_option('prefix'), get_option('libexecdir')))
-conf_data.set('systemd_service', '')
+conf_data.set('LIBEXECDIR', join_paths(get_option('prefix'), get_option('libexecdir')))
 
 systemd = dependency('systemd', required: get_option('systemd'))
 
