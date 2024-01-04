@@ -46,6 +46,7 @@ pkg_check_modules(SDBUS IMPORTED_TARGET sdbus-c++)
 if(NOT SDBUS_FOUND)
     include_directories("subprojects/sdbus-cpp/include/")
     add_subdirectory(subprojects/sdbus-cpp)
+    add_library(PkgConfig::SDBUS ALIAS sdbus-c++)
 endif()
 
 # same for hyprland-protocols
@@ -58,7 +59,7 @@ endif()
 
 file(GLOB_RECURSE SRCFILES CONFIGURE_DEPENDS "src/*.cpp")
 add_executable(xdg-desktop-portal-hyprland ${SRCFILES})
-target_link_libraries(xdg-desktop-portal-hyprland PRIVATE rt sdbus-c++ Threads::Threads PkgConfig::deps)
+target_link_libraries(xdg-desktop-portal-hyprland PRIVATE rt PkgConfig::SDBUS Threads::Threads PkgConfig::deps)
 
 # protocols
 find_program(WaylandScanner NAMES wayland-scanner)
