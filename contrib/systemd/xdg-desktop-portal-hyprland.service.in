@@ -7,6 +7,6 @@ ConditionEnvironment=WAYLAND_DISPLAY
 [Service]
 Type=dbus
 BusName=org.freedesktop.impl.portal.desktop.hyprland
-ExecStart=@libexecdir@/xdg-desktop-portal-hyprland
+ExecStart=@LIBEXECDIR@/xdg-desktop-portal-hyprland
 Restart=on-failure
 Slice=session.slice

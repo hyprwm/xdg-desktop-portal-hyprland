@@ -1,55 +1,50 @@
 {
   lib,
   stdenv,
+  cmake,
   makeWrapper,
-  meson,
-  ninja,
   pkg-config,
+  wayland-scanner,
+  wrapQtAppsHook,
+  hyprland,
+  hyprland-protocols,
   hyprlang,
   libdrm,
   mesa,
   pipewire,
-  sdbus-cpp,
-  systemd,
-  wayland-protocols,
-  wayland-scanner,
   qtbase,
   qttools,
   qtwayland,
-  wrapQtAppsHook,
-  hyprland,
+  sdbus-cpp,
   slurp,
-  hyprland-protocols,
+  systemd,
   wayland,
+  wayland-protocols,
   debug ? false,
   version ? "git",
 }:
 stdenv.mkDerivation {
-  pname = "xdg-desktop-portal-hyprland";
+  pname = "xdg-desktop-portal-hyprland" + lib.optionalString debug "-debug";
   inherit version;
 
   src = ../.;
 
-  mesonBuildType =
-    if debug
-    then "debug"
-    else "release";
+  cmakeFlags = lib.optional debug (lib.strings.cmakeFeature "CMAKE_BUILD_TYPE" "DEBUG");
 
   nativeBuildInputs = [
-    meson
-    ninja
+    cmake
+    makeWrapper
     pkg-config
     wayland-scanner
-    makeWrapper
     wrapQtAppsHook
   ];
 
   buildInputs = [
     hyprland-protocols
+    hyprlang
     libdrm
     mesa
     pipewire
-    hyprlang
     qtbase
     qttools
     qtwayland
