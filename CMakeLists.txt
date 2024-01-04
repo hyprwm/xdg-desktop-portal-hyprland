@@ -31,7 +31,7 @@ configure_file(contrib/systemd/xdg-desktop-portal-hyprland.service.in contrib/sy
 set(CMAKE_CXX_STANDARD 23)
 add_compile_options(-Wall -Wextra -Wno-unused-parameter -Wno-unused-value
 	-Wno-missing-field-initializers -Wno-narrowing -Wno-pointer-arith
-	-fpermissive)
+	-fpermissive -Wno-address-of-temporary)
 
 # dependencies
 message(STATUS "Checking deps...")
