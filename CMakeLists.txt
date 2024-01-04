@@ -24,6 +24,7 @@ include_directories(
 )
 
 # configure
+include(GNUInstallDirs)
 set(LIBEXECDIR ${CMAKE_INSTALL_LIBEXECDIR})
 configure_file(org.freedesktop.impl.portal.desktop.hyprland.service.in org.freedesktop.impl.portal.desktop.hyprland.service @ONLY)
 configure_file(contrib/systemd/xdg-desktop-portal-hyprland.service.in contrib/systemd/xdg-desktop-portal-hyprland.service @ONLY)
