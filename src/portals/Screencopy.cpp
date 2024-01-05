@@ -474,6 +474,7 @@ void CScreencopyPortal::onSelectSources(sdbus::MethodCall& call) {
         SHAREDATA.output       = restoreData.output;
         SHAREDATA.windowHandle = (zwlr_foreign_toplevel_handle_v1*)restoreData.windowHandle;
         SHAREDATA.type         = restoreData.windowHandle ? TYPE_WINDOW : TYPE_OUTPUT;
+        SHAREDATA.allowToken   = true; // user allowed token before
         PSESSION->cursorMode   = restoreData.withCursor;
     } else {
         Debug::log(LOG, "[screencopy] restore data invalid / missing, prompting");
