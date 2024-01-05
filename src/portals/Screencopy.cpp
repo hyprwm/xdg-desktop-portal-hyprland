@@ -751,6 +751,15 @@ static void pwStreamStateChange(void* data, pw_stream_state old, pw_stream_state
             PSTREAM->streamState = true;
             if (PSTREAM->pSession->sharingData.status == FRAME_NONE)
                 g_pPortalManager->m_sPortals.screencopy->startFrameCopy(PSTREAM->pSession);
+            else {
+                if (PSTREAM->pSession->sharingData.frameCallback)
+                    zwlr_screencopy_frame_v1_destroy(PSTREAM->pSession->sharingData.frameCallback);
+                if (PSTREAM->pSession->sharingData.windowFrameCallback)
+                    hyprland_toplevel_export_frame_v1_destroy(PSTREAM->pSession->sharingData.windowFrameCallback);
+                PSTREAM->pSession->sharingData.windowFrameCallback = nullptr;
+                PSTREAM->pSession->sharingData.frameCallback       = nullptr;
+                g_pPortalManager->m_sPortals.screencopy->startFrameCopy(PSTREAM->pSession);
+            }
             break;
         default: PSTREAM->streamState = false; break;
     }
