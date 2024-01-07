@@ -24,8 +24,9 @@ Then run the build and install command:
 ```sh
 git clone --recursive https://github.com/hyprwm/xdg-desktop-portal-hyprland
 cd xdg-desktop-portal-hyprland/
-cmake -DCMAKE_INSTALL_LIBEXECDIR=/usr/lib -B build
-cmake --install /usr
+cmake -DCMAKE_INSTALL_LIBEXECDIR=/usr/lib -DCMAKE_INSTALL_PREFIX=/usr -B build
+cmake --build build
+sudo cmake --install build
 ```
 
 ## Running, FAQs, etc.
