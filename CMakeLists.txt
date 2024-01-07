@@ -46,7 +46,7 @@ pkg_check_modules(deps REQUIRED IMPORTED_TARGET wayland-client wayland-protocols
 pkg_check_modules(SDBUS IMPORTED_TARGET sdbus-c++)
 if(NOT SDBUS_FOUND)
     include_directories("subprojects/sdbus-cpp/include/")
-    add_subdirectory(subprojects/sdbus-cpp)
+    add_subdirectory(subprojects/sdbus-cpp EXCLUDE_FROM_ALL)
     add_library(PkgConfig::SDBUS ALIAS sdbus-c++)
 endif()
 
