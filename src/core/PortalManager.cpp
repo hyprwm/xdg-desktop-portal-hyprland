@@ -202,12 +202,11 @@ CPortalManager::CPortalManager() {
     const auto XDG_CONFIG_HOME = getenv("XDG_CONFIG_HOME");
     const auto HOME            = getenv("HOME");
 
-    if (!HOME && !XDG_CONFIG_HOME) {
-        Debug::log(CRIT, "Cannot proceed: neither $HOME nor $XDG_CONFIG_HOME is present in env");
-        throw "$HOME and $XDG_CONFIG_HOME both missing from env";
-    }
+    if (!HOME && !XDG_CONFIG_HOME)
+        Debug::log(WARN, "neither $HOME nor $XDG_CONFIG_HOME is present in env");
 
-    std::string path = XDG_CONFIG_HOME ? std::string{XDG_CONFIG_HOME} + "/hypr/xdph.conf" : std::string{HOME} + "/.config/hypr/xdph.conf";
+    std::string path =
+        (!XDG_CONFIG_HOME && !HOME) ? "/tmp/xdph.conf" : (XDG_CONFIG_HOME ? std::string{XDG_CONFIG_HOME} + "/hypr/xdph.conf" : std::string{HOME} + "/.config/hypr/xdph.conf");
 
     m_sConfig.config = std::make_unique<Hyprlang::CConfig>(path.c_str(), Hyprlang::SConfigOptions{.allowMissingConfig = true});
 
