@@ -61,8 +61,8 @@ class CPortalManager {
         void*       linuxDmabuf         = nullptr;
         void*       linuxDmabufFeedback = nullptr;
         wl_shm*     shm                 = nullptr;
-        gbm_bo*     gbm;
-        gbm_device* gbmDevice;
+        gbm_bo*     gbm                 = nullptr;
+        gbm_device* gbmDevice           = nullptr;
         struct {
             void*  formatTable     = nullptr;
             size_t formatTableSize = 0;
