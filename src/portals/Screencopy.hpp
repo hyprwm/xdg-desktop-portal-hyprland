@@ -7,22 +7,19 @@
 #include <gbm.h>
 #include "../shared/Session.hpp"
 
-enum cursorModes
-{
+enum cursorModes {
     HIDDEN   = 1,
     EMBEDDED = 2,
     METADATA = 4,
 };
 
-enum sourceTypes
-{
+enum sourceTypes {
     MONITOR = 1,
     WINDOW  = 2,
     VIRTUAL = 4,
 };
 
-enum frameStatus
-{
+enum frameStatus {
     FRAME_NONE = 0,
     FRAME_QUEUED,
     FRAME_READY,
@@ -152,6 +149,7 @@ class CPipewireConnection {
 
     std::unique_ptr<SBuffer> createBuffer(SPWStream* pStream, bool dmabuf);
     SPWStream*               streamFromSession(CScreencopyPortal::SSession* pSession);
+    void                     removeSessionFrameCallbacks(CScreencopyPortal::SSession* pSession);
     uint32_t                 buildFormatsFor(spa_pod_builder* b[2], const spa_pod* params[2], SPWStream* stream);
     void                     updateStreamParam(SPWStream* pStream);
 

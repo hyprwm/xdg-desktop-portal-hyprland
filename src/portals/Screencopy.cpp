@@ -730,6 +730,20 @@ CPipewireConnection::CPipewireConnection() {
     Debug::log(LOG, "[pipewire] connected");
 }
 
+void CPipewireConnection::removeSessionFrameCallbacks(CScreencopyPortal::SSession* pSession) {
+    Debug::log(TRACE, "[pipewire] removeSessionFrameCallbacks called");
+
+    if (pSession->sharingData.frameCallback)
+        zwlr_screencopy_frame_v1_destroy(pSession->sharingData.frameCallback);
+    if (pSession->sharingData.windowFrameCallback)
+        hyprland_toplevel_export_frame_v1_destroy(pSession->sharingData.windowFrameCallback);
+
+    pSession->sharingData.windowFrameCallback = nullptr;
+    pSession->sharingData.frameCallback       = nullptr;
+
+    pSession->sharingData.status = FRAME_NONE;
+}
+
 CPipewireConnection::~CPipewireConnection() {
     if (m_pCore)
         pw_core_disconnect(m_pCore);
@@ -753,20 +767,21 @@ static void pwStreamStateChange(void* data, pw_stream_state old, pw_stream_state
             if (PSTREAM->pSession->sharingData.status == FRAME_NONE)
                 g_pPortalManager->m_sPortals.screencopy->startFrameCopy(PSTREAM->pSession);
             else {
-                if (PSTREAM->pSession->sharingData.frameCallback)
-                    zwlr_screencopy_frame_v1_destroy(PSTREAM->pSession->sharingData.frameCallback);
-                if (PSTREAM->pSession->sharingData.windowFrameCallback)
-                    hyprland_toplevel_export_frame_v1_destroy(PSTREAM->pSession->sharingData.windowFrameCallback);
-                PSTREAM->pSession->sharingData.windowFrameCallback = nullptr;
-                PSTREAM->pSession->sharingData.frameCallback       = nullptr;
+                g_pPortalManager->m_sPortals.screencopy->m_pPipewire->removeSessionFrameCallbacks(PSTREAM->pSession);
                 g_pPortalManager->m_sPortals.screencopy->startFrameCopy(PSTREAM->pSession);
             }
             break;
-        default: PSTREAM->streamState = false; break;
+        default: {
+            PSTREAM->streamState = false;
+            g_pPortalManager->m_sPortals.screencopy->m_pPipewire->removeSessionFrameCallbacks(PSTREAM->pSession);
+            break;
+        }
     }
 
-    if (state == PW_STREAM_STATE_UNCONNECTED)
+    if (state == PW_STREAM_STATE_UNCONNECTED) {
+        g_pPortalManager->m_sPortals.screencopy->m_pPipewire->removeSessionFrameCallbacks(PSTREAM->pSession);
         g_pPortalManager->m_sPortals.screencopy->m_pPipewire->destroyStream(PSTREAM->pSession);
+    }
 }
 
 static void pwStreamParamChanged(void* data, uint32_t id, const spa_pod* param) {
