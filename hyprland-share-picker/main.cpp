@@ -7,6 +7,7 @@
 #include <QWidget>
 #include <QtDebug>
 #include <QtWidgets>
+#include <QSettings>
 #include <array>
 #include <cstdio>
 #include <iostream>
@@ -84,6 +85,9 @@ int main(int argc, char* argv[]) {
     MainPicker w;
     mainPickerPtr = &w;
 
+    QSettings* settings = new QSettings("hypr", "hyprland-share-picker");
+    w.setGeometry(0, 0, settings->value("width").toInt(), settings->value("height").toInt());
+
     // get the tabwidget
     const auto TABWIDGET        = w.findChild<QTabWidget *>("tabWidget");
     const auto ALLOWTOKENBUTTON = w.findChild<QCheckBox *>("checkBox");
@@ -119,6 +123,11 @@ int main(int argc, char* argv[]) {
             std::cout << "/";
 
             std::cout << "screen:" << ID << "\n";
+
+            settings->setValue("width", mainPickerPtr->width());
+            settings->setValue("height", mainPickerPtr->height());
+            settings->sync();
+
             pickerPtr->quit();
             return 0;
         });
@@ -150,6 +159,11 @@ int main(int argc, char* argv[]) {
             std::cout << "/";
 
             std::cout << "window:" << mainPickerPtr->windowIDs[button] << "\n";
+
+            settings->setValue("width", mainPickerPtr->width());
+            settings->setValue("height", mainPickerPtr->height());
+            settings->sync();
+
             pickerPtr->quit();
             return 0;
         });
@@ -218,6 +232,11 @@ int main(int argc, char* argv[]) {
             std::cout << "/";
 
             std::cout << "region:" << SCREEN_NAME << "@" << X - pScreen->geometry().x() << "," << Y - pScreen->geometry().y() << "," << W << "," << H << "\n";
+
+            settings->setValue("width", mainPickerPtr->width());
+            settings->setValue("height", mainPickerPtr->height());
+            settings->sync();
+
             pickerPtr->quit();
             return 0;
         } catch (...) {
