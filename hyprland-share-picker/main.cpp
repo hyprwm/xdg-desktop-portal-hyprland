@@ -85,7 +85,7 @@ int main(int argc, char* argv[]) {
     MainPicker w;
     mainPickerPtr = &w;
 
-    QSettings* settings = new QSettings("hypr", "hyprland-share-picker");
+    QSettings* settings = new QSettings("/tmp/hypr/hyprland-share-picker.conf", QSettings::IniFormat);
     w.setGeometry(0, 0, settings->value("width").toInt(), settings->value("height").toInt());
 
     // get the tabwidget
