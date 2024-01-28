@@ -7,6 +7,7 @@
 #include <QWidget>
 #include <QtDebug>
 #include <QtWidgets>
+#include <QSettings>
 #include <array>
 #include <cstdio>
 #include <iostream>
@@ -84,21 +85,24 @@ int main(int argc, char* argv[]) {
     MainPicker w;
     mainPickerPtr = &w;
 
+    QSettings* settings = new QSettings("/tmp/hypr/hyprland-share-picker.conf", QSettings::IniFormat);
+    w.setGeometry(0, 0, settings->value("width").toInt(), settings->value("height").toInt());
+
     // get the tabwidget
-    const auto TABWIDGET        = (QTabWidget*)w.children()[1]->children()[0];
-    const auto ALLOWTOKENBUTTON = (QCheckBox*)w.children()[1]->children()[1];
+    const auto TABWIDGET        = w.findChild<QTabWidget *>("tabWidget");
+    const auto ALLOWTOKENBUTTON = w.findChild<QCheckBox *>("checkBox");
 
     const auto TAB1 = (QWidget*)TABWIDGET->children()[0];
 
     const auto SCREENS_SCROLL_AREA_CONTENTS =
         (QWidget*)TAB1->findChild<QWidget*>("screens")->findChild<QScrollArea*>("scrollArea")->findChild<QWidget*>("scrollAreaWidgetContents");
 
+    const auto SCREENS_SCROLL_AREA_CONTENTS_LAYOUT = SCREENS_SCROLL_AREA_CONTENTS->layout();
+
     // add all screens
     const auto    SCREENS = picker.screens();
 
-    constexpr int BUTTON_WIDTH  = 441;
     constexpr int BUTTON_HEIGHT = 41;
-    constexpr int BUTTON_PAD    = 4;
 
     for (int i = 0; i < SCREENS.size(); ++i) {
         const auto   GEOMETRY = SCREENS[i]->geometry();
@@ -106,9 +110,9 @@ int main(int argc, char* argv[]) {
         QString      text = QString::fromStdString(std::string("Screen " + std::to_string(i) + " at " + std::to_string(GEOMETRY.x()) + ", " + std::to_string(GEOMETRY.y()) + " (" +
                                                           std::to_string(GEOMETRY.width()) + "x" + std::to_string(GEOMETRY.height()) + ") (") +
                                               SCREENS[i]->name().toStdString() + ")");
-        QPushButton* button = new QPushButton(text, (QWidget*)SCREENS_SCROLL_AREA_CONTENTS);
-        button->move(9, 5 + (BUTTON_HEIGHT + BUTTON_PAD) * i);
-        button->resize(BUTTON_WIDTH, BUTTON_HEIGHT);
+        QPushButton* button = new QPushButton(text);
+        SCREENS_SCROLL_AREA_CONTENTS_LAYOUT->addWidget(button);
+        button->setMinimumSize(0, BUTTON_HEIGHT);
         QObject::connect(button, &QPushButton::clicked, [=]() {
             std::string ID = button->text().toStdString();
             ID             = ID.substr(ID.find_last_of('(') + 1);
@@ -119,25 +123,33 @@ int main(int argc, char* argv[]) {
             std::cout << "/";
 
             std::cout << "screen:" << ID << "\n";
+
+            settings->setValue("width", mainPickerPtr->width());
+            settings->setValue("height", mainPickerPtr->height());
+            settings->sync();
+
             pickerPtr->quit();
             return 0;
         });
     }
 
-    SCREENS_SCROLL_AREA_CONTENTS->resize(SCREENS_SCROLL_AREA_CONTENTS->size().width(), 5 + (BUTTON_HEIGHT + BUTTON_PAD) * SCREENS.size());
+    QSpacerItem * SCREENS_SPACER = new QSpacerItem(0,10000, QSizePolicy::Expanding, QSizePolicy::Expanding);
+    SCREENS_SCROLL_AREA_CONTENTS_LAYOUT->addItem(SCREENS_SPACER);
 
     // windows
     const auto WINDOWS_SCROLL_AREA_CONTENTS =
         (QWidget*)TAB1->findChild<QWidget*>("windows")->findChild<QScrollArea*>("scrollArea_2")->findChild<QWidget*>("scrollAreaWidgetContents_2");
+
+    const auto WINDOWS_SCROLL_AREA_CONTENTS_LAYOUT = WINDOWS_SCROLL_AREA_CONTENTS->layout();
 
     // loop over them
     int windowIterator = 0;
     for (auto& window : WINDOWLIST) {
         QString      text = QString::fromStdString(window.clazz + ": " + window.name);
 
-        QPushButton* button = new QPushButton(text, (QWidget*)WINDOWS_SCROLL_AREA_CONTENTS);
-        button->move(9, 5 + (BUTTON_HEIGHT + BUTTON_PAD) * windowIterator);
-        button->resize(BUTTON_WIDTH, BUTTON_HEIGHT);
+        QPushButton* button = new QPushButton(text);
+        WINDOWS_SCROLL_AREA_CONTENTS_LAYOUT->addWidget(button);
+        button->setMinimumSize(0, BUTTON_HEIGHT);
 
         mainPickerPtr->windowIDs[button] = window.id;
 
@@ -147,6 +159,11 @@ int main(int argc, char* argv[]) {
             std::cout << "/";
 
             std::cout << "window:" << mainPickerPtr->windowIDs[button] << "\n";
+
+            settings->setValue("width", mainPickerPtr->width());
+            settings->setValue("height", mainPickerPtr->height());
+            settings->sync();
+
             pickerPtr->quit();
             return 0;
         });
@@ -154,16 +171,25 @@ int main(int argc, char* argv[]) {
         windowIterator++;
     }
 
-    WINDOWS_SCROLL_AREA_CONTENTS->resize(WINDOWS_SCROLL_AREA_CONTENTS->size().width(), 5 + (BUTTON_HEIGHT + BUTTON_PAD) * windowIterator);
+    QSpacerItem * WINDOWS_SPACER = new QSpacerItem(0,10000, QSizePolicy::Expanding, QSizePolicy::Expanding);
+    WINDOWS_SCROLL_AREA_CONTENTS_LAYOUT->addItem(WINDOWS_SPACER);
 
     // lastly, region
     const auto   REGION_OBJECT = (QWidget*)TAB1->findChild<QWidget*>("region");
+    const auto   REGION_LAYOUT = REGION_OBJECT->layout();
 
     QString      text = "Select region...";
 
-    QPushButton* button = new QPushButton(text, (QWidget*)REGION_OBJECT);
-    button->move(79, 80);
-    button->resize(321, 41);
+    QSpacerItem * REGION_L_SPACER = new QSpacerItem(10000,0, QSizePolicy::Expanding, QSizePolicy::Expanding);
+    QSpacerItem * REGION_R_SPACER = new QSpacerItem(10000,0, QSizePolicy::Expanding, QSizePolicy::Expanding);
+    
+    REGION_LAYOUT->addItem(REGION_L_SPACER);
+    
+    QPushButton* button = new QPushButton(text);
+    REGION_LAYOUT->addWidget(button);
+
+    REGION_LAYOUT->addItem(REGION_R_SPACER);
+
     QObject::connect(button, &QPushButton::clicked, [=]() {
         auto REGION = execAndGet("slurp -f \"%o %x %y %w %h\"");
         REGION      = REGION.substr(0, REGION.length());
@@ -206,6 +232,11 @@ int main(int argc, char* argv[]) {
             std::cout << "/";
 
             std::cout << "region:" << SCREEN_NAME << "@" << X - pScreen->geometry().x() << "," << Y - pScreen->geometry().y() << "," << W << "," << H << "\n";
+
+            settings->setValue("width", mainPickerPtr->width());
+            settings->setValue("height", mainPickerPtr->height());
+            settings->sync();
+
             pickerPtr->quit();
             return 0;
         } catch (...) {
