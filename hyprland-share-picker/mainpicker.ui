@@ -232,8 +232,8 @@
          </property>
          <property name="maximumSize">
           <size>
-           <width>730</width>
-           <height>224</height>
+           <width>16777215</width>
+           <height>16777215</height>
           </size>
          </property>
          <property name="layoutDirection">
@@ -245,7 +245,7 @@
          <attribute name="title">
           <string>Region</string>
          </attribute>
-         <layout class="QHBoxLayout" name="horizontalLayout">
+         <layout class="QGridLayout" name="gridLayout">
           <property name="sizeConstraint">
            <enum>QLayout::SetDefaultConstraint</enum>
           </property>
