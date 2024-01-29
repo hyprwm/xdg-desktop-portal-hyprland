@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "mainpicker.h"
+#include "elidedbutton.h"
 
 std::string execAndGet(const char* cmd) {
     std::array<char, 128>                    buffer;
@@ -110,9 +111,10 @@ int main(int argc, char* argv[]) {
         QString      text = QString::fromStdString(std::string("Screen " + std::to_string(i) + " at " + std::to_string(GEOMETRY.x()) + ", " + std::to_string(GEOMETRY.y()) + " (" +
                                                           std::to_string(GEOMETRY.width()) + "x" + std::to_string(GEOMETRY.height()) + ") (") +
                                               SCREENS[i]->name().toStdString() + ")");
-        QPushButton* button = new QPushButton(text);
-        SCREENS_SCROLL_AREA_CONTENTS_LAYOUT->addWidget(button);
+        ElidedButton* button = new ElidedButton(text);
         button->setMinimumSize(0, BUTTON_HEIGHT);
+        SCREENS_SCROLL_AREA_CONTENTS_LAYOUT->addWidget(button);
+
         QObject::connect(button, &QPushButton::clicked, [=]() {
             std::string ID = button->text().toStdString();
             ID             = ID.substr(ID.find_last_of('(') + 1);
@@ -147,9 +149,9 @@ int main(int argc, char* argv[]) {
     for (auto& window : WINDOWLIST) {
         QString      text = QString::fromStdString(window.clazz + ": " + window.name);
 
-        QPushButton* button = new QPushButton(text);
-        WINDOWS_SCROLL_AREA_CONTENTS_LAYOUT->addWidget(button);
+        ElidedButton* button = new ElidedButton(text);
         button->setMinimumSize(0, BUTTON_HEIGHT);
+        WINDOWS_SCROLL_AREA_CONTENTS_LAYOUT->addWidget(button);
 
         mainPickerPtr->windowIDs[button] = window.id;
 
@@ -179,16 +181,11 @@ int main(int argc, char* argv[]) {
     const auto   REGION_LAYOUT = REGION_OBJECT->layout();
 
     QString      text = "Select region...";
-
-    QSpacerItem * REGION_L_SPACER = new QSpacerItem(10000,0, QSizePolicy::Expanding, QSizePolicy::Expanding);
-    QSpacerItem * REGION_R_SPACER = new QSpacerItem(10000,0, QSizePolicy::Expanding, QSizePolicy::Expanding);
     
-    REGION_LAYOUT->addItem(REGION_L_SPACER);
-    
-    QPushButton* button = new QPushButton(text);
+    ElidedButton* button = new ElidedButton(text);
+    button->setMaximumSize(400, BUTTON_HEIGHT);
     REGION_LAYOUT->addWidget(button);
 
-    REGION_LAYOUT->addItem(REGION_R_SPACER);
 
     QObject::connect(button, &QPushButton::clicked, [=]() {
         auto REGION = execAndGet("slurp -f \"%o %x %y %w %h\"");

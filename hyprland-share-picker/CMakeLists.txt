@@ -17,6 +17,8 @@ set(PROJECT_SOURCES
         mainpicker.cpp
         mainpicker.h
         mainpicker.ui
+        elidedbutton.h
+        elidedbutton.cpp
 )
 
 if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
