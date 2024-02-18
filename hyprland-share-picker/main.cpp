@@ -111,20 +111,17 @@ int main(int argc, char* argv[]) {
         QString      text = QString::fromStdString(std::string("Screen " + std::to_string(i) + " at " + std::to_string(GEOMETRY.x()) + ", " + std::to_string(GEOMETRY.y()) + " (" +
                                                           std::to_string(GEOMETRY.width()) + "x" + std::to_string(GEOMETRY.height()) + ") (") +
                                               SCREENS[i]->name().toStdString() + ")");
+        QString outputName = SCREENS[i]->name();
         ElidedButton* button = new ElidedButton(text);
         button->setMinimumSize(0, BUTTON_HEIGHT);
         SCREENS_SCROLL_AREA_CONTENTS_LAYOUT->addWidget(button);
 
         QObject::connect(button, &QPushButton::clicked, [=]() {
-            std::string ID = button->text().toStdString();
-            ID             = ID.substr(ID.find_last_of('(') + 1);
-            ID             = ID.substr(0, ID.find_last_of(')'));
-
             std::cout << "[SELECTION]";
             std::cout << (ALLOWTOKENBUTTON->isChecked() ? "r" : "");
             std::cout << "/";
 
-            std::cout << "screen:" << ID << "\n";
+            std::cout << "screen:" << outputName.toStdString() << "\n";
 
             settings->setValue("width", mainPickerPtr->width());
             settings->setValue("height", mainPickerPtr->height());
