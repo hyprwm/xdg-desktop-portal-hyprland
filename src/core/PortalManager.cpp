@@ -210,7 +210,7 @@ CPortalManager::CPortalManager() {
 
     m_sConfig.config = std::make_unique<Hyprlang::CConfig>(path.c_str(), Hyprlang::SConfigOptions{.allowMissingConfig = true});
 
-    m_sConfig.config->addConfigValue("general:toplevel_dynamic_bind", {0L});
+    m_sConfig.config->addConfigValue("general:toplevel_dynamic_bind", Hyprlang::INT{0L});
 
     m_sConfig.config->commence();
     m_sConfig.config->parse();
