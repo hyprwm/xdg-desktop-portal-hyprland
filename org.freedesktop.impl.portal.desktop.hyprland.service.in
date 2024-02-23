@@ -1,4 +1,0 @@
-[D-BUS Service]
-Name=org.freedesktop.impl.portal.desktop.hyprland
-Exec=@LIBEXECDIR@/xdg-desktop-portal-hyprland
-SystemdService=xdg-desktop-portal-hyprland.service
