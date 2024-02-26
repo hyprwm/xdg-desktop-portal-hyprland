@@ -6,6 +6,7 @@
 #include <libdrm/drm_fourcc.h>
 #include <pipewire/pipewire.h>
 #include <protocols/linux-dmabuf-unstable-v1-protocol.h>
+#include <unistd.h>
 
 // --------------- Wayland Protocol Handlers --------------- //
 
