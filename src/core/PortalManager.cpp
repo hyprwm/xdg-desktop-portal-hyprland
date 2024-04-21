@@ -420,13 +420,11 @@ void CPortalManager::startEventLoop() {
 
     while (1) { // dbus events
         // wait for being awakened
-        m_sEventLoopInternals.loopRequestMutex.unlock(); // unlock, we are ready to take events
-
         std::unique_lock lk(m_sEventLoopInternals.loopMutex);
         if (m_sEventLoopInternals.shouldProcess == false) // avoid a lock if a thread managed to request something already since we .unlock()ed
             m_sEventLoopInternals.loopSignal.wait(lk, [this] { return m_sEventLoopInternals.shouldProcess == true; }); // wait for events
 
-        m_sEventLoopInternals.loopRequestMutex.lock(); // lock incoming events
+        std::lock_guard<std::mutex> lg(m_sEventLoopInternals.loopRequestMutex);
 
         if (m_bTerminate)
             break;
