@@ -491,8 +491,14 @@ void CScreencopyPortal::onSelectSources(sdbus::MethodCall& call) {
     } else if (SHAREDATA.type == TYPE_OUTPUT || SHAREDATA.type == TYPE_GEOMETRY) {
         const auto POUTPUT = g_pPortalManager->getOutputFromName(SHAREDATA.output);
 
-        if (POUTPUT)
-            PSESSION->sharingData.framerate = POUTPUT->refreshRate;
+        if (POUTPUT) {
+            static auto* const* PFPS = (Hyprlang::INT* const*)g_pPortalManager->m_sConfig.config->getConfigValuePtr("screencopy:max_fps")->getDataStaticPtr();
+
+            if (**PFPS <= 0)
+                PSESSION->sharingData.framerate = POUTPUT->refreshRate;
+            else
+                PSESSION->sharingData.framerate = std::clamp(POUTPUT->refreshRate, 1.F, (float)**PFPS);
+        }
     }
 
     PSESSION->selection = SHAREDATA;
