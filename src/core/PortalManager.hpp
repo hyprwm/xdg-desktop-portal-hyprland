@@ -19,9 +19,10 @@ struct pw_loop;
 
 struct SOutput {
     std::string         name;
-    wl_output*          output    = nullptr;
-    uint32_t            id        = 0;
-    wl_output_transform transform = WL_OUTPUT_TRANSFORM_NORMAL;
+    wl_output*          output      = nullptr;
+    uint32_t            id          = 0;
+    float               refreshRate = 60.0;
+    wl_output_transform transform   = WL_OUTPUT_TRANSFORM_NORMAL;
 };
 
 struct SDMABUFModifier {

@@ -488,6 +488,11 @@ void CScreencopyPortal::onSelectSources(sdbus::MethodCall& call) {
     if (SHAREDATA.type == TYPE_WINDOW && !m_sState.toplevel) {
         Debug::log(ERR, "[screencopy] Requested type window for no toplevel export protocol!");
         SHAREDATA.type = TYPE_INVALID;
+    } else if (SHAREDATA.type == TYPE_OUTPUT || SHAREDATA.type == TYPE_GEOMETRY) {
+        const auto POUTPUT = g_pPortalManager->getOutputFromName(SHAREDATA.output);
+
+        if (POUTPUT)
+            PSESSION->sharingData.framerate = POUTPUT->refreshRate;
     }
 
     PSESSION->selection = SHAREDATA;
@@ -670,7 +675,15 @@ void CScreencopyPortal::queueNextShareFrame(CScreencopyPortal::SSession* pSessio
     if (PSTREAM && !PSTREAM->streamState)
         return;
 
-    g_pPortalManager->addTimer({1000.0 / pSession->sharingData.framerate, [pSession]() { g_pPortalManager->m_sPortals.screencopy->startFrameCopy(pSession); }});
+    // calculate frame delta and queue next frame
+    const auto FRAMETOOKMS           = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now() - pSession->sharingData.begunFrame).count() / 1000.0;
+    const auto MSTILNEXTREFRESH      = 1000.0 / (pSession->sharingData.framerate) - FRAMETOOKMS;
+    pSession->sharingData.begunFrame = std::chrono::system_clock::now();
+
+    Debug::log(TRACE, "[screencopy] set fps {}, ms till next refresh {:.2f}, estimated actual fps: {:.2f}", pSession->sharingData.framerate, MSTILNEXTREFRESH,
+               std::clamp(1000.0 / FRAMETOOKMS, 1.0, (double)pSession->sharingData.framerate));
+
+    g_pPortalManager->addTimer({std::clamp(MSTILNEXTREFRESH, 1.0, 1000.0), [pSession]() { g_pPortalManager->m_sPortals.screencopy->startFrameCopy(pSession); }});
 }
 bool CScreencopyPortal::hasToplevelCapabilities() {
     return m_sState.toplevel;
@@ -804,6 +817,7 @@ static void pwStreamParamChanged(void* data, uint32_t id, const spa_pod* param) 
     spa_pod_dynamic_builder_init(&dynBuilder[2], params_buffer[2], sizeof(params_buffer[2]), 2048);
 
     spa_format_video_raw_parse(param, &PSTREAM->pwVideoInfo);
+    Debug::log(TRACE, "[pw] Framerate: {}/{}", PSTREAM->pwVideoInfo.max_framerate.num, PSTREAM->pwVideoInfo.max_framerate.denom);
     PSTREAM->pSession->sharingData.framerate = PSTREAM->pwVideoInfo.max_framerate.num / PSTREAM->pwVideoInfo.max_framerate.denom;
 
     uint32_t                   data_type = 1 << SPA_DATA_MemFd;

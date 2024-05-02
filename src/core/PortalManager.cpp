@@ -41,7 +41,8 @@ static void handleOutputDone(void* data, struct wl_output* wl_output) {
 }
 
 static void handleOutputMode(void* data, struct wl_output* wl_output, uint32_t flags, int32_t width, int32_t height, int32_t refresh) {
-    ;
+    const auto POUTPUT = (SOutput*)data;
+    POUTPUT->refreshRate = std::round(refresh / 1000.0);
 }
 
 static void handleOutputScale(void* data, struct wl_output* wl_output, int32_t factor) {
@@ -422,7 +423,7 @@ void CPortalManager::startEventLoop() {
         // wait for being awakened
         std::unique_lock lk(m_sEventLoopInternals.loopMutex);
         if (m_sEventLoopInternals.shouldProcess == false) // avoid a lock if a thread managed to request something already since we .unlock()ed
-            m_sEventLoopInternals.loopSignal.wait(lk, [this] { return m_sEventLoopInternals.shouldProcess == true; }); // wait for events
+            m_sEventLoopInternals.loopSignal.wait_for(lk, std::chrono::seconds(5), [this] { return m_sEventLoopInternals.shouldProcess == true; }); // wait for events
 
         std::lock_guard<std::mutex> lg(m_sEventLoopInternals.loopRequestMutex);
 
@@ -464,7 +465,6 @@ void CPortalManager::startEventLoop() {
             }
         }
 
-        // finalize wayland dispatching. Dispatch pending on the queue
         int ret = 0;
         do {
             ret = wl_display_dispatch_pending(m_sWaylandConnection.display);

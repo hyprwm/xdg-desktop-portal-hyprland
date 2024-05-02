@@ -6,6 +6,7 @@
 #include "../shared/ScreencopyShared.hpp"
 #include <gbm.h>
 #include "../shared/Session.hpp"
+#include <chrono>
 
 enum cursorModes {
     HIDDEN   = 1,
@@ -69,16 +70,17 @@ class CScreencopyPortal {
         SSelectionData                selection;
 
         struct {
-            bool                               active              = false;
-            zwlr_screencopy_frame_v1*          frameCallback       = nullptr;
-            hyprland_toplevel_export_frame_v1* windowFrameCallback = nullptr;
-            frameStatus                        status              = FRAME_NONE;
-            uint64_t                           tvSec               = 0;
-            uint32_t                           tvNsec              = 0;
-            uint64_t                           tvTimestampNs       = 0;
-            uint32_t                           nodeID              = 0;
-            uint32_t                           framerate           = 60;
-            wl_output_transform                transform           = WL_OUTPUT_TRANSFORM_NORMAL;
+            bool                                  active              = false;
+            zwlr_screencopy_frame_v1*             frameCallback       = nullptr;
+            hyprland_toplevel_export_frame_v1*    windowFrameCallback = nullptr;
+            frameStatus                           status              = FRAME_NONE;
+            uint64_t                              tvSec               = 0;
+            uint32_t                              tvNsec              = 0;
+            uint64_t                              tvTimestampNs       = 0;
+            uint32_t                              nodeID              = 0;
+            uint32_t                              framerate           = 60;
+            wl_output_transform                   transform           = WL_OUTPUT_TRANSFORM_NORMAL;
+            std::chrono::system_clock::time_point begunFrame          = std::chrono::system_clock::now();
 
             struct {
                 uint32_t w = 0, h = 0, size = 0, stride = 0, fmt = 0;
