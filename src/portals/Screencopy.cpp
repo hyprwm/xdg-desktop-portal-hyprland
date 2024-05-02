@@ -686,10 +686,10 @@ void CScreencopyPortal::queueNextShareFrame(CScreencopyPortal::SSession* pSessio
     const auto MSTILNEXTREFRESH      = 1000.0 / (pSession->sharingData.framerate) - FRAMETOOKMS;
     pSession->sharingData.begunFrame = std::chrono::system_clock::now();
 
-    Debug::log(TRACE, "[screencopy] set fps {}, ms till next refresh {:.2f}, estimated actual fps: {:.2f}", pSession->sharingData.framerate, MSTILNEXTREFRESH,
-               std::clamp(1000.0 / FRAMETOOKMS, 1.0, (double)pSession->sharingData.framerate));
+    Debug::log(TRACE, "[screencopy] set fps {}, frame took {:.2f}ms, ms till next refresh {:.2f}, estimated actual fps: {:.2f}", pSession->sharingData.framerate, FRAMETOOKMS,
+               MSTILNEXTREFRESH, std::clamp(1000.0 / FRAMETOOKMS, 1.0, (double)pSession->sharingData.framerate));
 
-    g_pPortalManager->addTimer({std::clamp(MSTILNEXTREFRESH, 1.0, 1000.0), [pSession]() { g_pPortalManager->m_sPortals.screencopy->startFrameCopy(pSession); }});
+    g_pPortalManager->addTimer({std::clamp(MSTILNEXTREFRESH - 1.0 /* safezone */, 1.0, 1000.0), [pSession]() { g_pPortalManager->m_sPortals.screencopy->startFrameCopy(pSession); }});
 }
 bool CScreencopyPortal::hasToplevelCapabilities() {
     return m_sState.toplevel;
