@@ -56,7 +56,7 @@ bool inShellPath(const std::string& exec) {
     if (nextBegin < pathString.size())
         paths.push_back(pathString.substr(nextBegin, pathString.size() - nextBegin));
 
-    return std::ranges::any_of(paths, [&exec](std::string& path) { return std::filesystem::exists(path + "/" + exec); });
+    return std::ranges::any_of(paths, [&exec](std::string& path) { return access((path + "/" + exec).c_str(), X_OK) == 0; });
 }
 
 void sendEmptyDbusMethodReply(sdbus::MethodCall& call, u_int32_t responseCode) {
