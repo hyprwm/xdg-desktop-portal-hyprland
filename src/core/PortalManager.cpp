@@ -9,7 +9,7 @@
 #include <protocols/linux-dmabuf-unstable-v1-protocol.h>
 
 #include <pipewire/pipewire.h>
-#include <sys/poll.h>
+#include <poll.h>
 #include <sys/mman.h>
 #include <fcntl.h>
 #include <unistd.h>
