@@ -9,6 +9,7 @@ project(xdg-desktop-portal-hyprland
 )
 
 set(CMAKE_MESSAGE_LOG_LEVEL "STATUS")
+set(SYSTEMD_SERVICES ON CACHE BOOL "Install systemd service file")
 
 if(CMAKE_BUILD_TYPE MATCHES Debug OR CMAKE_BUILD_TYPE MATCHES DEBUG)
     message(STATUS "Configuring XDPH in Debug with CMake")
@@ -27,12 +28,14 @@ include_directories(
 include(GNUInstallDirs)
 set(LIBEXECDIR ${CMAKE_INSTALL_FULL_LIBEXECDIR})
 configure_file(org.freedesktop.impl.portal.desktop.hyprland.service.in org.freedesktop.impl.portal.desktop.hyprland.service @ONLY)
-configure_file(contrib/systemd/xdg-desktop-portal-hyprland.service.in contrib/systemd/xdg-desktop-portal-hyprland.service @ONLY)
+if(SYSTEMD_SERVICES)
+	configure_file(contrib/systemd/xdg-desktop-portal-hyprland.service.in contrib/systemd/xdg-desktop-portal-hyprland.service @ONLY)
+endif()
 
 set(CMAKE_CXX_STANDARD 23)
 add_compile_options(-Wall -Wextra -Wno-unused-parameter -Wno-unused-value
 	-Wno-missing-field-initializers -Wno-narrowing -Wno-pointer-arith
-	-fpermissive -Wno-address-of-temporary)
+	$<$<COMPILE_LANG_AND_ID:CXX,GNU>:-fpermissive> -Wno-address-of-temporary)
 
 # dependencies
 message(STATUS "Checking deps...")
@@ -40,7 +43,7 @@ add_subdirectory(hyprland-share-picker)
 
 find_package(Threads REQUIRED)
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(deps REQUIRED IMPORTED_TARGET wayland-client wayland-protocols libpipewire-0.3 libspa-0.2 libdrm gbm hyprlang>=0.2.0)
+pkg_check_modules(deps REQUIRED IMPORTED_TARGET wayland-client wayland-protocols wayland-scanner libpipewire-0.3 libspa-0.2 libdrm gbm hyprlang>=0.2.0)
 
 # check whether we can find sdbus-c++ through pkg-config
 pkg_check_modules(SDBUS IMPORTED_TARGET sdbus-c++)
@@ -63,33 +66,27 @@ add_executable(xdg-desktop-portal-hyprland ${SRCFILES})
 target_link_libraries(xdg-desktop-portal-hyprland PRIVATE rt PkgConfig::SDBUS Threads::Threads PkgConfig::deps)
 
 # protocols
-find_program(WaylandScanner NAMES wayland-scanner)
+pkg_get_variable(WaylandScanner wayland-scanner wayland_scanner)
 message(STATUS "Found WaylandScanner at ${WaylandScanner}")
-execute_process(
-    COMMAND pkg-config --variable=pkgdatadir wayland-protocols
-    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-    OUTPUT_VARIABLE WAYLAND_PROTOCOLS_DIR
-    OUTPUT_STRIP_TRAILING_WHITESPACE)
+pkg_get_variable(WAYLAND_PROTOCOLS_DIR wayland-protocols pkgdatadir)
 message(STATUS "Found wayland-protocols at ${WAYLAND_PROTOCOLS_DIR}")
 
 function(protocol protoPath protoName external)
     if (external)
-        execute_process(
-            COMMAND ${WaylandScanner} client-header ${protoPath} protocols/${protoName}-protocol.h
-            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-        execute_process(
-            COMMAND ${WaylandScanner} private-code ${protoPath} protocols/${protoName}-protocol.c
-            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-        target_sources(xdg-desktop-portal-hyprland PRIVATE protocols/${protoName}-protocol.c)
+		set(path ${protoPath})
     else()
-        execute_process(
-            COMMAND ${WaylandScanner} client-header ${WAYLAND_PROTOCOLS_DIR}/${protoPath} protocols/${protoName}-protocol.h
-            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-        execute_process(
-            COMMAND ${WaylandScanner} private-code ${WAYLAND_PROTOCOLS_DIR}/${protoPath} protocols/${protoName}-protocol.c
-            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-        target_sources(xdg-desktop-portal-hyprland PRIVATE protocols/${protoName}-protocol.c)
+		set(path ${WAYLAND_PROTOCOLS_DIR}/${protoPath})
     endif()
+	add_custom_command(
+		OUTPUT ${CMAKE_SOURCE_DIR}/protocols/${protoName}-protocol.h
+		COMMAND ${WaylandScanner} client-header ${path} ${CMAKE_SOURCE_DIR}/protocols/${protoName}-protocol.h
+		WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+	add_custom_command(
+		OUTPUT ${CMAKE_SOURCE_DIR}/protocols/${protoName}-protocol.c
+		COMMAND ${WaylandScanner} private-code ${path} ${CMAKE_SOURCE_DIR}/protocols/${protoName}-protocol.c
+		WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+	target_sources(xdg-desktop-portal-hyprland PRIVATE protocols/${protoName}-protocol.h)
+	target_sources(xdg-desktop-portal-hyprland PRIVATE protocols/${protoName}-protocol.c)
 endfunction()
 
 protocol("protocols/wlr-foreign-toplevel-management-unstable-v1.xml" "wlr-foreign-toplevel-management-unstable-v1" true)
@@ -104,4 +101,6 @@ install(TARGETS xdg-desktop-portal-hyprland DESTINATION ${CMAKE_INSTALL_LIBEXECD
 
 install(FILES hyprland.portal DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/xdg-desktop-portal/portals")
 install(FILES ${CMAKE_BINARY_DIR}/org.freedesktop.impl.portal.desktop.hyprland.service DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/dbus-1/services")
-install(FILES ${CMAKE_BINARY_DIR}/contrib/systemd/xdg-desktop-portal-hyprland.service DESTINATION "lib/systemd/user")
+if(SYSTEMD_SERVICES)
+	install(FILES ${CMAKE_BINARY_DIR}/contrib/systemd/xdg-desktop-portal-hyprland.service DESTINATION "lib/systemd/user")
+endif()
