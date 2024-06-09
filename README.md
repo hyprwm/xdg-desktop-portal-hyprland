@@ -32,4 +32,4 @@ sudo cmake --install build
 ## Running, FAQs, etc.
 
 See
-[the Hyprland wiki](https://wiki.hyprland.org/Useful-Utilities/Hyprland-desktop-portal)
+[the Hyprland wiki](https://wiki.hyprland.org/Useful-Utilities/xdg-desktop-portal-hyprland/)
