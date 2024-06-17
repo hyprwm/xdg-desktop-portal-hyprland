@@ -29,8 +29,6 @@ stdenv.mkDerivation {
 
   src = ../.;
 
-  cmakeFlags = lib.optional debug (lib.strings.cmakeFeature "CMAKE_BUILD_TYPE" "DEBUG");
-
   nativeBuildInputs = [
     cmake
     makeWrapper
@@ -53,6 +51,13 @@ stdenv.mkDerivation {
     wayland
     wayland-protocols
   ];
+
+  cmakeBuildType =
+    if debug
+    then "Debug"
+    else "RelWithDebInfo";
+
+  dontStrip = true;
 
   dontWrapQtApps = true;
 
