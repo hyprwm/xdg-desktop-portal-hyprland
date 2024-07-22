@@ -41,7 +41,7 @@ static void handleOutputDone(void* data, struct wl_output* wl_output) {
 }
 
 static void handleOutputMode(void* data, struct wl_output* wl_output, uint32_t flags, int32_t width, int32_t height, int32_t refresh) {
-    const auto POUTPUT = (SOutput*)data;
+    const auto POUTPUT   = (SOutput*)data;
     POUTPUT->refreshRate = std::round(refresh / 1000.0);
 }
 

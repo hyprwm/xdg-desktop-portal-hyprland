@@ -18,8 +18,7 @@ extern "C" {
 #define XDPH_PWR_BUFFERS_MIN 2
 #define XDPH_PWR_ALIGN       16
 
-enum eSelectionType
-{
+enum eSelectionType {
     TYPE_INVALID = -1,
     TYPE_OUTPUT  = 0,
     TYPE_WINDOW,
