@@ -60,7 +60,9 @@ SKeybind* CGlobalShortcutsPortal::registerShortcut(SSession* session, const DBus
     }
 
     auto* PSHORTCUT = getShortcutById(session->appid, id);
-    if (!PSHORTCUT) {
+    if (PSHORTCUT) {
+        Debug::log(WARN, "[globalshortcuts] shortcut {} already registered for appid {}", id, session->appid);
+    } else {
         PSHORTCUT           = session->keybinds.emplace_back(std::make_unique<SKeybind>()).get();
         PSHORTCUT->shortcut =
             hyprland_global_shortcuts_manager_v1_register_shortcut(m_sState.manager, id.c_str(), session->appid.c_str(), description.c_str(), "");
