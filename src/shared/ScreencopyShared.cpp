@@ -16,7 +16,7 @@ std::string sanitizeNameForWindowList(const std::string& name) {
     for (size_t i = 1; i < result.size(); ++i) {
         if (result[i - 1] == '>' && result[i] == ']')
             result[i] = ' ';
-        if (result[i] == '\"')
+        if (result[i] == '\"' || result[i] == '\'')
             result[i] = ' ';
     }
     return result;
@@ -43,8 +43,10 @@ SSelectionData promptForScreencopySelection() {
     const char*    XCURSOR_SIZE                = getenv("XCURSOR_SIZE");
     const char*    HYPRLAND_INSTANCE_SIGNATURE = getenv("HYPRLAND_INSTANCE_SIGNATURE");
 
-    std::string    cmd =
-        std::format("WAYLAND_DISPLAY={} QT_QPA_PLATFORM=\"wayland\" XCURSOR_SIZE={} HYPRLAND_INSTANCE_SIGNATURE={} XDPH_WINDOW_SHARING_LIST=\"{}\" hyprland-share-picker 2>&1",
+    // DANGEROUS: we are sending a list of app IDs and titles via env. Make sure it's in 'singlequotes' to avoid something like $(rm -rf /)
+    // TODO: this is dumb, use a pipe or something.
+    std::string cmd =
+        std::format("WAYLAND_DISPLAY='{}' QT_QPA_PLATFORM='wayland' XCURSOR_SIZE='{}' HYPRLAND_INSTANCE_SIGNATURE='{}' XDPH_WINDOW_SHARING_LIST='{}' hyprland-share-picker 2>&1",
                     WAYLAND_DISPLAY ? WAYLAND_DISPLAY : "", XCURSOR_SIZE ? XCURSOR_SIZE : "24", HYPRLAND_INSTANCE_SIGNATURE ? HYPRLAND_INSTANCE_SIGNATURE : "0", buildWindowList());
 
     const auto RETVAL = execAndGet(cmd.c_str());

@@ -13,6 +13,6 @@ class CScreenshotPortal {
   private:
     std::unique_ptr<sdbus::IObject> m_pObject;
 
-    const std::string INTERFACE_NAME = "org.freedesktop.impl.portal.Screenshot";
-    const std::string OBJECT_PATH    = "/org/freedesktop/portal/desktop";
+    const std::string               INTERFACE_NAME = "org.freedesktop.impl.portal.Screenshot";
+    const std::string               OBJECT_PATH    = "/org/freedesktop/portal/desktop";
 };

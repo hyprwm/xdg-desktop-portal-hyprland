@@ -6,7 +6,9 @@
 #include <regex>
 #include <filesystem>
 
-void pickHyprPicker(sdbus::MethodCall& call) {
+std::string lastScreenshot;
+
+void        pickHyprPicker(sdbus::MethodCall& call) {
     const std::string HYPRPICKER_CMD = "hyprpicker --format=rgb --no-fancy";
     std::string       rgbColor       = execAndGet(HYPRPICKER_CMD.c_str());
 
@@ -68,7 +70,7 @@ void pickSlurp(sdbus::MethodCall& call) {
         maxValString             = maxValString.substr(0, maxValString.find(' '));
         uint32_t maxVal          = std::stoi(maxValString);
 
-        double r, g, b;
+        double   r, g, b;
 
         // 1 byte per triplet
         if (maxVal < 256) {
@@ -86,7 +88,7 @@ void pickSlurp(sdbus::MethodCall& call) {
             b = ((byteString[4] << 8) | byteString[5]) / (maxVal * 1.0);
         }
 
-        auto reply = call.createReply();
+        auto                                            reply = call.createReply();
 
         std::unordered_map<std::string, sdbus::Variant> results;
         results["color"] = sdbus::Struct(std::tuple{r, g, b});
@@ -133,17 +135,26 @@ void CScreenshotPortal::onScreenshot(sdbus::MethodCall& call) {
     bool isInteractive = options.count("interactive") && options["interactive"].get<bool>() && inShellPath("slurp");
 
     // make screenshot
-    const std::string HYPR_DIR             = "/tmp/hypr/";
-    const std::string SNAP_FILE            = "xdph_screenshot.png";
-    const std::string FILE_PATH            = HYPR_DIR + SNAP_FILE;
-    const std::string SNAP_CMD             = "grim " + FILE_PATH;
-    const std::string SNAP_INTERACTIVE_CMD = "grim -g \"$(slurp)\" " + FILE_PATH;
+
+    const auto RUNTIME_DIR = getenv("XDG_RUNTIME_DIR");
+    srand(time(nullptr));
+
+    const std::string                               HYPR_DIR             = RUNTIME_DIR ? std::string{RUNTIME_DIR} + "/hypr/" : "/tmp/hypr/";
+    const std::string                               SNAP_FILE            = std::format("xdph_screenshot_{:x}.png", rand()); // rand() is good enough
+    const std::string                               FILE_PATH            = HYPR_DIR + SNAP_FILE;
+    const std::string                               SNAP_CMD             = "grim '" + FILE_PATH + "'";
+    const std::string                               SNAP_INTERACTIVE_CMD = "grim -g \"$(slurp)\" '" + FILE_PATH + "'";
 
     std::unordered_map<std::string, sdbus::Variant> results;
     results["uri"] = "file://" + FILE_PATH;
 
     std::filesystem::remove(FILE_PATH);
     std::filesystem::create_directory(HYPR_DIR);
+
+    // remove last screenshot. This could cause issues if the app hasn't read the screenshot back yet, but oh well.
+    if (!lastScreenshot.empty())
+        std::filesystem::remove(lastScreenshot);
+    lastScreenshot = FILE_PATH;
 
     if (isInteractive)
         execAndGet(SNAP_INTERACTIVE_CMD.c_str());
@@ -152,7 +163,7 @@ void CScreenshotPortal::onScreenshot(sdbus::MethodCall& call) {
 
     uint32_t responseCode = std::filesystem::exists(FILE_PATH) ? 0 : 1;
 
-    auto reply = call.createReply();
+    auto     reply = call.createReply();
     reply << responseCode;
     reply << results;
     reply.send();
