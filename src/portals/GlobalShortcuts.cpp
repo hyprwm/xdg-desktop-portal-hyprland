@@ -52,17 +52,16 @@ SKeybind* CGlobalShortcutsPortal::registerShortcut(SSession* session, const DBus
     std::string description;
 
     for (auto& [k, v] : data) {
-        if (k == "description") {
+        if (k == "description")
             description = v.get<std::string>();
-        } else {
+        else
             Debug::log(LOG, "[globalshortcuts] unknown shortcut data type {}", k);
-        }
     }
 
     auto* PSHORTCUT = getShortcutById(session->appid, id);
-    if (PSHORTCUT) {
+    if (PSHORTCUT)
         Debug::log(WARN, "[globalshortcuts] shortcut {} already registered for appid {}", id, session->appid);
-    } else {
+    else {
         PSHORTCUT           = session->keybinds.emplace_back(std::make_unique<SKeybind>()).get();
         PSHORTCUT->shortcut =
             hyprland_global_shortcuts_manager_v1_register_shortcut(m_sState.manager, id.c_str(), session->appid.c_str(), description.c_str(), "");
