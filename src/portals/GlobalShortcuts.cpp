@@ -32,6 +32,49 @@ CGlobalShortcutsPortal::SSession* CGlobalShortcutsPortal::getSession(sdbus::Obje
     return nullptr;
 }
 
+SKeybind* CGlobalShortcutsPortal::getShortcutById(const std::string& appID, const std::string& shortcutId) {
+    for (auto& s : m_vSessions) {
+        if (s->appid != appID)
+            continue;
+
+        for (auto& keybind : s->keybinds) {
+            if (keybind->id == shortcutId)
+                return keybind.get();
+        }
+    }
+
+    return nullptr;
+}
+
+SKeybind* CGlobalShortcutsPortal::registerShortcut(SSession* session, const DBusShortcut& shortcut) {
+    std::string id = shortcut.get<0>();
+    std::unordered_map<std::string, sdbus::Variant> data = shortcut.get<1>();
+    std::string description;
+
+    for (auto& [k, v] : data) {
+        if (k == "description")
+            description = v.get<std::string>();
+        else
+            Debug::log(LOG, "[globalshortcuts] unknown shortcut data type {}", k);
+    }
+
+    auto* PSHORTCUT = getShortcutById(session->appid, id);
+    if (PSHORTCUT)
+        Debug::log(WARN, "[globalshortcuts] shortcut {} already registered for appid {}", id, session->appid);
+    else {
+        PSHORTCUT           = session->keybinds.emplace_back(std::make_unique<SKeybind>()).get();
+        PSHORTCUT->shortcut =
+            hyprland_global_shortcuts_manager_v1_register_shortcut(m_sState.manager, id.c_str(), session->appid.c_str(), description.c_str(), "");
+        hyprland_global_shortcut_v1_add_listener(PSHORTCUT->shortcut, &shortcutListener, PSHORTCUT);
+    }
+
+    PSHORTCUT->id          = std::move(id);
+    PSHORTCUT->description = std::move(description);
+    PSHORTCUT->session     = session;
+
+    return PSHORTCUT;
+}
+
 void CGlobalShortcutsPortal::onCreateSession(sdbus::MethodCall& call) {
     sdbus::ObjectPath requestHandle, sessionHandle;
 
@@ -61,30 +104,10 @@ void CGlobalShortcutsPortal::onCreateSession(sdbus::MethodCall& call) {
         if (k == "shortcuts") {
             PSESSION->registered = true;
 
-            std::vector<sdbus::Struct<std::string, std::unordered_map<std::string, sdbus::Variant>>> shortcuts;
-
-            shortcuts = v.get<std::vector<sdbus::Struct<std::string, std::unordered_map<std::string, sdbus::Variant>>>>();
+            std::vector<DBusShortcut> shortcuts = v.get<std::vector<DBusShortcut>>();
 
             for (auto& s : shortcuts) {
-                const auto PSHORTCUT = PSESSION->keybinds.emplace_back(std::make_unique<SKeybind>()).get();
-
-                PSHORTCUT->id = s.get<0>();
-
-                std::unordered_map<std::string, sdbus::Variant> data = s.get<1>();
-
-                for (auto& [k, v] : data) {
-                    if (k == "description") {
-                        PSHORTCUT->description = v.get<std::string>();
-                    } else {
-                        Debug::log(LOG, "[globalshortcuts] unknown shortcut data type {}", k);
-                    }
-                }
-
-                PSHORTCUT->shortcut =
-                    hyprland_global_shortcuts_manager_v1_register_shortcut(m_sState.manager, PSHORTCUT->id.c_str(), PSESSION->appid.c_str(), PSHORTCUT->description.c_str(), "");
-                hyprland_global_shortcut_v1_add_listener(PSHORTCUT->shortcut, &shortcutListener, PSHORTCUT);
-
-                PSHORTCUT->session = PSESSION;
+                registerShortcut(PSESSION, s);
             }
 
             Debug::log(LOG, "[globalshortcuts] registered {} shortcuts", shortcuts.size());
@@ -105,8 +128,8 @@ void CGlobalShortcutsPortal::onBindShortcuts(sdbus::MethodCall& call) {
     Debug::log(LOG, "[globalshortcuts] Bind keys:");
     Debug::log(LOG, "[globalshortcuts]  | {}", sessionHandle.c_str());
 
-    std::vector<sdbus::Struct<std::string, std::unordered_map<std::string, sdbus::Variant>>> shortcuts;
-    std::vector<sdbus::Struct<std::string, std::unordered_map<std::string, sdbus::Variant>>> shortcutsToReturn;
+    std::vector<DBusShortcut> shortcuts;
+    std::vector<DBusShortcut> shortcutsToReturn;
     call >> shortcuts;
 
     const auto PSESSION = getSession(sessionHandle);
@@ -119,25 +142,7 @@ void CGlobalShortcutsPortal::onBindShortcuts(sdbus::MethodCall& call) {
     PSESSION->registered = true;
 
     for (auto& s : shortcuts) {
-        const auto PSHORTCUT = PSESSION->keybinds.emplace_back(std::make_unique<SKeybind>()).get();
-
-        PSHORTCUT->id = s.get<0>();
-
-        std::unordered_map<std::string, sdbus::Variant> data = s.get<1>();
-
-        for (auto& [k, v] : data) {
-            if (k == "description") {
-                PSHORTCUT->description = v.get<std::string>();
-            } else {
-                Debug::log(LOG, "[globalshortcuts] unknown shortcut data type {}", k);
-            }
-        }
-
-        PSHORTCUT->shortcut =
-            hyprland_global_shortcuts_manager_v1_register_shortcut(m_sState.manager, PSHORTCUT->id.c_str(), PSESSION->appid.c_str(), PSHORTCUT->description.c_str(), "");
-        hyprland_global_shortcut_v1_add_listener(PSHORTCUT->shortcut, &shortcutListener, PSHORTCUT);
-
-        PSHORTCUT->session = PSESSION;
+        const auto* PSHORTCUT = registerShortcut(PSESSION, s);
 
         std::unordered_map<std::string, sdbus::Variant> shortcutData;
         shortcutData["description"]         = PSHORTCUT->description;
@@ -172,7 +177,7 @@ void CGlobalShortcutsPortal::onListShortcuts(sdbus::MethodCall& call) {
         return;
     }
 
-    std::vector<sdbus::Struct<std::string, std::unordered_map<std::string, sdbus::Variant>>> shortcuts;
+    std::vector<DBusShortcut> shortcuts;
 
     for (auto& s : PSESSION->keybinds) {
         std::unordered_map<std::string, sdbus::Variant> opts;
@@ -211,7 +216,7 @@ CGlobalShortcutsPortal::CGlobalShortcutsPortal(hyprland_global_shortcuts_manager
 void CGlobalShortcutsPortal::onActivated(SKeybind* pKeybind, uint64_t time) {
     const auto PSESSION = (CGlobalShortcutsPortal::SSession*)pKeybind->session;
 
-    Debug::log(TRACE, "[gs] Session {} called activated on {}", (void*)PSESSION, pKeybind->id);
+    Debug::log(TRACE, "[gs] Session {} called activated on {}", PSESSION->sessionHandle.c_str(), pKeybind->id);
 
     auto signal = m_pObject->createSignal(INTERFACE_NAME, "Activated");
     signal << PSESSION->sessionHandle;
@@ -225,7 +230,7 @@ void CGlobalShortcutsPortal::onActivated(SKeybind* pKeybind, uint64_t time) {
 void CGlobalShortcutsPortal::onDeactivated(SKeybind* pKeybind, uint64_t time) {
     const auto PSESSION = (CGlobalShortcutsPortal::SSession*)pKeybind->session;
 
-    Debug::log(TRACE, "[gs] Session {} called deactivated on {}", (void*)PSESSION, pKeybind->id);
+    Debug::log(TRACE, "[gs] Session {} called deactivated on {}", PSESSION->sessionHandle.c_str(), pKeybind->id);
 
     auto signal = m_pObject->createSignal(INTERFACE_NAME, "Deactivated");
     signal << PSESSION->sessionHandle;
