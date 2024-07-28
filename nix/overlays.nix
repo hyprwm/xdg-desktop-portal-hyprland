@@ -20,7 +20,6 @@ in {
     xdg-desktop-portal-hyprland
   ]);
   xdg-desktop-portal-hyprland = lib.composeManyExtensions [
-    self.overlays.pipewire
     (final: prev: {
       xdg-desktop-portal-hyprland = final.callPackage ./default.nix {
         stdenv = prev.gcc13Stdenv;
@@ -31,21 +30,4 @@ in {
       };
     })
   ];
-
-  # TODO: remove when https://nixpk.gs/pr-tracker.html?pr=322933 lands in unstable
-  pipewire = final: prev: {
-    pipewire = prev.pipewire.overrideAttrs (self: super: {
-      version = "1.2.0";
-
-      src = final.fetchFromGitLab {
-        domain = "gitlab.freedesktop.org";
-        owner = "pipewire";
-        repo = "pipewire";
-        rev = self.version;
-        hash = "sha256-hjjiH7+JoyRTcdbPDvkUEpO72b5p8CbTD6Un/vZrHL8=";
-      };
-
-      mesonFlags = super.mesonFlags ++ [(final.lib.mesonEnable "snap" false)];
-    });
-  };
 }
