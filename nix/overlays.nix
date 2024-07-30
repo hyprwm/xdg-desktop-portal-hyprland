@@ -18,15 +18,15 @@
 in {
   default = mkJoinedOverlays (with self.overlays; [
     xdg-desktop-portal-hyprland
+    inputs.hyprlang.overlays.default
+    inputs.hyprland-protocols.overlays.default
   ]);
   xdg-desktop-portal-hyprland = lib.composeManyExtensions [
     (final: prev: {
       xdg-desktop-portal-hyprland = final.callPackage ./default.nix {
         stdenv = prev.gcc13Stdenv;
-        inherit (final) hyprland-protocols;
         inherit (final.qt6) qtbase qttools wrapQtAppsHook qtwayland;
         inherit version;
-        inherit (inputs.hyprlang.packages.${prev.system}) hyprlang;
       };
     })
   ];
