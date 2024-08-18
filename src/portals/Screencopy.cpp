@@ -128,6 +128,8 @@ static void wlrOnBufferDone(void* data, zwlr_screencopy_frame_v1* frame) {
         PSESSION->sharingData.frameCallback = nullptr;
         Debug::log(LOG, "[screencopy/pipewire] Out of buffers");
         PSESSION->sharingData.status = FRAME_NONE;
+        g_pPortalManager->m_sPortals.screencopy->m_pPipewire->updateStreamParam(PSTREAM);
+        g_pPortalManager->m_sPortals.screencopy->queueNextShareFrame(PSESSION);
         return;
     }
 
