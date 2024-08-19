@@ -128,12 +128,16 @@ static void wlrOnBufferDone(void* data, zwlr_screencopy_frame_v1* frame) {
         PSESSION->sharingData.frameCallback = nullptr;
         Debug::log(LOG, "[screencopy/pipewire] Out of buffers");
         PSESSION->sharingData.status = FRAME_NONE;
-        g_pPortalManager->m_sPortals.screencopy->m_pPipewire->updateStreamParam(PSTREAM);
-        g_pPortalManager->m_sPortals.screencopy->queueNextShareFrame(PSESSION);
+        if (PSESSION->sharingData.copyRetries++ < 6) {
+            Debug::log(LOG, "[sc] Retrying screencopy ({}/6)", PSESSION->sharingData.copyRetries);
+            g_pPortalManager->m_sPortals.screencopy->m_pPipewire->updateStreamParam(PSTREAM);
+            g_pPortalManager->m_sPortals.screencopy->queueNextShareFrame(PSESSION);
+        }
         return;
     }
 
     zwlr_screencopy_frame_v1_copy_with_damage(frame, PSTREAM->currentPWBuffer->wlBuffer);
+    PSESSION->sharingData.copyRetries = 0;
 
     Debug::log(TRACE, "[sc] wlr frame copied");
 }
