@@ -81,6 +81,7 @@ class CScreencopyPortal {
             uint32_t                              framerate           = 60;
             wl_output_transform                   transform           = WL_OUTPUT_TRANSFORM_NORMAL;
             std::chrono::system_clock::time_point begunFrame          = std::chrono::system_clock::now();
+            uint32_t                              copyRetries         = 0;
 
             struct {
                 uint32_t w = 0, h = 0, size = 0, stride = 0, fmt = 0;
