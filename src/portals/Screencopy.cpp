@@ -8,6 +8,8 @@
 #include <protocols/linux-dmabuf-unstable-v1-protocol.h>
 #include <unistd.h>
 
+constexpr static int MAX_RETRIES = 10;
+
 // --------------- Wayland Protocol Handlers --------------- //
 
 static void wlrOnBuffer(void* data, zwlr_screencopy_frame_v1* frame, uint32_t format, uint32_t width, uint32_t height, uint32_t stride) {
@@ -128,8 +130,8 @@ static void wlrOnBufferDone(void* data, zwlr_screencopy_frame_v1* frame) {
         PSESSION->sharingData.frameCallback = nullptr;
         Debug::log(LOG, "[screencopy/pipewire] Out of buffers");
         PSESSION->sharingData.status = FRAME_NONE;
-        if (PSESSION->sharingData.copyRetries++ < 6) {
-            Debug::log(LOG, "[sc] Retrying screencopy ({}/6)", PSESSION->sharingData.copyRetries);
+        if (PSESSION->sharingData.copyRetries++ < MAX_RETRIES) {
+            Debug::log(LOG, "[sc] Retrying screencopy ({}/{})", PSESSION->sharingData.copyRetries, MAX_RETRIES);
             g_pPortalManager->m_sPortals.screencopy->m_pPipewire->updateStreamParam(PSTREAM);
             g_pPortalManager->m_sPortals.screencopy->queueNextShareFrame(PSESSION);
         }
