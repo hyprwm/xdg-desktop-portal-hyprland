@@ -271,11 +271,17 @@ static void hlOnBufferDone(void* data, hyprland_toplevel_export_frame_v1* frame)
         PSESSION->sharingData.windowFrameCallback = nullptr;
         Debug::log(LOG, "[screencopy/pipewire] Out of buffers");
         PSESSION->sharingData.status = FRAME_NONE;
+        if (PSESSION->sharingData.copyRetries++ < MAX_RETRIES) {
+            Debug::log(LOG, "[sc] Retrying screencopy ({}/{})", PSESSION->sharingData.copyRetries, MAX_RETRIES);
+            g_pPortalManager->m_sPortals.screencopy->m_pPipewire->updateStreamParam(PSTREAM);
+            g_pPortalManager->m_sPortals.screencopy->queueNextShareFrame(PSESSION);
+        }
         return;
     }
 
     hyprland_toplevel_export_frame_v1_copy(frame, PSTREAM->currentPWBuffer->wlBuffer, false);
-
+    PSESSION->sharingData.copyRetries = 0;
+	
     Debug::log(TRACE, "[sc] wlr frame copied");
 }
 
