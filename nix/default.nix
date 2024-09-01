@@ -29,6 +29,10 @@ stdenv.mkDerivation {
 
   src = ../.;
 
+  depsBuildBuild = [
+    pkg-config
+  ];
+
   nativeBuildInputs = [
     cmake
     makeWrapper
