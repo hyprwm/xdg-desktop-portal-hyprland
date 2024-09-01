@@ -29,6 +29,22 @@ cmake --build build
 sudo cmake --install build
 ```
 
+## Nix
+
+> [!CAUTION] XDPH should not be used from this flake directly!
+>
+> Instead, use it from the [Hyprland flake](https://github.com/hyprwm/Hyprland).
+
+There are two reasons for the above:
+
+1. Hyprland depends on XDPH, but XDPH also depends on Hyprland. This results in
+   a cyclic dependency, which is a nightmare. To counter this, we use the
+   Nixpkgs Hyprland package in this flake, so that it can be later consumed by
+   the Hyprland flake while overriding the Hyprland package.
+2. Even if you manually do all the overriding, you may still get it wrong and
+   lose out on the Cachix cache (which has XDPH as exposed by the Hyprland
+   flake).
+
 ## Running, FAQs, etc.
 
 See
