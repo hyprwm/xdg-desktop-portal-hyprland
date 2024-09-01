@@ -57,7 +57,6 @@ pkg_check_modules(
   IMPORTED_TARGET
   wayland-client
   wayland-protocols
-  wayland-scanner
   libpipewire-0.3>=1.1.82
   libspa-0.2
   libdrm
@@ -87,7 +86,7 @@ target_link_libraries(
                                       PkgConfig::deps)
 
 # protocols
-pkg_get_variable(WaylandScanner wayland-scanner wayland_scanner)
+find_program(WaylandScanner NAMES wayland-scanner)
 message(STATUS "Found WaylandScanner at ${WaylandScanner}")
 pkg_get_variable(WAYLAND_PROTOCOLS_DIR wayland-protocols pkgdatadir)
 message(STATUS "Found wayland-protocols at ${WAYLAND_PROTOCOLS_DIR}")
