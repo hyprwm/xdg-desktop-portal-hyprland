@@ -31,8 +31,9 @@ sudo cmake --install build
 
 ## Nix
 
-> [!CAUTION] XDPH should not be used from this flake directly!
->
+> [!CAUTION]
+> XDPH should not be used from this flake directly!
+> 
 > Instead, use it from the [Hyprland flake](https://github.com/hyprwm/Hyprland).
 
 There are two reasons for the above:
