@@ -47,9 +47,9 @@ SKeybind* CGlobalShortcutsPortal::getShortcutById(const std::string& appID, cons
 }
 
 SKeybind* CGlobalShortcutsPortal::registerShortcut(SSession* session, const DBusShortcut& shortcut) {
-    std::string id = shortcut.get<0>();
+    std::string                                     id   = shortcut.get<0>();
     std::unordered_map<std::string, sdbus::Variant> data = shortcut.get<1>();
-    std::string description;
+    std::string                                     description;
 
     for (auto& [k, v] : data) {
         if (k == "description")
@@ -63,8 +63,7 @@ SKeybind* CGlobalShortcutsPortal::registerShortcut(SSession* session, const DBus
         Debug::log(WARN, "[globalshortcuts] shortcut {} already registered for appid {}", id, session->appid);
     else {
         PSHORTCUT           = session->keybinds.emplace_back(std::make_unique<SKeybind>()).get();
-        PSHORTCUT->shortcut =
-            hyprland_global_shortcuts_manager_v1_register_shortcut(m_sState.manager, id.c_str(), session->appid.c_str(), description.c_str(), "");
+        PSHORTCUT->shortcut = hyprland_global_shortcuts_manager_v1_register_shortcut(m_sState.manager, id.c_str(), session->appid.c_str(), description.c_str(), "");
         hyprland_global_shortcut_v1_add_listener(PSHORTCUT->shortcut, &shortcutListener, PSHORTCUT);
     }
 
@@ -142,7 +141,7 @@ void CGlobalShortcutsPortal::onBindShortcuts(sdbus::MethodCall& call) {
     PSESSION->registered = true;
 
     for (auto& s : shortcuts) {
-        const auto* PSHORTCUT = registerShortcut(PSESSION, s);
+        const auto*                                     PSHORTCUT = registerShortcut(PSESSION, s);
 
         std::unordered_map<std::string, sdbus::Variant> shortcutData;
         shortcutData["description"]         = PSHORTCUT->description;

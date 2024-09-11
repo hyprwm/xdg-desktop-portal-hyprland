@@ -281,7 +281,7 @@ static void hlOnBufferDone(void* data, hyprland_toplevel_export_frame_v1* frame)
 
     hyprland_toplevel_export_frame_v1_copy(frame, PSTREAM->currentPWBuffer->wlBuffer, false);
     PSESSION->sharingData.copyRetries = 0;
-	
+
     Debug::log(TRACE, "[sc] wlr frame copied");
 }
 

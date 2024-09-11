@@ -41,12 +41,12 @@ class CGlobalShortcutsPortal {
 
     std::unique_ptr<sdbus::IObject> m_pObject;
 
-    using                           DBusShortcut = sdbus::Struct<std::string, std::unordered_map<std::string, sdbus::Variant>>;
+    using DBusShortcut = sdbus::Struct<std::string, std::unordered_map<std::string, sdbus::Variant>>;
 
-    SSession*                       getSession(sdbus::ObjectPath& path);
-    SKeybind*                       getShortcutById(const std::string& appID, const std::string& shortcutId);
-    SKeybind*                       registerShortcut(SSession* session, const DBusShortcut& shortcut);
+    SSession*         getSession(sdbus::ObjectPath& path);
+    SKeybind*         getShortcutById(const std::string& appID, const std::string& shortcutId);
+    SKeybind*         registerShortcut(SSession* session, const DBusShortcut& shortcut);
 
-    const std::string               INTERFACE_NAME = "org.freedesktop.impl.portal.GlobalShortcuts";
-    const std::string               OBJECT_PATH    = "/org/freedesktop/portal/desktop";
+    const std::string INTERFACE_NAME = "org.freedesktop.impl.portal.GlobalShortcuts";
+    const std::string OBJECT_PATH    = "/org/freedesktop/portal/desktop";
 };

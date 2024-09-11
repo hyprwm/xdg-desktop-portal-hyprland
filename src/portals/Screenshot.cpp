@@ -41,7 +41,7 @@ void        pickHyprPicker(sdbus::MethodCall& call) {
 
     auto [r, g, b] = colors;
     std::unordered_map<std::string, sdbus::Variant> results;
-    results["color"] = sdbus::Struct(std::tuple{r / 255.0, g / 255.0, b / 255.0});
+    results["color"] = sdbus::Struct<double, double, double>(r / 255.0, g / 255.0, b / 255.0);
 
     auto reply = call.createReply();
 
@@ -91,7 +91,7 @@ void pickSlurp(sdbus::MethodCall& call) {
         auto                                            reply = call.createReply();
 
         std::unordered_map<std::string, sdbus::Variant> results;
-        results["color"] = sdbus::Struct(std::tuple{r, g, b});
+        results["color"] = sdbus::Struct<double, double, double>(r, g, b);
 
         reply << (uint32_t)0;
         reply << results;
