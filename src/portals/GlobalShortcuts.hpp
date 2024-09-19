@@ -1,18 +1,19 @@
 #pragma once
 
 #include <sdbus-c++/sdbus-c++.h>
-#include <protocols/hyprland-global-shortcuts-v1-protocol.h>
+#include "hyprland-global-shortcuts-v1.hpp"
 #include "../shared/Session.hpp"
 
 struct SKeybind {
-    std::string                  id, description, preferredTrigger;
-    hyprland_global_shortcut_v1* shortcut = nullptr;
-    void*                        session  = nullptr;
+    SKeybind(SP<CCHyprlandGlobalShortcutV1> shortcut);
+    std::string                    id, description, preferredTrigger;
+    SP<CCHyprlandGlobalShortcutV1> shortcut = nullptr;
+    void*                          session  = nullptr;
 };
 
 class CGlobalShortcutsPortal {
   public:
-    CGlobalShortcutsPortal(hyprland_global_shortcuts_manager_v1* mgr);
+    CGlobalShortcutsPortal(SP<CCHyprlandGlobalShortcutsManagerV1> mgr);
 
     void onCreateSession(sdbus::MethodCall& call);
     void onBindShortcuts(sdbus::MethodCall& call);
@@ -36,7 +37,7 @@ class CGlobalShortcutsPortal {
 
   private:
     struct {
-        hyprland_global_shortcuts_manager_v1* manager;
+        SP<CCHyprlandGlobalShortcutsManagerV1> manager;
     } m_sState;
 
     std::unique_ptr<sdbus::IObject> m_pObject;

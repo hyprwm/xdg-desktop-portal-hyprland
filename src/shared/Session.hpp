@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../includes.hpp"
+
 #include <sdbus-c++/sdbus-c++.h>
 
 struct SDBusSession {

@@ -320,15 +320,14 @@ int anonymous_shm_open() {
     return -1;
 }
 
-wl_buffer* import_wl_shm_buffer(int fd, wl_shm_format fmt, int width, int height, int stride) {
+SP<CCWlBuffer> import_wl_shm_buffer(int fd, wl_shm_format fmt, int width, int height, int stride) {
     int size = stride * height;
 
     if (fd < 0)
-        return NULL;
+        return nullptr;
 
-    wl_shm_pool* pool   = wl_shm_create_pool(g_pPortalManager->m_sWaylandConnection.shm, fd, size);
-    wl_buffer*   buffer = wl_shm_pool_create_buffer(pool, 0, width, height, stride, fmt);
-    wl_shm_pool_destroy(pool);
+    auto pool = makeShared<CCWlShmPool>(g_pPortalManager->m_sWaylandConnection.shm->sendCreatePool(fd, size));
+    auto buf  = makeShared<CCWlBuffer>(pool->sendCreateBuffer(0, width, height, stride, fmt));
 
-    return buffer;
+    return buf;
 }

@@ -12,7 +12,9 @@ extern "C" {
 #include <spa/param/video/format-utils.h>
 #include <spa/pod/dynamic.h>
 }
-#include <wayland-client.h>
+#include "wayland.hpp"
+#include "wlr-foreign-toplevel-management-unstable-v1.hpp"
+#include "../includes.hpp"
 
 #define XDPH_PWR_BUFFERS     4
 #define XDPH_PWR_BUFFERS_MIN 2
@@ -29,11 +31,11 @@ enum eSelectionType {
 struct zwlr_foreign_toplevel_handle_v1;
 
 struct SSelectionData {
-    eSelectionType                   type = TYPE_INVALID;
-    std::string                      output;
-    zwlr_foreign_toplevel_handle_v1* windowHandle = nullptr;
-    uint32_t                         x = 0, y = 0, w = 0, h = 0; // for TYPE_GEOMETRY
-    bool                             allowToken = false;
+    eSelectionType                    type = TYPE_INVALID;
+    std::string                       output;
+    SP<CCZwlrForeignToplevelHandleV1> windowHandle = nullptr;
+    uint32_t                          x = 0, y = 0, w = 0, h = 0; // for TYPE_GEOMETRY
+    bool                              allowToken = false;
 };
 
 struct wl_buffer;
@@ -48,4 +50,4 @@ spa_pod*         build_format(spa_pod_builder* b, spa_video_format format, uint3
 spa_pod*         fixate_format(spa_pod_builder* b, spa_video_format format, uint32_t width, uint32_t height, uint32_t framerate, uint64_t* modifier);
 spa_pod*         build_buffer(spa_pod_builder* b, uint32_t blocks, uint32_t size, uint32_t stride, uint32_t datatype);
 int              anonymous_shm_open();
-wl_buffer*       import_wl_shm_buffer(int fd, wl_shm_format fmt, int width, int height, int stride);
+SP<CCWlBuffer>   import_wl_shm_buffer(int fd, wl_shm_format fmt, int width, int height, int stride);

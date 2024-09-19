@@ -2,9 +2,9 @@
 
 #include <memory>
 #include <sdbus-c++/sdbus-c++.h>
-#include <wayland-client.h>
 #include <hyprlang.hpp>
 
+#include "wayland.hpp"
 #include "../portals/Screencopy.hpp"
 #include "../portals/Screenshot.hpp"
 #include "../portals/GlobalShortcuts.hpp"
@@ -13,13 +13,22 @@
 #include <gbm.h>
 #include <xf86drm.h>
 
+#include "hyprland-toplevel-export-v1.hpp"
+#include "hyprland-global-shortcuts-v1.hpp"
+#include "linux-dmabuf-unstable-v1.hpp"
+#include "wlr-foreign-toplevel-management-unstable-v1.hpp"
+#include "wlr-screencopy-unstable-v1.hpp"
+
+#include "../includes.hpp"
+
 #include <mutex>
 
 struct pw_loop;
 
 struct SOutput {
+    SOutput(SP<CCWlOutput>);
     std::string         name;
-    wl_output*          output      = nullptr;
+    SP<CCWlOutput>      output      = nullptr;
     uint32_t            id          = 0;
     float               refreshRate = 60.0;
     wl_output_transform transform   = WL_OUTPUT_TRANSFORM_NORMAL;
@@ -36,8 +45,8 @@ class CPortalManager {
 
     void                init();
 
-    void                onGlobal(void* data, struct wl_registry* registry, uint32_t name, const char* interface, uint32_t version);
-    void                onGlobalRemoved(void* data, struct wl_registry* registry, uint32_t name);
+    void                onGlobal(uint32_t name, const char* interface, uint32_t version);
+    void                onGlobalRemoved(uint32_t name);
 
     sdbus::IConnection* getConnection();
     SOutput*            getOutputFromName(const std::string& name);
@@ -57,13 +66,14 @@ class CPortalManager {
     } m_sHelpers;
 
     struct {
-        wl_display* display             = nullptr;
-        void*       hyprlandToplevelMgr = nullptr;
-        void*       linuxDmabuf         = nullptr;
-        void*       linuxDmabufFeedback = nullptr;
-        wl_shm*     shm                 = nullptr;
-        gbm_bo*     gbm                 = nullptr;
-        gbm_device* gbmDevice           = nullptr;
+        wl_display*                           display = nullptr;
+        SP<CCWlRegistry>                      registry;
+        SP<CCHyprlandToplevelExportManagerV1> hyprlandToplevelMgr;
+        SP<CCZwpLinuxDmabufV1>                linuxDmabuf;
+        SP<CCZwpLinuxDmabufFeedbackV1>        linuxDmabufFeedback;
+        SP<CCWlShm>                           shm;
+        gbm_bo*                               gbm       = nullptr;
+        gbm_device*                           gbmDevice = nullptr;
         struct {
             void*  formatTable     = nullptr;
             size_t formatTableSize = 0;

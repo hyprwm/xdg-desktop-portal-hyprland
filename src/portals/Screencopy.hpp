@@ -1,7 +1,7 @@
 #pragma once
 
-#include <protocols/wlr-screencopy-unstable-v1-protocol.h>
-#include <protocols/hyprland-toplevel-export-v1-protocol.h>
+#include "wlr-screencopy-unstable-v1.hpp"
+#include "hyprland-toplevel-export-v1.hpp"
 #include <sdbus-c++/sdbus-c++.h>
 #include "../shared/ScreencopyShared.hpp"
 #include <gbm.h>
@@ -34,26 +34,26 @@ struct pw_stream;
 struct pw_buffer;
 
 struct SBuffer {
-    bool       isDMABUF = false;
-    uint32_t   w = 0, h = 0, fmt = 0;
-    int        planeCount = 0;
+    bool           isDMABUF = false;
+    uint32_t       w = 0, h = 0, fmt = 0;
+    int            planeCount = 0;
 
-    int        fd[4];
-    uint32_t   size[4], stride[4], offset[4];
+    int            fd[4];
+    uint32_t       size[4], stride[4], offset[4];
 
-    gbm_bo*    bo = nullptr;
+    gbm_bo*        bo = nullptr;
 
-    wl_buffer* wlBuffer = nullptr;
-    pw_buffer* pwBuffer = nullptr;
+    SP<CCWlBuffer> wlBuffer = nullptr;
+    pw_buffer*     pwBuffer = nullptr;
 };
 
 class CPipewireConnection;
 
 class CScreencopyPortal {
   public:
-    CScreencopyPortal(zwlr_screencopy_manager_v1*);
+    CScreencopyPortal(SP<CCZwlrScreencopyManagerV1>);
 
-    void appendToplevelExport(void*);
+    void appendToplevelExport(SP<CCHyprlandToplevelExportManagerV1>);
 
     void onCreateSession(sdbus::MethodCall& call);
     void onSelectSources(sdbus::MethodCall& call);
@@ -69,10 +69,13 @@ class CScreencopyPortal {
         std::unique_ptr<SDBusSession> session;
         SSelectionData                selection;
 
+        void                          startCopy();
+        void                          initCallbacks();
+
         struct {
             bool                                  active              = false;
-            zwlr_screencopy_frame_v1*             frameCallback       = nullptr;
-            hyprland_toplevel_export_frame_v1*    windowFrameCallback = nullptr;
+            SP<CCZwlrScreencopyFrameV1>           frameCallback       = nullptr;
+            SP<CCHyprlandToplevelExportFrameV1>   windowFrameCallback = nullptr;
             frameStatus                           status              = FRAME_NONE;
             uint64_t                              tvSec               = 0;
             uint32_t                              tvNsec              = 0;
@@ -116,12 +119,14 @@ class CScreencopyPortal {
     void                                   startSharing(SSession* pSession);
 
     struct {
-        zwlr_screencopy_manager_v1*          screencopy = nullptr;
-        hyprland_toplevel_export_manager_v1* toplevel   = nullptr;
+        SP<CCZwlrScreencopyManagerV1>         screencopy = nullptr;
+        SP<CCHyprlandToplevelExportManagerV1> toplevel   = nullptr;
     } m_sState;
 
     const std::string INTERFACE_NAME = "org.freedesktop.impl.portal.ScreenCast";
     const std::string OBJECT_PATH    = "/org/freedesktop/portal/desktop";
+
+    friend struct SSession;
 };
 
 class CPipewireConnection {

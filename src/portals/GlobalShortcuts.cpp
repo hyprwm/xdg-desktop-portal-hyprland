@@ -2,24 +2,14 @@
 #include "../core/PortalManager.hpp"
 #include "../helpers/Log.hpp"
 
-// wayland
-
-static void handleActivated(void* data, hyprland_global_shortcut_v1* hyprland_global_shortcut_v1, uint32_t tv_sec_hi, uint32_t tv_sec_lo, uint32_t tv_nsec) {
-    const auto PKEYBIND = (SKeybind*)data;
-
-    g_pPortalManager->m_sPortals.globalShortcuts->onActivated(PKEYBIND, ((uint64_t)tv_sec_hi << 32) | (uint64_t)(tv_sec_lo));
+SKeybind::SKeybind(SP<CCHyprlandGlobalShortcutV1> shortcut_) : shortcut(shortcut_) {
+    shortcut->setPressed([this](CCHyprlandGlobalShortcutV1* r, uint32_t tv_sec_hi, uint32_t tv_sec_lo, uint32_t tv_nsec) {
+        g_pPortalManager->m_sPortals.globalShortcuts->onActivated(this, ((uint64_t)tv_sec_hi << 32) | (uint64_t)(tv_sec_lo));
+    });
+    shortcut->setReleased([this](CCHyprlandGlobalShortcutV1* r, uint32_t tv_sec_hi, uint32_t tv_sec_lo, uint32_t tv_nsec) {
+        g_pPortalManager->m_sPortals.globalShortcuts->onDeactivated(this, ((uint64_t)tv_sec_hi << 32) | (uint64_t)(tv_sec_lo));
+    });
 }
-
-static void handleDeactivated(void* data, hyprland_global_shortcut_v1* hyprland_global_shortcut_v1, uint32_t tv_sec_hi, uint32_t tv_sec_lo, uint32_t tv_nsec) {
-    const auto PKEYBIND = (SKeybind*)data;
-
-    g_pPortalManager->m_sPortals.globalShortcuts->onDeactivated(PKEYBIND, ((uint64_t)tv_sec_hi << 32) | (uint64_t)(tv_sec_lo));
-}
-
-static const hyprland_global_shortcut_v1_listener shortcutListener = {
-    .pressed  = handleActivated,
-    .released = handleDeactivated,
-};
 
 //
 
@@ -62,9 +52,10 @@ SKeybind* CGlobalShortcutsPortal::registerShortcut(SSession* session, const DBus
     if (PSHORTCUT)
         Debug::log(WARN, "[globalshortcuts] shortcut {} already registered for appid {}", id, session->appid);
     else {
-        PSHORTCUT           = session->keybinds.emplace_back(std::make_unique<SKeybind>()).get();
-        PSHORTCUT->shortcut = hyprland_global_shortcuts_manager_v1_register_shortcut(m_sState.manager, id.c_str(), session->appid.c_str(), description.c_str(), "");
-        hyprland_global_shortcut_v1_add_listener(PSHORTCUT->shortcut, &shortcutListener, PSHORTCUT);
+        PSHORTCUT = session->keybinds
+                        .emplace_back(std::make_unique<SKeybind>(
+                            makeShared<CCHyprlandGlobalShortcutV1>(m_sState.manager->sendRegisterShortcut(id.c_str(), session->appid.c_str(), description.c_str(), ""))))
+                        .get();
     }
 
     PSHORTCUT->id          = std::move(id);
@@ -195,7 +186,7 @@ void CGlobalShortcutsPortal::onListShortcuts(sdbus::MethodCall& call) {
     reply.send();
 }
 
-CGlobalShortcutsPortal::CGlobalShortcutsPortal(hyprland_global_shortcuts_manager_v1* mgr) {
+CGlobalShortcutsPortal::CGlobalShortcutsPortal(SP<CCHyprlandGlobalShortcutsManagerV1> mgr) {
     m_sState.manager = mgr;
 
     m_pObject = sdbus::createObject(*g_pPortalManager->getConnection(), OBJECT_PATH);
