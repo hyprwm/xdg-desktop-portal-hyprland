@@ -63,7 +63,7 @@ pkg_check_modules(
   gbm
   hyprlang>=0.2.0
   hyprutils
-  hyprwayland-scanner>=0.4.0)
+  hyprwayland-scanner>=0.4.1)
 
 # check whether we can find sdbus-c++ through pkg-config
 pkg_check_modules(SDBUS IMPORTED_TARGET sdbus-c++)
