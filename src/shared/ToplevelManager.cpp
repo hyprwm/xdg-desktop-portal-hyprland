@@ -37,10 +37,10 @@ void CToplevelManager::activate() {
     m_pManager = makeShared<CCZwlrForeignToplevelManagerV1>(wl_registry_bind((wl_registry*)g_pPortalManager->m_sWaylandConnection.registry->resource(), m_sWaylandConnection.name,
                                                                              &zwlr_foreign_toplevel_manager_v1_interface, m_sWaylandConnection.version));
 
-    m_pManager->setToplevel([this](CCZwlrForeignToplevelManagerV1* r, CCZwlrForeignToplevelHandleV1* newHandle) {
+    m_pManager->setToplevel([this](CCZwlrForeignToplevelManagerV1* r, wl_proxy* newHandle) {
         Debug::log(TRACE, "[toplevel] New toplevel at {}", (void*)newHandle);
 
-        m_vToplevels.emplace_back(std::make_unique<SToplevelHandle>(SP<CCZwlrForeignToplevelHandleV1>(newHandle)));
+        m_vToplevels.emplace_back(std::make_unique<SToplevelHandle>(makeShared<CCZwlrForeignToplevelHandleV1>(newHandle)));
     });
     m_pManager->setFinished([this](CCZwlrForeignToplevelManagerV1* r) { m_vToplevels.clear(); });
 
