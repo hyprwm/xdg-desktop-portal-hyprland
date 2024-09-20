@@ -4,11 +4,12 @@
   cmake,
   makeWrapper,
   pkg-config,
-  wayland-scanner,
   wrapQtAppsHook,
   hyprland,
   hyprland-protocols,
   hyprlang,
+  hyprutils,
+  hyprwayland-scanner,
   libdrm,
   mesa,
   pipewire,
@@ -20,6 +21,7 @@
   systemd,
   wayland,
   wayland-protocols,
+  wayland-scanner,
   debug ? false,
   version ? "git",
 }:
@@ -37,13 +39,14 @@ stdenv.mkDerivation {
     cmake
     makeWrapper
     pkg-config
-    wayland-scanner
     wrapQtAppsHook
+    hyprwayland-scanner
   ];
 
   buildInputs = [
     hyprland-protocols
     hyprlang
+    hyprutils
     libdrm
     mesa
     pipewire
@@ -54,6 +57,7 @@ stdenv.mkDerivation {
     systemd
     wayland
     wayland-protocols
+    wayland-scanner
   ];
 
   cmakeBuildType =

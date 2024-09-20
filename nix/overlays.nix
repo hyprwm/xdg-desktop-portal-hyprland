@@ -20,6 +20,8 @@ in {
     xdg-desktop-portal-hyprland
     inputs.hyprlang.overlays.default
     inputs.hyprland-protocols.overlays.default
+    inputs.hyprutils.overlays.default
+    inputs.hyprwayland-scanner.overlays.default
   ]);
   xdg-desktop-portal-hyprland = lib.composeManyExtensions [
     (final: prev: {
