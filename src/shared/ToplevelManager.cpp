@@ -34,8 +34,9 @@ void CToplevelManager::activate() {
     if (m_pManager || m_iActivateLocks < 1)
         return;
 
-    m_pManager = makeShared<CCZwlrForeignToplevelManagerV1>(wl_registry_bind((wl_registry*)g_pPortalManager->m_sWaylandConnection.registry->resource(), m_sWaylandConnection.name,
-                                                                             &zwlr_foreign_toplevel_manager_v1_interface, m_sWaylandConnection.version));
+    m_pManager =
+        makeShared<CCZwlrForeignToplevelManagerV1>((wl_proxy*)wl_registry_bind((wl_registry*)g_pPortalManager->m_sWaylandConnection.registry->resource(), m_sWaylandConnection.name,
+                                                                               &zwlr_foreign_toplevel_manager_v1_interface, m_sWaylandConnection.version));
 
     m_pManager->setToplevel([this](CCZwlrForeignToplevelManagerV1* r, wl_proxy* newHandle) {
         Debug::log(TRACE, "[toplevel] New toplevel at {}", (void*)newHandle);

@@ -53,24 +53,24 @@ void CPortalManager::onGlobal(uint32_t name, const char* interface, uint32_t ver
     Debug::log(LOG, " | Got interface: {} (ver {})", INTERFACE, version);
 
     if (INTERFACE == zwlr_screencopy_manager_v1_interface.name && m_sPipewire.loop) {
-        m_sPortals.screencopy = std::make_unique<CScreencopyPortal>(
-            makeShared<CCZwlrScreencopyManagerV1>(wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &zwlr_screencopy_manager_v1_interface, version)));
+        m_sPortals.screencopy = std::make_unique<CScreencopyPortal>(makeShared<CCZwlrScreencopyManagerV1>(
+            (wl_proxy*)wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &zwlr_screencopy_manager_v1_interface, version)));
     }
 
     if (INTERFACE == hyprland_global_shortcuts_manager_v1_interface.name) {
         m_sPortals.globalShortcuts = std::make_unique<CGlobalShortcutsPortal>(makeShared<CCHyprlandGlobalShortcutsManagerV1>(
-            wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &hyprland_global_shortcuts_manager_v1_interface, version)));
+            (wl_proxy*)wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &hyprland_global_shortcuts_manager_v1_interface, version)));
     }
 
     else if (INTERFACE == hyprland_toplevel_export_manager_v1_interface.name) {
         m_sWaylandConnection.hyprlandToplevelMgr = makeShared<CCHyprlandToplevelExportManagerV1>(
-            wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &hyprland_toplevel_export_manager_v1_interface, version));
+            (wl_proxy*)wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &hyprland_toplevel_export_manager_v1_interface, version));
     }
 
     else if (INTERFACE == wl_output_interface.name) {
         const auto POUTPUT = m_vOutputs
-                                 .emplace_back(std::make_unique<SOutput>(
-                                     makeShared<CCWlOutput>(wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &wl_output_interface, version))))
+                                 .emplace_back(std::make_unique<SOutput>(makeShared<CCWlOutput>(
+                                     (wl_proxy*)wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &wl_output_interface, version))))
                                  .get();
         POUTPUT->id = name;
     }
@@ -82,7 +82,7 @@ void CPortalManager::onGlobal(uint32_t name, const char* interface, uint32_t ver
         }
 
         m_sWaylandConnection.linuxDmabuf =
-            makeShared<CCZwpLinuxDmabufV1>(wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &zwp_linux_dmabuf_v1_interface, version));
+            makeShared<CCZwpLinuxDmabufV1>((wl_proxy*)wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &zwp_linux_dmabuf_v1_interface, version));
         m_sWaylandConnection.linuxDmabufFeedback = makeShared<CCZwpLinuxDmabufFeedbackV1>(m_sWaylandConnection.linuxDmabuf->sendGetDefaultFeedback());
 
         m_sWaylandConnection.linuxDmabufFeedback->setMainDevice([this](CCZwpLinuxDmabufFeedbackV1* r, wl_array* device_arr) {
@@ -180,9 +180,8 @@ void CPortalManager::onGlobal(uint32_t name, const char* interface, uint32_t ver
 
     }
 
-    else if (INTERFACE == wl_shm_interface.name) {
-        m_sWaylandConnection.shm = makeShared<CCWlShm>(wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &wl_shm_interface, version));
-    }
+    else if (INTERFACE == wl_shm_interface.name)
+        m_sWaylandConnection.shm = makeShared<CCWlShm>((wl_proxy*)wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &wl_shm_interface, version));
 
     else if (INTERFACE == zwlr_foreign_toplevel_manager_v1_interface.name) {
         m_sHelpers.toplevel = std::make_unique<CToplevelManager>(name, version);
