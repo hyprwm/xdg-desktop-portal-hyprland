@@ -1,7 +1,6 @@
 #pragma once
 
 #include <sdbus-c++/sdbus-c++.h>
-#include <protocols/wlr-screencopy-unstable-v1-protocol.h>
 
 class CScreenshotPortal {
   public:

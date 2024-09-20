@@ -61,7 +61,9 @@ pkg_check_modules(
   libspa-0.2
   libdrm
   gbm
-  hyprlang>=0.2.0)
+  hyprlang>=0.2.0
+  hyprutils
+  hyprwayland-scanner>=0.4.2)
 
 # check whether we can find sdbus-c++ through pkg-config
 pkg_check_modules(SDBUS IMPORTED_TARGET sdbus-c++)
@@ -76,7 +78,7 @@ pkg_check_modules(HYPRLAND_PROTOS IMPORTED_TARGET hyprland-protocols)
 if(HYPRLAND_PROTOS_FOUND)
   set(HYPRLAND_PROTOCOLS "${HYPRLAND_PROTOS_PREFIX}/share/hyprland-protocols")
 else()
-  set(HYPRLAND_PROTOCOLS "subprojects/hyprland-protocols")
+  set(HYPRLAND_PROTOCOLS "${CMAKE_SOURCE_DIR}/subprojects/hyprland-protocols")
 endif()
 
 file(GLOB_RECURSE SRCFILES CONFIGURE_DEPENDS "src/*.cpp")
@@ -86,43 +88,47 @@ target_link_libraries(
                                       PkgConfig::deps)
 
 # protocols
-find_program(WaylandScanner NAMES wayland-scanner)
-message(STATUS "Found WaylandScanner at ${WaylandScanner}")
 pkg_get_variable(WAYLAND_PROTOCOLS_DIR wayland-protocols pkgdatadir)
 message(STATUS "Found wayland-protocols at ${WAYLAND_PROTOCOLS_DIR}")
+pkg_get_variable(WAYLAND_SCANNER_DIR wayland-scanner pkgdatadir)
+message(STATUS "Found wayland-scanner at ${WAYLAND_SCANNER_DIR}")
 
-function(protocol protoPath protoName external)
+function(protocolnew protoPath protoName external)
   if(external)
     set(path ${protoPath})
   else()
     set(path ${WAYLAND_PROTOCOLS_DIR}/${protoPath})
   endif()
   add_custom_command(
-    OUTPUT ${CMAKE_SOURCE_DIR}/protocols/${protoName}-protocol.h
-    COMMAND ${WaylandScanner} client-header ${path}
-            ${CMAKE_SOURCE_DIR}/protocols/${protoName}-protocol.h
+    OUTPUT ${CMAKE_SOURCE_DIR}/protocols/${protoName}.cpp
+           ${CMAKE_SOURCE_DIR}/protocols/${protoName}.hpp
+    COMMAND hyprwayland-scanner --client ${path}/${protoName}.xml
+            ${CMAKE_SOURCE_DIR}/protocols/
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+  target_sources(xdg-desktop-portal-hyprland PRIVATE protocols/${protoName}.cpp
+                                                     protocols/${protoName}.hpp)
+endfunction()
+function(protocolWayland)
   add_custom_command(
-    OUTPUT ${CMAKE_SOURCE_DIR}/protocols/${protoName}-protocol.c
-    COMMAND ${WaylandScanner} private-code ${path}
-            ${CMAKE_SOURCE_DIR}/protocols/${protoName}-protocol.c
+    OUTPUT ${CMAKE_SOURCE_DIR}/protocols/wayland.cpp
+           ${CMAKE_SOURCE_DIR}/protocols/wayland.hpp
+    COMMAND hyprwayland-scanner --wayland-enums --client
+            ${WAYLAND_SCANNER_DIR}/wayland.xml ${CMAKE_SOURCE_DIR}/protocols/
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-  target_sources(xdg-desktop-portal-hyprland
-                 PRIVATE protocols/${protoName}-protocol.h)
-  target_sources(xdg-desktop-portal-hyprland
-                 PRIVATE protocols/${protoName}-protocol.c)
+  target_sources(xdg-desktop-portal-hyprland PRIVATE protocols/wayland.cpp
+                                                     protocols/wayland.hpp)
 endfunction()
 
-protocol("protocols/wlr-foreign-toplevel-management-unstable-v1.xml"
-         "wlr-foreign-toplevel-management-unstable-v1" true)
-protocol("protocols/wlr-screencopy-unstable-v1.xml"
-         "wlr-screencopy-unstable-v1" true)
-protocol("${HYPRLAND_PROTOCOLS}/protocols/hyprland-global-shortcuts-v1.xml"
-         "hyprland-global-shortcuts-v1" true)
-protocol("${HYPRLAND_PROTOCOLS}/protocols/hyprland-toplevel-export-v1.xml"
-         "hyprland-toplevel-export-v1" true)
-protocol("unstable/linux-dmabuf/linux-dmabuf-unstable-v1.xml"
-         "linux-dmabuf-unstable-v1" false)
+protocolwayland()
+
+protocolnew("${CMAKE_SOURCE_DIR}/protocols"
+            "wlr-foreign-toplevel-management-unstable-v1" true)
+protocolnew("${CMAKE_SOURCE_DIR}/protocols" "wlr-screencopy-unstable-v1" true)
+protocolnew("${HYPRLAND_PROTOCOLS}/protocols" "hyprland-global-shortcuts-v1"
+            true)
+protocolnew("${HYPRLAND_PROTOCOLS}/protocols" "hyprland-toplevel-export-v1"
+            true)
+protocolnew("unstable/linux-dmabuf" "linux-dmabuf-unstable-v1" false)
 
 # Installation
 install(TARGETS hyprland-share-picker)

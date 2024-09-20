@@ -16,6 +16,19 @@
     hyprlang = {
       url = "github:hyprwm/hyprlang";
       inputs.nixpkgs.follows = "nixpkgs";
+      inputs.systems.follows = "systems";
+    };
+
+    hyprutils = {
+      url = "github:hyprwm/hyprutils";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.systems.follows = "systems";
+    };
+
+    hyprwayland-scanner = {
+      url = "github:hyprwm/hyprwayland-scanner";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.systems.follows = "systems";
     };
   };
 
@@ -30,10 +43,7 @@
     pkgsFor = eachSystem (system:
       import nixpkgs {
         localSystem = system;
-        overlays = [
-          inputs.hyprland-protocols.overlays.default
-          self.overlays.xdg-desktop-portal-hyprland
-        ];
+        overlays = [self.overlays.default];
       });
   in {
     overlays = import ./nix/overlays.nix {inherit self inputs lib;};
