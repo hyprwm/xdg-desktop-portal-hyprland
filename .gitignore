@@ -60,5 +60,5 @@ build-*/
 
 hyprland-share-picker/build/
 
-protocols/*.c
-protocols/*.h
+protocols/*.c*
+protocols/*.h*
