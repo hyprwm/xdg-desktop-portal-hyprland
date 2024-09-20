@@ -78,7 +78,7 @@ pkg_check_modules(HYPRLAND_PROTOS IMPORTED_TARGET hyprland-protocols)
 if(HYPRLAND_PROTOS_FOUND)
   set(HYPRLAND_PROTOCOLS "${HYPRLAND_PROTOS_PREFIX}/share/hyprland-protocols")
 else()
-  set(HYPRLAND_PROTOCOLS "subprojects/hyprland-protocols")
+  set(HYPRLAND_PROTOCOLS "${CMAKE_SOURCE_DIR}/subprojects/hyprland-protocols")
 endif()
 
 file(GLOB_RECURSE SRCFILES CONFIGURE_DEPENDS "src/*.cpp")
@@ -95,7 +95,7 @@ message(STATUS "Found wayland-client at ${WAYLAND_CLIENT_DIR}")
 
 function(protocolnew protoPath protoName external)
   if(external)
-    set(path ${CMAKE_SOURCE_DIR}/${protoPath})
+    set(path ${protoPath})
   else()
     set(path ${WAYLAND_PROTOCOLS_DIR}/${protoPath})
   endif()
@@ -106,7 +106,7 @@ function(protocolnew protoPath protoName external)
             ${CMAKE_SOURCE_DIR}/protocols/
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
   target_sources(xdg-desktop-portal-hyprland PRIVATE protocols/${protoName}.cpp
-                                   protocols/${protoName}.hpp)
+                                                     protocols/${protoName}.hpp)
 endfunction()
 function(protocolWayland)
   add_custom_command(
@@ -115,15 +115,19 @@ function(protocolWayland)
     COMMAND hyprwayland-scanner --wayland-enums --client
             ${WAYLAND_CLIENT_DIR}/wayland.xml ${CMAKE_SOURCE_DIR}/protocols/
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-  target_sources(xdg-desktop-portal-hyprland PRIVATE protocols/wayland.cpp protocols/wayland.hpp)
+  target_sources(xdg-desktop-portal-hyprland PRIVATE protocols/wayland.cpp
+                                                     protocols/wayland.hpp)
 endfunction()
 
 protocolwayland()
 
-protocolnew("protocols" "wlr-foreign-toplevel-management-unstable-v1" true)
-protocolnew("protocols" "wlr-screencopy-unstable-v1" true)
-protocolnew("${HYPRLAND_PROTOCOLS}/protocols" "hyprland-global-shortcuts-v1" true)
-protocolnew("${HYPRLAND_PROTOCOLS}/protocols" "hyprland-toplevel-export-v1" true)
+protocolnew("${CMAKE_SOURCE_DIR}/protocols"
+            "wlr-foreign-toplevel-management-unstable-v1" true)
+protocolnew("${CMAKE_SOURCE_DIR}/protocols" "wlr-screencopy-unstable-v1" true)
+protocolnew("${HYPRLAND_PROTOCOLS}/protocols" "hyprland-global-shortcuts-v1"
+            true)
+protocolnew("${HYPRLAND_PROTOCOLS}/protocols" "hyprland-toplevel-export-v1"
+            true)
 protocolnew("unstable/linux-dmabuf" "linux-dmabuf-unstable-v1" false)
 
 # Installation
