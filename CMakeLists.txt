@@ -90,8 +90,8 @@ target_link_libraries(
 # protocols
 pkg_get_variable(WAYLAND_PROTOCOLS_DIR wayland-protocols pkgdatadir)
 message(STATUS "Found wayland-protocols at ${WAYLAND_PROTOCOLS_DIR}")
-pkg_get_variable(WAYLAND_CLIENT_DIR wayland-client pkgdatadir)
-message(STATUS "Found wayland-client at ${WAYLAND_CLIENT_DIR}")
+pkg_get_variable(WAYLAND_SCANNER_DIR wayland-scanner pkgdatadir)
+message(STATUS "Found wayland-scanner at ${WAYLAND_SCANNER_DIR}")
 
 function(protocolnew protoPath protoName external)
   if(external)
@@ -113,7 +113,7 @@ function(protocolWayland)
     OUTPUT ${CMAKE_SOURCE_DIR}/protocols/wayland.cpp
            ${CMAKE_SOURCE_DIR}/protocols/wayland.hpp
     COMMAND hyprwayland-scanner --wayland-enums --client
-            ${WAYLAND_CLIENT_DIR}/wayland.xml ${CMAKE_SOURCE_DIR}/protocols/
+            ${WAYLAND_SCANNER_DIR}/wayland.xml ${CMAKE_SOURCE_DIR}/protocols/
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
   target_sources(xdg-desktop-portal-hyprland PRIVATE protocols/wayland.cpp
                                                      protocols/wayland.hpp)
