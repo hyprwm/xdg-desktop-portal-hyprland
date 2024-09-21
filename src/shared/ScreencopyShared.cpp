@@ -29,7 +29,7 @@ std::string buildWindowList() {
 
     for (auto& e : g_pPortalManager->m_sHelpers.toplevel->m_vToplevels) {
 
-        result += std::format("{}[HC>]{}[HT>]{}[HE>]", (uint32_t)(((uint64_t)e->handle) & 0xFFFFFFFF), sanitizeNameForWindowList(e->windowClass),
+        result += std::format("{}[HC>]{}[HT>]{}[HE>]", (uint32_t)(((uint64_t)e->handle->resource()) & 0xFFFFFFFF), sanitizeNameForWindowList(e->windowClass),
                               sanitizeNameForWindowList(e->windowTitle));
     }
 
@@ -88,7 +88,7 @@ SSelectionData promptForScreencopySelection() {
         data.windowHandle = nullptr;
 
         for (auto& e : g_pPortalManager->m_sHelpers.toplevel->m_vToplevels) {
-            uint32_t handleLoE = (uint32_t)(((uint64_t)e->handle) & 0xFFFFFFFF);
+            uint32_t handleLoE = (uint32_t)(((uint64_t)e->handle->resource()) & 0xFFFFFFFF);
 
             if (handleLoE == handleLo) {
                 data.windowHandle = e->handle;
