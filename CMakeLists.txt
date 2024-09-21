@@ -21,6 +21,8 @@ else()
   message(STATUS "Configuring XDPH in Release with CMake")
 endif()
 
+add_compile_definitions(XDPH_VERSION="${VER}")
+
 include_directories(. "protocols/")
 
 # configure
