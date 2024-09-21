@@ -36,17 +36,21 @@ std::string buildWindowList() {
 }
 
 SSelectionData promptForScreencopySelection() {
-    SSelectionData data;
+    SSelectionData      data;
 
-    const char*    WAYLAND_DISPLAY             = getenv("WAYLAND_DISPLAY");
-    const char*    XCURSOR_SIZE                = getenv("XCURSOR_SIZE");
-    const char*    HYPRLAND_INSTANCE_SIGNATURE = getenv("HYPRLAND_INSTANCE_SIGNATURE");
+    const char*         WAYLAND_DISPLAY             = getenv("WAYLAND_DISPLAY");
+    const char*         XCURSOR_SIZE                = getenv("XCURSOR_SIZE");
+    const char*         HYPRLAND_INSTANCE_SIGNATURE = getenv("HYPRLAND_INSTANCE_SIGNATURE");
+
+    static auto* const* PALLOWTOKENBYDEFAULT =
+        (Hyprlang::INT* const*)g_pPortalManager->m_sConfig.config->getConfigValuePtr("screencopy:allow_token_by_default")->getDataStaticPtr();
 
     // DANGEROUS: we are sending a list of app IDs and titles via env. Make sure it's in 'singlequotes' to avoid something like $(rm -rf /)
     // TODO: this is dumb, use a pipe or something.
     std::string cmd =
-        std::format("WAYLAND_DISPLAY='{}' QT_QPA_PLATFORM='wayland' XCURSOR_SIZE='{}' HYPRLAND_INSTANCE_SIGNATURE='{}' XDPH_WINDOW_SHARING_LIST='{}' hyprland-share-picker 2>&1",
-                    WAYLAND_DISPLAY ? WAYLAND_DISPLAY : "", XCURSOR_SIZE ? XCURSOR_SIZE : "24", HYPRLAND_INSTANCE_SIGNATURE ? HYPRLAND_INSTANCE_SIGNATURE : "0", buildWindowList());
+        std::format("WAYLAND_DISPLAY='{}' QT_QPA_PLATFORM='wayland' XCURSOR_SIZE='{}' HYPRLAND_INSTANCE_SIGNATURE='{}' XDPH_WINDOW_SHARING_LIST='{}' hyprland-share-picker{} 2>&1",
+                    WAYLAND_DISPLAY ? WAYLAND_DISPLAY : "", XCURSOR_SIZE ? XCURSOR_SIZE : "24", HYPRLAND_INSTANCE_SIGNATURE ? HYPRLAND_INSTANCE_SIGNATURE : "0", buildWindowList(),
+                    (**PALLOWTOKENBYDEFAULT ? " --allow-token" : ""));
 
     const auto RETVAL = execAndGet(cmd.c_str());
 

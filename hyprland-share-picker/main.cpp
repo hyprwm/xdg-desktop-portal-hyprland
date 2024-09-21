@@ -77,9 +77,14 @@ std::vector<SWindowEntry> getWindows(const char* env) {
 int main(int argc, char* argv[]) {
     qputenv("QT_LOGGING_RULES", "qml=false");
 
-    const char*  WINDOWLISTSTR = getenv("XDPH_WINDOW_SHARING_LIST");
+    bool allowTokenByDefault = false;
+    for (int i = 1; i < argc; ++i) {
+        if (argv[i] == std::string{"--allow-token"})
+            allowTokenByDefault = true;
+    }
 
-    const auto   WINDOWLIST = getWindows(WINDOWLISTSTR);
+    const char*  WINDOWLISTSTR = getenv("XDPH_WINDOW_SHARING_LIST");
+    const auto   WINDOWLIST    = getWindows(WINDOWLISTSTR);
 
     QApplication picker(argc, argv);
     pickerPtr = &picker;
@@ -90,8 +95,11 @@ int main(int argc, char* argv[]) {
     w.setGeometry(0, 0, settings->value("width").toInt(), settings->value("height").toInt());
 
     // get the tabwidget
-    const auto TABWIDGET        = w.findChild<QTabWidget *>("tabWidget");
-    const auto ALLOWTOKENBUTTON = w.findChild<QCheckBox *>("checkBox");
+    const auto TABWIDGET        = w.findChild<QTabWidget*>("tabWidget");
+    const auto ALLOWTOKENBUTTON = w.findChild<QCheckBox*>("checkBox");
+
+    if (allowTokenByDefault)
+        ALLOWTOKENBUTTON->setCheckState(Qt::CheckState::Checked);
 
     const auto TAB1 = (QWidget*)TABWIDGET->children()[0];
 
@@ -106,13 +114,13 @@ int main(int argc, char* argv[]) {
     constexpr int BUTTON_HEIGHT = 41;
 
     for (int i = 0; i < SCREENS.size(); ++i) {
-        const auto   GEOMETRY = SCREENS[i]->geometry();
+        const auto    GEOMETRY = SCREENS[i]->geometry();
 
-        QString      text = QString::fromStdString(std::string("Screen " + std::to_string(i) + " at " + std::to_string(GEOMETRY.x()) + ", " + std::to_string(GEOMETRY.y()) + " (" +
-                                                          std::to_string(GEOMETRY.width()) + "x" + std::to_string(GEOMETRY.height()) + ") (") +
-                                              SCREENS[i]->name().toStdString() + ")");
-        QString outputName = SCREENS[i]->name();
-        ElidedButton* button = new ElidedButton(text);
+        QString       text = QString::fromStdString(std::string("Screen " + std::to_string(i) + " at " + std::to_string(GEOMETRY.x()) + ", " + std::to_string(GEOMETRY.y()) + " (" +
+                                                                std::to_string(GEOMETRY.width()) + "x" + std::to_string(GEOMETRY.height()) + ") (") +
+                                                    SCREENS[i]->name().toStdString() + ")");
+        QString       outputName = SCREENS[i]->name();
+        ElidedButton* button     = new ElidedButton(text);
         button->setMinimumSize(0, BUTTON_HEIGHT);
         SCREENS_SCROLL_AREA_CONTENTS_LAYOUT->addWidget(button);
 
@@ -132,7 +140,7 @@ int main(int argc, char* argv[]) {
         });
     }
 
-    QSpacerItem * SCREENS_SPACER = new QSpacerItem(0,10000, QSizePolicy::Expanding, QSizePolicy::Expanding);
+    QSpacerItem* SCREENS_SPACER = new QSpacerItem(0, 10000, QSizePolicy::Expanding, QSizePolicy::Expanding);
     SCREENS_SCROLL_AREA_CONTENTS_LAYOUT->addItem(SCREENS_SPACER);
 
     // windows
@@ -144,7 +152,7 @@ int main(int argc, char* argv[]) {
     // loop over them
     int windowIterator = 0;
     for (auto& window : WINDOWLIST) {
-        QString      text = QString::fromStdString(window.clazz + ": " + window.name);
+        QString       text = QString::fromStdString(window.clazz + ": " + window.name);
 
         ElidedButton* button = new ElidedButton(text);
         button->setMinimumSize(0, BUTTON_HEIGHT);
@@ -170,19 +178,18 @@ int main(int argc, char* argv[]) {
         windowIterator++;
     }
 
-    QSpacerItem * WINDOWS_SPACER = new QSpacerItem(0,10000, QSizePolicy::Expanding, QSizePolicy::Expanding);
+    QSpacerItem* WINDOWS_SPACER = new QSpacerItem(0, 10000, QSizePolicy::Expanding, QSizePolicy::Expanding);
     WINDOWS_SCROLL_AREA_CONTENTS_LAYOUT->addItem(WINDOWS_SPACER);
 
     // lastly, region
-    const auto   REGION_OBJECT = (QWidget*)TAB1->findChild<QWidget*>("region");
-    const auto   REGION_LAYOUT = REGION_OBJECT->layout();
+    const auto    REGION_OBJECT = (QWidget*)TAB1->findChild<QWidget*>("region");
+    const auto    REGION_LAYOUT = REGION_OBJECT->layout();
 
-    QString      text = "Select region...";
-    
+    QString       text = "Select region...";
+
     ElidedButton* button = new ElidedButton(text);
     button->setMaximumSize(400, BUTTON_HEIGHT);
     REGION_LAYOUT->addWidget(button);
-
 
     QObject::connect(button, &QPushButton::clicked, [=]() {
         auto REGION = execAndGet("slurp -f \"%o %x %y %w %h\"");
