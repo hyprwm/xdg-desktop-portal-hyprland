@@ -28,7 +28,6 @@ std::string buildWindowList() {
         return result;
 
     for (auto& e : g_pPortalManager->m_sHelpers.toplevel->m_vToplevels) {
-
         result += std::format("{}[HC>]{}[HT>]{}[HE>]", (uint32_t)(((uint64_t)e->handle->resource()) & 0xFFFFFFFF), sanitizeNameForWindowList(e->windowClass),
                               sanitizeNameForWindowList(e->windowTitle));
     }
@@ -87,15 +86,11 @@ SSelectionData promptForScreencopySelection() {
         uint32_t handleLo = std::stoull(SEL.substr(7));
         data.windowHandle = nullptr;
 
-        for (auto& e : g_pPortalManager->m_sHelpers.toplevel->m_vToplevels) {
-            uint32_t handleLoE = (uint32_t)(((uint64_t)e->handle->resource()) & 0xFFFFFFFF);
-
-            if (handleLoE == handleLo) {
-                data.windowHandle = e->handle;
-                break;
-            }
+        const auto HANDLE = g_pPortalManager->m_sHelpers.toplevel->handleFromHandleLower(handleLo);
+        if (HANDLE) {
+            data.windowHandle = HANDLE->handle;
+            data.windowClass  = HANDLE->windowClass;
         }
-
     } else if (SEL.find("region:") == 0) {
         std::string running = SEL;
         running             = running.substr(7);

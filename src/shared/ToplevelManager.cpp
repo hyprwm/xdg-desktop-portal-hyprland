@@ -41,7 +41,7 @@ void CToplevelManager::activate() {
     m_pManager->setToplevel([this](CCZwlrForeignToplevelManagerV1* r, wl_proxy* newHandle) {
         Debug::log(TRACE, "[toplevel] New toplevel at {}", (void*)newHandle);
 
-        m_vToplevels.emplace_back(std::make_unique<SToplevelHandle>(makeShared<CCZwlrForeignToplevelHandleV1>(newHandle)));
+        m_vToplevels.emplace_back(makeShared<SToplevelHandle>(makeShared<CCZwlrForeignToplevelHandleV1>(newHandle)));
     });
     m_pManager->setFinished([this](CCZwlrForeignToplevelManagerV1* r) { m_vToplevels.clear(); });
 
@@ -62,4 +62,22 @@ void CToplevelManager::deactivate() {
     m_vToplevels.clear();
 
     Debug::log(LOG, "[toplevel] unbound manager");
+}
+
+SP<SToplevelHandle> CToplevelManager::handleFromClass(const std::string& windowClass) {
+    for (auto& tl : m_vToplevels) {
+        if (tl->windowClass == windowClass)
+            return tl;
+    }
+
+    return nullptr;
+}
+
+SP<SToplevelHandle> CToplevelManager::handleFromHandleLower(uint32_t handle) {
+    for (auto& tl : m_vToplevels) {
+        if (((uint64_t)tl->handle->resource() & 0xFFFFFFFF) == handle)
+            return tl;
+    }
+
+    return nullptr;
 }

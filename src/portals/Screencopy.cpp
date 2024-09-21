@@ -84,6 +84,7 @@ void CScreencopyPortal::onSelectSources(sdbus::MethodCall& call) {
         uint64_t    windowHandle;
         bool        withCursor;
         uint64_t    timeIssued;
+        std::string windowClass;
     } restoreData;
 
     for (auto& [key, val] : options) {
@@ -130,58 +131,32 @@ void CScreencopyPortal::onSelectSources(sdbus::MethodCall& call) {
                            restoreData.timeIssued);
             } else {
                 // ver 3
-                auto        sv = data.get<std::unordered_map<std::string, sdbus::Variant>>();
+                auto     sv = data.get<std::unordered_map<std::string, sdbus::Variant>>();
 
-                uint64_t    windowHandle = 0;
-                std::string windowClass;
+                uint64_t windowHandle = 0;
 
                 restoreData.windowHandle = 0;
                 restoreData.exists       = true;
 
                 for (auto& [tkkey, tkval] : sv) {
-                    if (tkkey == "output") {
+                    if (tkkey == "output")
                         restoreData.output = tkval.get<std::string>();
-                    } else if (tkkey == "windowHandle") {
+                    else if (tkkey == "windowHandle")
                         windowHandle = tkval.get<uint64_t>();
-                    } else if (tkkey == "windowClass") {
-                        windowClass = tkval.get<std::string>();
-                    } else if (tkkey == "withCursor") {
+                    else if (tkkey == "windowClass")
+                        restoreData.windowClass = tkval.get<std::string>();
+                    else if (tkkey == "withCursor")
                         restoreData.withCursor = (bool)tkval.get<uint32_t>();
-                    } else if (tkkey == "timeIssued") {
+                    else if (tkkey == "timeIssued")
                         restoreData.timeIssued = tkval.get<uint64_t>();
-                    } else if (tkkey == "token") {
+                    else if (tkkey == "token")
                         restoreData.token = tkval.get<std::string>();
-                    } else {
+                    else
                         Debug::log(LOG, "[screencopy] restore token v3, unknown prop {}", tkkey);
-                    }
                 }
 
-                Debug::log(LOG, "[screencopy] Restore token v3 {} with data: {} {} {} {} {}", restoreData.token, windowHandle, windowClass, restoreData.output,
+                Debug::log(LOG, "[screencopy] Restore token v3 {} with data: {} {} {} {} {}", restoreData.token, windowHandle, restoreData.windowClass, restoreData.output,
                            restoreData.withCursor, restoreData.timeIssued);
-
-                // find window
-                if (windowHandle != 0 || !windowClass.empty()) {
-                    if (windowHandle != 0) {
-                        for (auto& h : g_pPortalManager->m_sHelpers.toplevel->m_vToplevels) {
-                            if ((uint64_t)h->handle == windowHandle) {
-                                restoreData.windowHandle = (uint64_t)h->handle;
-                                Debug::log(LOG, "[screencopy] token v3 window found by handle {}", (void*)windowHandle);
-                                break;
-                            }
-                        }
-                    }
-
-                    if (restoreData.windowHandle == 0 && !windowClass.empty()) {
-                        // try class
-                        for (auto& h : g_pPortalManager->m_sHelpers.toplevel->m_vToplevels) {
-                            if (h->windowClass == windowClass) {
-                                restoreData.windowHandle = (uint64_t)h->handle;
-                                Debug::log(LOG, "[screencopy] token v3 window found by class {}", windowClass);
-                                break;
-                            }
-                        }
-                    }
-                }
             }
 
         } else if (key == "persist_mode") {
@@ -192,16 +167,23 @@ void CScreencopyPortal::onSelectSources(sdbus::MethodCall& call) {
         }
     }
 
-    const bool     RESTOREDATAVALID = restoreData.exists && g_pPortalManager->getOutputFromName(restoreData.output);
+    // clang-format off
+    const bool     RESTOREDATAVALID = restoreData.exists &&
+    (
+        (!restoreData.output.empty() && g_pPortalManager->getOutputFromName(restoreData.output)) || // output exists
+        (!restoreData.windowClass.empty() && g_pPortalManager->m_sHelpers.toplevel->handleFromClass(restoreData.windowClass)) // window exists
+    );
+    // clang-format on
 
     SSelectionData SHAREDATA;
     if (RESTOREDATAVALID) {
         Debug::log(LOG, "[screencopy] restore data valid, not prompting");
 
-        SHAREDATA.output     = restoreData.output;
-        SHAREDATA.type       = restoreData.windowHandle ? TYPE_WINDOW : TYPE_OUTPUT;
-        SHAREDATA.allowToken = true; // user allowed token before
-        PSESSION->cursorMode = restoreData.withCursor;
+        SHAREDATA.output       = restoreData.output;
+        SHAREDATA.type         = !restoreData.windowClass.empty() ? TYPE_WINDOW : TYPE_OUTPUT;
+        SHAREDATA.windowHandle = !restoreData.windowClass.empty() ? g_pPortalManager->m_sHelpers.toplevel->handleFromClass(restoreData.windowClass)->handle : nullptr;
+        SHAREDATA.allowToken   = true; // user allowed token before
+        PSESSION->cursorMode   = restoreData.withCursor;
     } else {
         Debug::log(LOG, "[screencopy] restore data invalid / missing, prompting");
 
@@ -275,13 +257,8 @@ void CScreencopyPortal::onStart(sdbus::MethodCall& call) {
             case TYPE_GEOMETRY:
             case TYPE_OUTPUT: mapData["output"] = PSESSION->selection.output; break;
             case TYPE_WINDOW:
-                mapData["windowHandle"] = (uint64_t)PSESSION->selection.windowHandle;
-                for (auto& w : g_pPortalManager->m_sHelpers.toplevel->m_vToplevels) {
-                    if (w->handle == PSESSION->selection.windowHandle) {
-                        mapData["windowClass"] = w->windowClass;
-                        break;
-                    }
-                }
+                mapData["windowHandle"] = (uint64_t)PSESSION->selection.windowHandle->resource();
+                mapData["windowClass"]  = PSESSION->selection.windowClass;
                 break;
             default: Debug::log(ERR, "[screencopy] wonk selection in token saving"); break;
         }

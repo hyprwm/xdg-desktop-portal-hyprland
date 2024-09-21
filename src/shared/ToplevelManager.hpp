@@ -21,10 +21,12 @@ class CToplevelManager {
   public:
     CToplevelManager(uint32_t name, uint32_t version);
 
-    void                                          activate();
-    void                                          deactivate();
+    void                             activate();
+    void                             deactivate();
+    SP<SToplevelHandle>              handleFromClass(const std::string& windowClass);
+    SP<SToplevelHandle>              handleFromHandleLower(uint32_t handle);
 
-    std::vector<std::unique_ptr<SToplevelHandle>> m_vToplevels;
+    std::vector<SP<SToplevelHandle>> m_vToplevels;
 
   private:
     SP<CCZwlrForeignToplevelManagerV1> m_pManager = nullptr;
@@ -35,4 +37,6 @@ class CToplevelManager {
         uint32_t name    = 0;
         uint32_t version = 0;
     } m_sWaylandConnection;
+
+    friend struct SToplevelHandle;
 };
