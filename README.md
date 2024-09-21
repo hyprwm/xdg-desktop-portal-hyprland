@@ -11,6 +11,8 @@ First, make sure to install the required dependencies:
 gbm
 hyprland-protocols
 hyprlang
+hyprutils
+hyprwayland-scanner
 libdrm
 libpipewire-0.3
 libspa-0.2
