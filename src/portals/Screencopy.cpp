@@ -10,7 +10,29 @@
 
 constexpr static int MAX_RETRIES = 10;
 
-void                 CScreencopyPortal::onCreateSession(sdbus::MethodCall& call) {
+//
+static sdbus::Struct<std::string, uint32_t, sdbus::Variant> getFullRestoreStruct(const SSelectionData& data, uint32_t cursor) {
+    std::unordered_map<std::string, sdbus::Variant> mapData;
+
+    switch (data.type) {
+        case TYPE_GEOMETRY:
+        case TYPE_OUTPUT: mapData["output"] = data.output; break;
+        case TYPE_WINDOW:
+            mapData["windowHandle"] = (uint64_t)data.windowHandle->resource();
+            mapData["windowClass"]  = data.windowClass;
+            break;
+        default: Debug::log(ERR, "[screencopy] wonk selection in token saving"); break;
+    }
+    mapData["timeIssued"] = uint64_t(time(nullptr));
+    mapData["token"]      = std::string("todo");
+    mapData["withCursor"] = cursor;
+
+    sdbus::Variant restoreData{mapData};
+
+    return sdbus::Struct<std::string, uint32_t, sdbus::Variant>{"hyprland", 3, restoreData};
+}
+
+void CScreencopyPortal::onCreateSession(sdbus::MethodCall& call) {
     sdbus::ObjectPath requestHandle, sessionHandle;
 
     g_pPortalManager->m_sHelpers.toplevel->activate();
@@ -182,6 +204,7 @@ void CScreencopyPortal::onSelectSources(sdbus::MethodCall& call) {
         SHAREDATA.output       = restoreData.output;
         SHAREDATA.type         = !restoreData.windowClass.empty() ? TYPE_WINDOW : TYPE_OUTPUT;
         SHAREDATA.windowHandle = !restoreData.windowClass.empty() ? g_pPortalManager->m_sHelpers.toplevel->handleFromClass(restoreData.windowClass)->handle : nullptr;
+        SHAREDATA.windowClass  = restoreData.windowClass;
         SHAREDATA.allowToken   = true; // user allowed token before
         PSESSION->cursorMode   = restoreData.withCursor;
     } else {
@@ -249,26 +272,10 @@ void CScreencopyPortal::onStart(sdbus::MethodCall& call) {
 
     std::unordered_map<std::string, sdbus::Variant> options;
 
-    if (PSESSION->persistMode != 0 && PSESSION->selection.allowToken) {
+    if (PSESSION->selection.allowToken) {
         // give them a token :)
-        std::unordered_map<std::string, sdbus::Variant> mapData;
-
-        switch (PSESSION->selection.type) {
-            case TYPE_GEOMETRY:
-            case TYPE_OUTPUT: mapData["output"] = PSESSION->selection.output; break;
-            case TYPE_WINDOW:
-                mapData["windowHandle"] = (uint64_t)PSESSION->selection.windowHandle->resource();
-                mapData["windowClass"]  = PSESSION->selection.windowClass;
-                break;
-            default: Debug::log(ERR, "[screencopy] wonk selection in token saving"); break;
-        }
-        mapData["timeIssued"] = uint64_t(time(nullptr));
-        mapData["token"]      = std::string("todo");
-        mapData["withCursor"] = PSESSION->cursorMode;
-
-        sdbus::Variant                                       restoreData{mapData};
-        sdbus::Struct<std::string, uint32_t, sdbus::Variant> fullRestoreStruct{"hyprland", 3, restoreData};
-        options["restore_data"] = sdbus::Variant{fullRestoreStruct};
+        options["restore_data"] = sdbus::Variant{getFullRestoreStruct(PSESSION->selection, PSESSION->cursorMode)};
+        options["persist_mode"] = sdbus::Variant{uint32_t{2}};
 
         Debug::log(LOG, "[screencopy] Sent restore token to {}", PSESSION->sessionHandle.c_str());
     }
