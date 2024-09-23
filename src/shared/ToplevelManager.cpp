@@ -81,3 +81,12 @@ SP<SToplevelHandle> CToplevelManager::handleFromHandleLower(uint32_t handle) {
 
     return nullptr;
 }
+
+SP<SToplevelHandle> CToplevelManager::handleFromHandleFull(uint64_t handle) {
+    for (auto& tl : m_vToplevels) {
+        if ((uint64_t)tl->handle->resource() == handle)
+            return tl;
+    }
+
+    return nullptr;
+}

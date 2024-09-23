@@ -153,18 +153,15 @@ void CScreencopyPortal::onSelectSources(sdbus::MethodCall& call) {
                            restoreData.timeIssued);
             } else {
                 // ver 3
-                auto     sv = data.get<std::unordered_map<std::string, sdbus::Variant>>();
+                auto sv = data.get<std::unordered_map<std::string, sdbus::Variant>>();
 
-                uint64_t windowHandle = 0;
-
-                restoreData.windowHandle = 0;
-                restoreData.exists       = true;
+                restoreData.exists = true;
 
                 for (auto& [tkkey, tkval] : sv) {
                     if (tkkey == "output")
                         restoreData.output = tkval.get<std::string>();
                     else if (tkkey == "windowHandle")
-                        windowHandle = tkval.get<uint64_t>();
+                        restoreData.windowHandle = tkval.get<uint64_t>();
                     else if (tkkey == "windowClass")
                         restoreData.windowClass = tkval.get<std::string>();
                     else if (tkkey == "withCursor")
@@ -177,8 +174,8 @@ void CScreencopyPortal::onSelectSources(sdbus::MethodCall& call) {
                         Debug::log(LOG, "[screencopy] restore token v3, unknown prop {}", tkkey);
                 }
 
-                Debug::log(LOG, "[screencopy] Restore token v3 {} with data: {} {} {} {} {}", restoreData.token, windowHandle, restoreData.windowClass, restoreData.output,
-                           restoreData.withCursor, restoreData.timeIssued);
+                Debug::log(LOG, "[screencopy] Restore token v3 {} with data: {} {} {} {} {}", restoreData.token, restoreData.windowHandle, restoreData.windowClass,
+                           restoreData.output, restoreData.withCursor, restoreData.timeIssued);
             }
 
         } else if (key == "persist_mode") {
@@ -201,9 +198,12 @@ void CScreencopyPortal::onSelectSources(sdbus::MethodCall& call) {
     if (RESTOREDATAVALID) {
         Debug::log(LOG, "[screencopy] restore data valid, not prompting");
 
+        const bool WINDOW      = !restoreData.windowClass.empty();
+        const auto HANDLEMATCH = WINDOW && restoreData.windowHandle != 0 ? g_pPortalManager->m_sHelpers.toplevel->handleFromHandleFull(restoreData.windowHandle) : nullptr;
+
         SHAREDATA.output       = restoreData.output;
-        SHAREDATA.type         = !restoreData.windowClass.empty() ? TYPE_WINDOW : TYPE_OUTPUT;
-        SHAREDATA.windowHandle = !restoreData.windowClass.empty() ? g_pPortalManager->m_sHelpers.toplevel->handleFromClass(restoreData.windowClass)->handle : nullptr;
+        SHAREDATA.type         = WINDOW ? TYPE_WINDOW : TYPE_OUTPUT;
+        SHAREDATA.windowHandle = WINDOW ? (HANDLEMATCH ? HANDLEMATCH->handle : g_pPortalManager->m_sHelpers.toplevel->handleFromClass(restoreData.windowClass)->handle) : nullptr;
         SHAREDATA.windowClass  = restoreData.windowClass;
         SHAREDATA.allowToken   = true; // user allowed token before
         PSESSION->cursorMode   = restoreData.withCursor;
