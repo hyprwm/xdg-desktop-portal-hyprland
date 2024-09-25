@@ -4,7 +4,7 @@ wayland_protos = dependency('wayland-protocols',
 )
 
 hyprland_protos = dependency('hyprland-protocols',
-	version: '>=0.6.4',
+	version: '>=0.7.0',
 	fallback: 'hyprland-protocols',
 )
 
@@ -23,6 +23,7 @@ client_protocols = [
 	hl_protocol_dir / 'protocols/hyprland-toplevel-export-v1.xml',
 	hl_protocol_dir / 'protocols/hyprland-toplevel-mapping-v1.xml',
 	hl_protocol_dir / 'protocols/hyprland-global-shortcuts-v1.xml',
+	hl_protocol_dir / 'protocols/hyprland-input-capture-v1.xml',
 	wl_protocol_dir / 'stable/linux-dmabuf/linux-dmabuf-v1.xml',
 	wl_protocol_dir / 'staging/ext-foreign-toplevel-list/ext-foreign-toplevel-list-v1.xml',
 ]
