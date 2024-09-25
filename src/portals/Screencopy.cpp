@@ -724,9 +724,9 @@ static uint64_t readObjectSerial(pw_stream* stream) {
     const char* serial_str = pw_properties_get(props, PW_KEY_OBJECT_SERIAL);
     if (!serial_str)
         return 0;
-    char*    end = nullptr;
-    errno        = 0;
-    uint64_t s   = std::strtoull(serial_str, &end, 10);
+    char* end  = nullptr;
+    errno      = 0;
+    uint64_t s = std::strtoull(serial_str, &end, 10);
     if (errno != 0 || end == serial_str)
         return 0;
     return s;
