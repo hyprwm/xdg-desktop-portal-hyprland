@@ -62,6 +62,8 @@ pkg_check_modules(
   libpipewire-0.3>=1.1.82
   libspa-0.2
   libdrm
+  libeis-1.0
+  dbus-1
   gbm
   hyprlang>=0.2.0
   hyprutils>=0.2.6
@@ -132,6 +134,8 @@ protocolnew("${HYPRLAND_PROTOCOLS}/protocols" "hyprland-toplevel-export-v1"
             true)
 protocolnew("${HYPRLAND_PROTOCOLS}/protocols" "hyprland-toplevel-mapping-v1"
         true)
+protocolnew("${HYPRLAND_PROTOCOLS}/protocols" "hyprland-input-capture-v1"
+            true)
 protocolnew("stable/linux-dmabuf" "linux-dmabuf-v1" false)
 protocolnew("staging/ext-foreign-toplevel-list" "ext-foreign-toplevel-list-v1" false)
 
