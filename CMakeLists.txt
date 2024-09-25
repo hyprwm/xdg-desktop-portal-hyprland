@@ -64,6 +64,7 @@ pkg_check_modules(
   libdrm
   libeis-1.0
   uuid
+  dbus-1
   gbm
   hyprlang>=0.2.0
   hyprutils>=0.2.6

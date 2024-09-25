@@ -95,6 +95,7 @@ dbUasv CInputCapturePortal::onCreateSession(sdbus::ObjectPath requestHandle, sdb
     Debug::log(LOG, "[input-capture] New session:");
 
     uint32_t capabilities = options["capabilities"].get<uint32_t>();
+    Debug::log(LOG, "[input-capture] New session:");
 
     Debug::log(LOG, "[input-capture]  | {}", requestHandle.c_str());
     Debug::log(LOG, "[input-capture]  | {}", sessionHandle.c_str());
@@ -163,7 +164,6 @@ dbUasv CInputCapturePortal::onSetPointerBarriers(sdbus::ObjectPath requestHandle
                                                  std::unordered_map<std::string, sdbus::Variant> opts, std::vector<std::unordered_map<std::string, sdbus::Variant>> barriers,
                                                  uint32_t zoneSet) {
     Debug::log(LOG, "[input-capture] New SetPointerBarriers request:");
-
     Debug::log(LOG, "[input-capture]  | {}", requestHandle.c_str());
     Debug::log(LOG, "[input-capture]  | {}", sessionHandle.c_str());
     Debug::log(LOG, "[input-capture]  | appid: {}", appID);

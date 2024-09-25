@@ -1,13 +1,17 @@
 #include "PortalManager.hpp"
 #include "../helpers/Log.hpp"
 #include "../helpers/MiscFunctions.hpp"
+#include "wayland.hpp"
 
+#include <hyprutils/memory/SharedPtr.hpp>
+#include <memory>
 #include <pipewire/pipewire.h>
 #include <sys/mman.h>
 #include <fcntl.h>
 #include <unistd.h>
 
 #include <thread>
+#include <vector>
 
 SOutput::SOutput(SP<CCWlOutput> output_) : output(output_) {
     output->setName([this](CCWlOutput* o, const char* name_) {

@@ -1,7 +1,9 @@
 #pragma once
 
+#include <cstdint>
 #include <memory>
 #include <sdbus-c++/sdbus-c++.h>
+
 #include <hyprlang.hpp>
 
 #include "wayland.hpp"
