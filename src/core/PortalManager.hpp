@@ -1,13 +1,16 @@
 #pragma once
 
+#include <cstdint>
 #include <memory>
 #include <sdbus-c++/sdbus-c++.h>
+
 #include <hyprlang.hpp>
 
 #include "wayland.hpp"
 #include "../portals/Screencopy.hpp"
 #include "../portals/Screenshot.hpp"
 #include "../portals/GlobalShortcuts.hpp"
+#include "../portals/InputCapture.hpp"
 #include "../helpers/Timer.hpp"
 #include "../shared/ToplevelManager.hpp"
 #include <gbm.h>
@@ -33,6 +36,9 @@ struct SOutput {
     uint32_t            id          = 0;
     float               refreshRate = 60.0;
     wl_output_transform transform   = WL_OUTPUT_TRANSFORM_NORMAL;
+    uint32_t            width, height;
+    int32_t             x, y;
+    int32_t             scale;
 };
 
 struct SDMABUFModifier {
@@ -44,13 +50,14 @@ class CPortalManager {
   public:
     CPortalManager();
 
-    void                init();
+    void                                         init();
 
     void                onGlobal(uint32_t name, const char* interface, uint32_t version);
     void                onGlobalRemoved(uint32_t name);
 
-    sdbus::IConnection* getConnection();
-    SOutput*            getOutputFromName(const std::string& name);
+    sdbus::IConnection*                          getConnection();
+    SOutput*                                     getOutputFromName(const std::string& name);
+    std::vector<std::unique_ptr<SOutput>> const& getAllOutputs();
 
     struct {
         pw_loop* loop = nullptr;
@@ -60,6 +67,7 @@ class CPortalManager {
         std::unique_ptr<CScreencopyPortal>      screencopy;
         std::unique_ptr<CScreenshotPortal>      screenshot;
         std::unique_ptr<CGlobalShortcutsPortal> globalShortcuts;
+        std::unique_ptr<CInputCapturePortal>    inputCapture;
     } m_sPortals;
 
     struct {
