@@ -1,7 +1,10 @@
 #include "PortalManager.hpp"
 #include "../helpers/Log.hpp"
 #include "../helpers/MiscFunctions.hpp"
+#include "wayland.hpp"
 
+#include <hyprutils/memory/SharedPtr.hpp>
+#include <memory>
 #include <pipewire/pipewire.h>
 #include <poll.h>
 #include <sys/mman.h>
@@ -9,6 +12,7 @@
 #include <unistd.h>
 
 #include <thread>
+#include <vector>
 
 SOutput::SOutput(SP<CCWlOutput> output_) : output(output_) {
     output->setName([this](CCWlOutput* o, const char* name_) {
@@ -19,13 +23,19 @@ SOutput::SOutput(SP<CCWlOutput> output_) : output(output_) {
 
         Debug::log(LOG, "Found output name {}", name);
     });
-    output->setMode([this](CCWlOutput* r, uint32_t flags, int32_t width, int32_t height, int32_t refresh) { //
-        refreshRate = refresh;
+    output->setMode([this](CCWlOutput* r, uint32_t flags, int32_t width, int32_t height, int32_t refresh) {
+        refreshRate  = refresh;
+        this->width  = width;
+        this->height = height;
     });
-    output->setGeometry([this](CCWlOutput* r, int32_t x, int32_t y, int32_t physical_width, int32_t physical_height, int32_t subpixel, const char* make, const char* model,
-                               int32_t transform_) { //
-        transform = (wl_output_transform)transform_;
-    });
+    output->setGeometry(
+        [this](CCWlOutput* r, int32_t x, int32_t y, int32_t physical_width, int32_t physical_height, int32_t subpixel, const char* make, const char* model, int32_t transform_) {
+            transform = (wl_output_transform)transform_;
+            this->x   = x;
+            this->y   = y;
+        });
+    output->setScale([this](CCWlOutput* r, uint32_t factor) { this->scale = factor; });
+    output->setDone([](CCWlOutput* r) { g_pPortalManager->m_sPortals.inputCapture->zonesChanged(); });
 }
 
 CPortalManager::CPortalManager() {
@@ -63,7 +73,9 @@ void CPortalManager::onGlobal(uint32_t name, const char* interface, uint32_t ver
         m_sPortals.globalShortcuts = std::make_unique<CGlobalShortcutsPortal>(makeShared<CCHyprlandGlobalShortcutsManagerV1>(
             (wl_proxy*)wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &hyprland_global_shortcuts_manager_v1_interface, version)));
     }
-
+    if (INTERFACE == hyprland_input_capture_manager_v1_interface.name)
+        m_sPortals.inputCapture = std::make_unique<CInputCapturePortal>(makeShared<CCHyprlandInputCaptureManagerV1>(
+            (wl_proxy*)wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &hyprland_input_capture_manager_v1_interface, version)));
     else if (INTERFACE == hyprland_toplevel_export_manager_v1_interface.name) {
         m_sWaylandConnection.hyprlandToplevelMgr = makeShared<CCHyprlandToplevelExportManagerV1>(
             (wl_proxy*)wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &hyprland_toplevel_export_manager_v1_interface, version));
@@ -417,6 +429,7 @@ void CPortalManager::startEventLoop() {
     m_sPortals.screencopy.reset();
     m_sPortals.screenshot.reset();
     m_sHelpers.toplevel.reset();
+    m_sPortals.inputCapture.reset();
 
     m_pConnection.reset();
     pw_loop_destroy(m_sPipewire.loop);
@@ -436,6 +449,10 @@ SOutput* CPortalManager::getOutputFromName(const std::string& name) {
             return o.get();
     }
     return nullptr;
+}
+
+std::vector<std::unique_ptr<SOutput>> const& CPortalManager::getAllOutputs() {
+    return m_vOutputs;
 }
 
 static char* gbm_find_render_node(drmDevice* device) {
