@@ -2,7 +2,6 @@
 
 #include <libeis.h>
 #include <string>
-#include <sys/socket.h>
 
 struct EisClient {
     struct eis_client* handle;
