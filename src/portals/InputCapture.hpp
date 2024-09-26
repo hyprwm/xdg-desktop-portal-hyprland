@@ -1,14 +1,9 @@
 #pragma once
 #include "hyprland-input-capture-v1.hpp"
-#include "shared/Eis.hpp"
-#include <cstdint>
-#include <sdbus-c++/Types.h>
-#include <sdbus-c++/sdbus-c++.h>
-#include <string>
-#include <unordered_map>
-#include <wayland-client-protocol.h>
+#include "../shared/Eis.hpp"
 #include "../includes.hpp"
 #include "../shared/Session.hpp"
+#include <sdbus-c++/Types.h>
 
 typedef int        ClientStatus;
 const ClientStatus CREATED   = 0; //Is ready to be activated
