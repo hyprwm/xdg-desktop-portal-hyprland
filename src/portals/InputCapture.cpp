@@ -422,6 +422,8 @@ void CInputCapturePortal::activate(sdbus::ObjectPath sessionHandle, double x, do
     if (!session->activate(x, y, borderId))
         return;
 
+    m_sState.manager->sendCapture();
+
     auto signal = m_pObject->createSignal(INTERFACE_NAME, "Activated");
     signal << sessionHandle;
 
@@ -445,7 +447,6 @@ bool CInputCapturePortal::Session::activate(double x, double y, uint32_t borderI
     status = ACTIVATED;
     Debug::log(LOG, "[input-capture] Input captured for {} activationId: {}", sessionHandle.c_str(), activationId);
     eis->startEmulating(activationId);
-    //TODO: capture the pointer
 
     return true;
 }
@@ -458,6 +459,8 @@ void CInputCapturePortal::deactivate(sdbus::ObjectPath sessionHandle) {
     if (!session->deactivate())
         return;
 
+    m_sState.manager->sendRelease();
+
     auto signal = m_pObject->createSignal(INTERFACE_NAME, "Deactivated");
     signal << sessionHandle;
     std::unordered_map<std::string, sdbus::Variant> options;
@@ -465,8 +468,6 @@ void CInputCapturePortal::deactivate(sdbus::ObjectPath sessionHandle) {
     signal << options;
 
     m_pObject->emitSignal(signal);
-
-    //TODO: release the pointer
 }
 
 bool CInputCapturePortal::Session::deactivate() {
