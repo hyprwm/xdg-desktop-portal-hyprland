@@ -1,8 +1,7 @@
 #include "Eis.hpp"
-#include "core/PortalManager.hpp"
+#include "../core/PortalManager.hpp"
 #include "src/helpers/Log.hpp"
 #include <libeis.h>
-#include <string>
 #include <sys/poll.h>
 #include <thread>
 

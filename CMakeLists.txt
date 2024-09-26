@@ -63,7 +63,6 @@ pkg_check_modules(
   libspa-0.2
   libdrm
   libeis-1.0
-  dbus-1
   gbm
   hyprlang>=0.2.0
   hyprutils>=0.2.6

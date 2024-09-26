@@ -2,14 +2,11 @@
 
 #include "../core/PortalManager.hpp"
 #include "../helpers/Log.hpp"
+#include "../shared/Session.hpp"
 #include "hyprland-input-capture-v1.hpp"
-#include "shared/Session.hpp"
-#include "src/shared/Eis.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <memory>
-#include <sdbus-c++/IConnection.h>
-#include <sdbus-c++/Types.h>
 #include <string>
 #include <sys/socket.h>
 #include <sys/un.h>
