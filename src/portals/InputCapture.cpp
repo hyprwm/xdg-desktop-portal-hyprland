@@ -13,14 +13,11 @@
 #include <unordered_map>
 #include <wayland-util.h>
 
-CInputCapturePortal::CInputCapturePortal(SP<CCHyprlandInputCaptureManagerV1> mgr) {
+CInputCapturePortal::CInputCapturePortal(SP<CCHyprlandInputCaptureManagerV1> mgr) : m_sState(mgr) {
     Debug::log(LOG, "[input-capture] initializing input capture portal");
-    m_sState.manager = mgr;
-    sessionCounter   = 0;
-    lastZoneSet      = 0;
 
-    mgr->setAbsoluteMotion([this](CCHyprlandInputCaptureManagerV1* r, wl_fixed_t x, wl_fixed_t y, wl_fixed_t dx, wl_fixed_t dy) {
-        onAbsoluteMotion(wl_fixed_to_double(x), wl_fixed_to_double(y), wl_fixed_to_double(dx), wl_fixed_to_double(dy));
+    mgr->setMotion([this](CCHyprlandInputCaptureManagerV1* r, wl_fixed_t x, wl_fixed_t y, wl_fixed_t dx, wl_fixed_t dy) {
+        onMotion(wl_fixed_to_double(x), wl_fixed_to_double(y), wl_fixed_to_double(dx), wl_fixed_to_double(dy));
     });
 
     mgr->setKey([this](CCHyprlandInputCaptureManagerV1* r, uint32_t key, hyprlandInputCaptureManagerV1KeyState state) { onKey(key, state); });
@@ -46,13 +43,12 @@ CInputCapturePortal::CInputCapturePortal(SP<CCHyprlandInputCaptureManagerV1> mgr
     m_pObject->registerMethod(INTERFACE_NAME, "ConnectToEIS", "osa{sv}", "h", [&](sdbus::MethodCall c) { onConnectToEIS(c); });
 
     m_pObject->registerProperty(INTERFACE_NAME, "SupportedCapabilities", "u", [](sdbus::PropertyGetReply& reply) { reply << (uint)(1 | 2); });
-    m_pObject->registerProperty(INTERFACE_NAME, "version", "u", [](sdbus::PropertyGetReply& reply) { reply << (uint)1; });
+    m_pObject->registerProperty(INTERFACE_NAME, "version", "u", [](sdbus::PropertyGetReply& reply) { reply << (uint32_t)1; });
 
     m_pObject->finishRegistration();
 
-    for (auto& o : g_pPortalManager->getAllOutputs()) {
+    for (auto& o : g_pPortalManager->getAllOutputs())
         Debug::log(LOG, "{} {}x{}", o->name, o->width, o->height);
-    }
 
     Debug::log(LOG, "[input-capture] init successful");
 }
@@ -91,22 +87,20 @@ void CInputCapturePortal::onCreateSession(sdbus::MethodCall& call) {
     std::string sessionId = "input-capture-" + std::to_string(sessionCounter++);
     Debug::log(LOG, "[input-capture]  | sessionId : {}", sessionId);
 
-    const std::shared_ptr<Session> session = std::make_shared<Session>();
+    const std::shared_ptr<SSession> session = std::make_shared<SSession>();
 
     session->appid         = appID;
     session->requestHandle = requestHandle;
     session->sessionHandle = sessionHandle;
     session->sessionId     = sessionId;
     session->capabilities  = capabilities;
-    session->activationId  = 0;
-    session->status        = CREATED;
 
     session->session            = createDBusSession(sessionHandle);
     session->session->onDestroy = [session, this]() {
-        if (session->status == ACTIVATED) {
-            disable(session->sessionHandle);
-        }
+        disable(session->sessionHandle);
+
         session->eis->stopServer();
+        session->eis = nullptr;
         Debug::log(LOG, "[input-capture] Session {} destroyed", session->sessionHandle.c_str());
 
         session->session.release();
@@ -351,64 +345,56 @@ bool get_line_intersection(double p0_x, double p0_y, double p1_x, double p1_y, d
     return 0; // No collision
 }
 
-bool testCollision(Barrier barrier, double px, double py, double nx, double ny) {
+bool testCollision(SBarrier barrier, double px, double py, double nx, double ny) {
     return get_line_intersection(barrier.x1, barrier.y1, barrier.x2, barrier.y2, px, py, nx, ny, nullptr, nullptr);
 }
 
-uint32_t CInputCapturePortal::Session::isColliding(double px, double py, double nx, double ny) {
-    for (const auto& [key, value] : barriers) {
-        if (testCollision(value, px, py, nx, ny)) {
+uint32_t CInputCapturePortal::SSession::isColliding(double px, double py, double nx, double ny) {
+    for (const auto& [key, value] : barriers)
+        if (testCollision(value, px, py, nx, ny))
             return key;
-        }
-    }
 
     return 0;
 }
 
-void CInputCapturePortal::onAbsoluteMotion(double x, double y, double dx, double dy) {
+void CInputCapturePortal::onMotion(double x, double y, double dx, double dy) {
     for (const auto& [key, session] : sessions) {
         int matched = session->isColliding(x, y, x - dx, y - dy);
-        if (matched != 0) {
+        if (matched != 0)
             activate(key, x, y, matched);
-        }
+
         session->motion(dx, dy);
     }
 }
 
-void CInputCapturePortal::onKey(uint32_t key, bool pressed) {
-    for (const auto& [_, value] : sessions) {
-        value->key(key, pressed);
-    }
+void CInputCapturePortal::onKey(uint32_t id, bool pressed) {
+    for (const auto& [key, value] : sessions)
+        value->key(id, pressed);
 }
 
 void CInputCapturePortal::onButton(uint32_t button, bool pressed) {
-    for (const auto& [_, session] : sessions) {
+    for (const auto& [key, session] : sessions)
         session->button(button, pressed);
-    }
 }
 
 void CInputCapturePortal::onAxis(bool axis, double value) {
-    for (const auto& [_, session] : sessions) {
+    for (const auto& [key, session] : sessions)
         session->axis(axis, value);
-    }
 }
 
 void CInputCapturePortal::onAxisValue120(bool axis, int32_t value120) {
-    for (const auto& [_, session] : sessions) {
+    for (const auto& [key, session] : sessions)
         session->axisValue120(axis, value120);
-    }
 }
 
 void CInputCapturePortal::onAxisStop(bool axis) {
-    for (const auto& [_, session] : sessions) {
+    for (const auto& [_, session] : sessions)
         session->axisStop(axis);
-    }
 }
 
 void CInputCapturePortal::onFrame() {
-    for (const auto& [_, session] : sessions) {
+    for (const auto& [_, session] : sessions)
         session->frame();
-    }
 }
 
 void CInputCapturePortal::activate(sdbus::ObjectPath sessionHandle, double x, double y, uint32_t borderId) {
@@ -435,7 +421,7 @@ void CInputCapturePortal::activate(sdbus::ObjectPath sessionHandle, double x, do
     m_pObject->emitSignal(signal);
 }
 
-bool CInputCapturePortal::Session::activate(double x, double y, uint32_t borderId) {
+bool CInputCapturePortal::SSession::activate(double x, double y, uint32_t borderId) {
     if (status != ENABLED) {
         return false;
     }
@@ -467,10 +453,9 @@ void CInputCapturePortal::deactivate(sdbus::ObjectPath sessionHandle) {
     m_pObject->emitSignal(signal);
 }
 
-bool CInputCapturePortal::Session::deactivate() {
-    if (status != ACTIVATED) {
+bool CInputCapturePortal::SSession::deactivate() {
+    if (status != ACTIVATED)
         return false;
-    }
 
     Debug::log(LOG, "[input-capture] Input released for {}", sessionHandle.c_str());
     eis->stopEmulating();
@@ -500,7 +485,7 @@ void CInputCapturePortal::zonesChanged() {
     }
 }
 
-bool CInputCapturePortal::Session::zoneChanged() {
+bool CInputCapturePortal::SSession::zoneChanged() {
     //TODO: notify EIS
     return true;
 }
@@ -510,11 +495,12 @@ void CInputCapturePortal::disable(sdbus::ObjectPath sessionHandle) {
         return;
 
     auto session = sessions[sessionHandle];
-    if (!session->disable())
-        return;
 
     if (session->status == ACTIVATED)
         deactivate(sessionHandle);
+
+    if (!session->disable())
+        return;
 
     auto signal = m_pObject->createSignal(INTERFACE_NAME, "Disable");
     signal << sessionHandle;
@@ -525,70 +511,74 @@ void CInputCapturePortal::disable(sdbus::ObjectPath sessionHandle) {
     m_pObject->emitSignal(signal);
 }
 
-bool CInputCapturePortal::Session::disable() {
+bool CInputCapturePortal::SSession::disable() {
     status = STOPPED;
 
     Debug::log(LOG, "[input-capture] Session {} disabled", sessionHandle.c_str());
     return true;
 }
 
-void CInputCapturePortal::Session::motion(double dx, double dy) {
+void CInputCapturePortal::SSession::motion(double dx, double dy) {
     if (status != ACTIVATED)
         return;
 
     eis->sendMotion(dx, dy);
 }
 
-void CInputCapturePortal::Session::key(uint32_t key, bool pressed) {
+void CInputCapturePortal::SSession::key(uint32_t key, bool pressed) {
     if (status != ACTIVATED)
         return;
 
     eis->sendKey(key, pressed);
 }
 
-void CInputCapturePortal::Session::button(uint32_t button, bool pressed) {
+void CInputCapturePortal::SSession::button(uint32_t button, bool pressed) {
     if (status != ACTIVATED)
         return;
 
     eis->sendButton(button, pressed);
 }
 
-void CInputCapturePortal::Session::axis(bool axis, double value) {
+void CInputCapturePortal::SSession::axis(bool axis, double value) {
     if (status != ACTIVATED)
         return;
 
     double x = 0;
     double y = 0;
 
-    if (axis) {
+    if (axis)
         x = value;
-    } else {
+    else
         y = value;
-    }
 
     eis->sendScrollDelta(x, y);
 }
 
-void CInputCapturePortal::Session::axisValue120(bool axis, int32_t value) {
+void CInputCapturePortal::SSession::axisValue120(bool axis, int32_t value) {
     if (status != ACTIVATED)
         return;
 
     int32_t x = 0;
     int32_t y = 0;
 
-    if (axis) {
+    if (axis)
         x = value;
-    } else {
+    else
         y = value;
-    }
 
     eis->sendScrollDiscrete(x, y);
 }
 
-void CInputCapturePortal::Session::axisStop(bool axis) {
+void CInputCapturePortal::SSession::axisStop(bool axis) {
+    if (status != ACTIVATED)
+        return;
+
     eis->sendScrollStop(axis, !axis);
 }
 
-void CInputCapturePortal::Session::frame() {
+void CInputCapturePortal::SSession::frame() {
+    if (status != ACTIVATED)
+        return;
+
     eis->sendPointerFrame();
 }
