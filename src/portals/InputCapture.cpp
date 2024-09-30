@@ -99,8 +99,6 @@ void CInputCapturePortal::onCreateSession(sdbus::MethodCall& call) {
     session->session->onDestroy = [session, this]() {
         disable(session->sessionHandle);
 
-        session->eis->stopServer();
-        session->eis = nullptr;
         Debug::log(LOG, "[input-capture] Session {} destroyed", session->sessionHandle.c_str());
 
         session->session.release();
@@ -501,6 +499,9 @@ void CInputCapturePortal::disable(sdbus::ObjectPath sessionHandle) {
 
     if (!session->disable())
         return;
+
+    session->eis->stopServer();
+    session->eis.reset();
 
     auto signal = m_pObject->createSignal(INTERFACE_NAME, "Disable");
     signal << sessionHandle;
