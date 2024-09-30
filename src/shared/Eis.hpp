@@ -3,14 +3,6 @@
 #include <libeis.h>
 #include <string>
 
-struct EisClient {
-    struct eis_client* handle;
-    struct eis_seat*   seat;
-
-    struct eis_device* pointer;
-    struct eis_device* keyboard;
-};
-
 /*
  * Responsible to creating a socket for input communication
  */
@@ -35,14 +27,21 @@ class EmulatedInputServer {
     void        stopServer();
 
   private:
-    bool        stop;
-    struct eis* eis;
-    EisClient   client;
+    bool stop   = false;
+    eis* eisCtx = nullptr;
 
-    int         onEvent(eis_event* e);
-    void        listen();
-    void        ensurePointer(eis_event* event);
-    void        ensureKeyboard(eis_event* event);
-    void        clearPointer();
-    void        clearKeyboard();
+    struct Client {
+        eis_client* handle = nullptr;
+        eis_seat*   seat   = nullptr;
+
+        eis_device* pointer  = nullptr;
+        eis_device* keyboard = nullptr;
+    } client;
+
+    int  onEvent(eis_event* e);
+    void pollEvents();
+    void ensurePointer(eis_event* event);
+    void ensureKeyboard(eis_event* event);
+    void clearPointer();
+    void clearKeyboard();
 };
