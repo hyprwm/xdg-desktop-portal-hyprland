@@ -3,7 +3,6 @@
 #include "../helpers/MiscFunctions.hpp"
 
 #include <pipewire/pipewire.h>
-#include <poll.h>
 #include <sys/mman.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -19,18 +18,18 @@ SOutput::SOutput(SP<CCWlOutput> output_) : output(output_) {
 
         Debug::log(LOG, "Found output name {}", name);
     });
-    output->setMode([this](CCWlOutput* r, uint32_t flags, int32_t width, int32_t height, int32_t refresh) {
-        refreshRate  = refresh;
-        this->width  = width;
-        this->height = height;
+    output->setMode([this](CCWlOutput* r, uint32_t flags, int32_t width_, int32_t height_, int32_t refresh) {
+        refreshRate = refresh;
+        width       = width_;
+        height      = height_;
     });
     output->setGeometry(
-        [this](CCWlOutput* r, int32_t x, int32_t y, int32_t physical_width, int32_t physical_height, int32_t subpixel, const char* make, const char* model, int32_t transform_) {
+        [this](CCWlOutput* r, int32_t x_, int32_t y_, int32_t physical_width, int32_t physical_height, int32_t subpixel, const char* make, const char* model, int32_t transform_) {
             transform = (wl_output_transform)transform_;
-            this->x   = x;
-            this->y   = y;
+            x         = x_;
+            y         = y_;
         });
-    output->setScale([this](CCWlOutput* r, uint32_t factor) { this->scale = factor; });
+    output->setScale([this](CCWlOutput* r, uint32_t factor_) { scale = factor_; });
     output->setDone([](CCWlOutput* r) { g_pPortalManager->m_sPortals.inputCapture->zonesChanged(); });
 }
 
@@ -277,32 +276,21 @@ void CPortalManager::init() {
 }
 
 void CPortalManager::startEventLoop() {
+    addFdToEventLoop(m_pConnection->getEventLoopPollData().fd, POLLIN, nullptr);
+    addFdToEventLoop(wl_display_get_fd(m_sWaylandConnection.display), POLLIN, nullptr);
+    addFdToEventLoop(pw_loop_get_fd(m_sPipewire.loop), POLLIN, nullptr);
 
-    pollfd pollfds[] = {
-        {
-            .fd     = m_pConnection->getEventLoopPollData().fd,
-            .events = POLLIN,
-        },
-        {
-            .fd     = wl_display_get_fd(m_sWaylandConnection.display),
-            .events = POLLIN,
-        },
-        {
-            .fd     = pw_loop_get_fd(m_sPipewire.loop),
-            .events = POLLIN,
-        },
-    };
-
-    std::thread pollThr([this, &pollfds]() {
+    std::thread pollThr([this]() {
         while (1) {
-            int ret = poll(pollfds, 3, 5000 /* 5 seconds, reasonable. It's because we might need to terminate */);
+
+            int ret = poll(m_sEventLoopInternals.pollFds.data(), m_sEventLoopInternals.pollFds.size(), 5000 /* 5 seconds, reasonable. It's because we might need to terminate */);
             if (ret < 0) {
                 Debug::log(CRIT, "[core] Polling fds failed with {}", strerror(errno));
                 g_pPortalManager->terminate();
             }
 
             for (size_t i = 0; i < 3; ++i) {
-                if (pollfds[i].revents & POLLHUP) {
+                if (m_sEventLoopInternals.pollFds.data()->revents & POLLHUP) {
                     Debug::log(CRIT, "[core] Disconnected from pollfd id {}", i);
                     g_pPortalManager->terminate();
                 }
@@ -375,13 +363,13 @@ void CPortalManager::startEventLoop() {
 
         m_mEventLock.lock();
 
-        if (pollfds[0].revents & POLLIN /* dbus */) {
-            while (m_pConnection->processPendingEvent()) {
+        if (m_sEventLoopInternals.pollFds[0].revents & POLLIN /* dbus */) {
+            while (m_pConnection->processPendingRequest()) {
                 ;
             }
         }
 
-        if (pollfds[1].revents & POLLIN /* wl */) {
+        if (m_sEventLoopInternals.pollFds[1].revents & POLLIN /* wl */) {
             wl_display_flush(m_sWaylandConnection.display);
             if (wl_display_prepare_read(m_sWaylandConnection.display) == 0) {
                 wl_display_read_events(m_sWaylandConnection.display);
@@ -391,9 +379,15 @@ void CPortalManager::startEventLoop() {
             }
         }
 
-        if (pollfds[2].revents & POLLIN /* pw */) {
+        if (m_sEventLoopInternals.pollFds[2].revents & POLLIN /* pw */) {
             while (pw_loop_iterate(m_sPipewire.loop, 0) != 0) {
                 ;
+            }
+        }
+
+        for (pollfd p : m_sEventLoopInternals.pollFds) {
+            if (p.revents & POLLIN && m_sEventLoopInternals.pollCallbacks.contains(p.fd)) {
+                m_sEventLoopInternals.pollCallbacks[p.fd]();
             }
         }
 
@@ -498,6 +492,20 @@ void CPortalManager::addTimer(const CTimer& timer) {
     m_sTimersThread.timers.emplace_back(std::make_unique<CTimer>(timer));
     m_sTimersThread.shouldProcess = true;
     m_sTimersThread.loopSignal.notify_all();
+}
+
+void CPortalManager::addFdToEventLoop(int fd, short events, std::function<void()> callback) {
+    m_sEventLoopInternals.pollFds.emplace_back(pollfd{.fd = fd, .events = POLLIN});
+
+    if (callback == nullptr)
+        return;
+
+    m_sEventLoopInternals.pollCallbacks[fd] = callback;
+}
+
+void CPortalManager::removeFdFromEventLoop(int fd) {
+    std::erase_if(m_sEventLoopInternals.pollFds, [fd](const pollfd& p) { return p.fd == fd; });
+    m_sEventLoopInternals.pollCallbacks.erase(fd);
 }
 
 void CPortalManager::terminate() {
