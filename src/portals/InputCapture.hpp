@@ -5,13 +5,14 @@
 #include "../shared/Session.hpp"
 #include <sdbus-c++/Types.h>
 
-typedef int        ClientStatus;
-const ClientStatus CREATED   = 0; //Is ready to be activated
-const ClientStatus ENABLED   = 1; //Is ready for receiving inputs
-const ClientStatus ACTIVATED = 2; //Currently receiving inputs
-const ClientStatus STOPPED   = 3; //Can no longer be activated
+enum ClientStatus {
+    CREATED,   //Is ready to be activated
+    ENABLED,   //Is ready for receiving inputs
+    ACTIVATED, //Currently receiving inputs
+    STOPPED    //Can no longer be activated
+};
 
-struct Barrier {
+struct SBarrier {
     uint id;
     int  x1, y1, x2, y2;
 };
@@ -28,7 +29,7 @@ class CInputCapturePortal {
     void onRelease(sdbus::MethodCall& methodCall);
     void onConnectToEIS(sdbus::MethodCall& methodCall);
 
-    void onAbsoluteMotion(double x, double y, double dx, double dy);
+    void onMotion(double x, double y, double dx, double dy);
     void onKey(uint32_t key, bool pressed);
     void onButton(uint32_t button, bool pressed);
     void onAxis(bool axis, double value);
@@ -38,19 +39,19 @@ class CInputCapturePortal {
 
     void zonesChanged();
 
-    struct Session {
-        std::string                           appid;
-        sdbus::ObjectPath                     requestHandle, sessionHandle;
-        std::string                           sessionId;
-        uint32_t                              capabilities;
+    struct SSession {
+        std::string                            appid;
+        sdbus::ObjectPath                      requestHandle, sessionHandle;
+        std::string                            sessionId;
+        uint32_t                               capabilities = 0;
 
-        std::unique_ptr<SDBusRequest>         request;
-        std::unique_ptr<SDBusSession>         session;
-        std::unique_ptr<EmulatedInputServer>  eis;
+        std::unique_ptr<SDBusRequest>          request;
+        std::unique_ptr<SDBusSession>          session;
+        std::unique_ptr<EmulatedInputServer>   eis;
 
-        std::unordered_map<uint32_t, Barrier> barriers;
-        uint32_t                              activationId;
-        ClientStatus                          status;
+        std::unordered_map<uint32_t, SBarrier> barriers;
+        uint32_t                               activationId = 0;
+        ClientStatus                           status = CREATED;
 
         //
         bool     activate(double x, double y, uint32_t borderId);
@@ -74,11 +75,11 @@ class CInputCapturePortal {
         SP<CCHyprlandInputCaptureManagerV1> manager;
     } m_sState;
 
-    std::unordered_map<std::string, const std::shared_ptr<Session>> sessions;
+    std::unordered_map<std::string, const std::shared_ptr<SSession>> sessions;
     //
     std::unique_ptr<sdbus::IObject> m_pObject;
-    uint                            sessionCounter;
-    uint                            lastZoneSet;
+    uint                            sessionCounter = 0;
+    uint                            lastZoneSet    = 0;
 
     const std::string               INTERFACE_NAME = "org.freedesktop.impl.portal.InputCapture";
     const std::string               OBJECT_PATH    = "/org/freedesktop/portal/desktop";
