@@ -2,11 +2,9 @@
 #include "../core/PortalManager.hpp"
 #include "src/helpers/Log.hpp"
 #include <libeis.h>
-#include <sys/poll.h>
-#include <thread>
 
 EmulatedInputServer::EmulatedInputServer(std::string socketName) {
-    Debug::log(LOG, "[EIS] init socket: {}", socketName);
+    Debug::log(LOG, "[EIS] Init socket: {}", socketName);
 
     const char* xdg = getenv("XDG_RUNTIME_DIR");
     if (xdg)
@@ -17,95 +15,80 @@ EmulatedInputServer::EmulatedInputServer(std::string socketName) {
         return;
     }
 
-    client.handle   = NULL;
-    client.seat     = NULL;
-    client.pointer  = NULL;
-    client.keyboard = NULL;
-    eis             = eis_new(NULL);
+    eisCtx = eis_new(nullptr);
 
-    if (eis_setup_backend_socket(eis, socketPath.c_str())) {
+    if (eis_setup_backend_socket(eisCtx, socketPath.c_str())) {
         Debug::log(ERR, "[EIS] Cannot init eis socket on {}", socketPath);
         return;
     }
     Debug::log(LOG, "[EIS] Listening on {}", socketPath);
 
-    stop = false;
-    std::thread thread(&EmulatedInputServer::listen, this);
-    thread.detach();
+    g_pPortalManager->addFdToEventLoop(eis_get_fd(eisCtx), POLLIN, std::bind(&EmulatedInputServer::pollEvents, this));
 }
 
-void EmulatedInputServer::listen() {
-    struct pollfd fds = {
-        .fd      = eis_get_fd(eis),
-        .events  = POLLIN,
-        .revents = 0,
-    };
-    int nevents;
-    //Pull foverer events
-    while (!stop && (nevents = poll(&fds, 1, 1000)) > -1) {
-        eis_dispatch(eis);
+void EmulatedInputServer::pollEvents() {
+    eis_dispatch(eisCtx);
 
-        //Pull every availaible events
-        while (true) {
-            eis_event* e = eis_get_event(eis);
+    //Pull every availaible events
+    while (true) {
+        eis_event* e = eis_get_event(eisCtx);
 
-            if (!e) {
-                eis_event_unref(e);
-                break;
-            }
-
-            int rc = onEvent(e);
+        if (!e) {
             eis_event_unref(e);
-            if (rc != 0)
-                break;
+            break;
         }
+
+        int rc = onEvent(e);
+        eis_event_unref(e);
+        if (rc != 0)
+            break;
     }
 }
 
 int EmulatedInputServer::onEvent(eis_event* e) {
-    eis_client* client;
-    eis_seat*   seat;
-    eis_device* device;
+    eis_client* eisClient = nullptr;
+    eis_seat*   seat      = nullptr;
+    eis_device* device    = nullptr;
 
     switch (eis_event_get_type(e)) {
         case EIS_EVENT_CLIENT_CONNECT:
-            client = eis_event_get_client(e);
-            Debug::log(LOG, "[EIS] {} client connected: {}", eis_client_is_sender(client) ? "sender" : "receiver", eis_client_get_name(client));
+            eisClient = eis_event_get_client(e);
+            Debug::log(LOG, "[EIS] {} client connected: {}", eis_client_is_sender(eisClient) ? "Sender" : "Receiver", eis_client_get_name(eisClient));
 
-            if (eis_client_is_sender(client)) {
-                Debug::log(WARN, "[EIS] Unexpected sender client {} connected to input capture session", eis_client_get_name(client));
-                eis_client_disconnect(client);
+            if (eis_client_is_sender(eisClient)) {
+                Debug::log(WARN, "[EIS] Unexpected sender client {} connected to input capture session", eis_client_get_name(eisClient));
+                eis_client_disconnect(eisClient);
                 return 0;
             }
 
-            if (this->client.handle != nullptr) {
-                Debug::log(WARN, "[EIS] Unexpected additional client {} connected to input capture session", eis_client_get_name(client));
-                eis_client_disconnect(client);
+            if (client.handle) {
+                Debug::log(WARN, "[EIS] Unexpected additional client {} connected to input capture session", eis_client_get_name(eisClient));
+                eis_client_disconnect(eisClient);
                 return 0;
             }
 
-            this->client.handle = client;
+            client.handle = eisClient;
 
-            eis_client_connect(client);
-            Debug::log(LOG, "[EIS] creating new default seat");
-            seat = eis_client_new_seat(client, "default");
+            eis_client_connect(eisClient);
+            Debug::log(LOG, "[EIS] Creating new default seat");
+            seat = eis_client_new_seat(eisClient, "default");
 
             eis_seat_configure_capability(seat, EIS_DEVICE_CAP_POINTER);
             eis_seat_configure_capability(seat, EIS_DEVICE_CAP_BUTTON);
             eis_seat_configure_capability(seat, EIS_DEVICE_CAP_SCROLL);
             eis_seat_configure_capability(seat, EIS_DEVICE_CAP_KEYBOARD);
             eis_seat_add(seat);
-            this->client.seat = seat;
+            client.seat = seat;
             break;
         case EIS_EVENT_CLIENT_DISCONNECT:
-            client = eis_event_get_client(e);
-            Debug::log(LOG, "[EIS] {} disconnected", eis_client_get_name(client));
-            eis_client_disconnect(client);
+            eisClient = eis_event_get_client(e);
+            Debug::log(LOG, "[EIS] {} disconnected", eis_client_get_name(eisClient));
+            eis_client_disconnect(eisClient);
 
-            eis_seat_unref(this->client.seat);
+            eis_seat_unref(client.seat);
             clearPointer();
             clearKeyboard();
-            this->client.handle = NULL;
+            client.handle = nullptr;
             break;
         case EIS_EVENT_SEAT_BIND:
             Debug::log(LOG, "[EIS] Binding seats...");
@@ -123,45 +106,31 @@ int EmulatedInputServer::onEvent(eis_event* e) {
             break;
         case EIS_EVENT_DEVICE_CLOSED:
             device = eis_event_get_device(e);
-            if (device == this->client.pointer) {
+            if (device == client.pointer)
                 clearPointer();
-            } else if (device == this->client.keyboard) {
+            else if (device == client.keyboard) {
                 Debug::log(LOG, "[EIS] Clearing keyboard");
                 clearKeyboard();
-            } else {
+            } else
                 Debug::log(WARN, "[EIS] Unknown device to close");
-            }
             break;
-        case EIS_EVENT_FRAME: Debug::log(LOG, "[EIS] Got event EIS_EVENT_FRAME"); break;
-        case EIS_EVENT_DEVICE_START_EMULATING: Debug::log(LOG, "[EIS] Got event EIS_EVENT_DEVICE_START_EMULATING"); break;
-        case EIS_EVENT_DEVICE_STOP_EMULATING: Debug::log(LOG, "[EIS] Got event EIS_EVENT_DEVICE_STOP_EMULATING"); break;
-        case EIS_EVENT_POINTER_MOTION: Debug::log(LOG, "[EIS] Got event EIS_EVENT_POINTER_MOTION"); break;
-        case EIS_EVENT_POINTER_MOTION_ABSOLUTE: Debug::log(LOG, "[EIS] Got event EIS_EVENT_POINTER_MOTION_ABSOLUTE"); break;
-        case EIS_EVENT_BUTTON_BUTTON: Debug::log(LOG, "[EIS] Got event EIS_EVENT_BUTTON_BUTTON"); break;
-        case EIS_EVENT_SCROLL_DELTA: Debug::log(LOG, "[EIS] Got event EIS_EVENT_SCROLL_DELTA"); break;
-        case EIS_EVENT_SCROLL_STOP: Debug::log(LOG, "[EIS] Got event EIS_EVENT_SCROLL_STOP"); break;
-        case EIS_EVENT_SCROLL_CANCEL: Debug::log(LOG, "[EIS] Got event EIS_EVENT_SCROLL_CANCEL"); break;
-        case EIS_EVENT_SCROLL_DISCRETE: Debug::log(LOG, "[EIS] Got event EIS_EVENT_SCROLL_DISCRETE"); break;
-        case EIS_EVENT_KEYBOARD_KEY: Debug::log(LOG, "[EIS] Got event EIS_EVENT_KEYBOARD_KEY"); break;
-        case EIS_EVENT_TOUCH_DOWN: Debug::log(LOG, "[EIS] Got event EIS_EVENT_TOUCH_DOWN"); break;
-        case EIS_EVENT_TOUCH_UP: Debug::log(LOG, "[EIS] Got event EIS_EVENT_TOUCH_UP"); break;
-        case EIS_EVENT_TOUCH_MOTION: Debug::log(LOG, "[EIS] Got event EIS_EVENT_TOUCH_MOTION"); break;
+        default: return 0;
     }
     return 0;
 }
 
 void EmulatedInputServer::ensurePointer(eis_event* event) {
-    if (client.pointer != nullptr)
+    if (client.pointer)
         return;
 
-    struct eis_device* pointer = eis_seat_new_device(client.seat);
+    eis_device* pointer = eis_seat_new_device(client.seat);
     eis_device_configure_name(pointer, "captured relative pointer");
     eis_device_configure_capability(pointer, EIS_DEVICE_CAP_POINTER);
     eis_device_configure_capability(pointer, EIS_DEVICE_CAP_BUTTON);
     eis_device_configure_capability(pointer, EIS_DEVICE_CAP_SCROLL);
 
     for (auto& o : g_pPortalManager->getAllOutputs()) {
-        struct eis_region* r = eis_device_new_region(pointer);
+        eis_region* r = eis_device_new_region(pointer);
 
         eis_region_set_offset(r, o->x, o->y);
         eis_region_set_size(r, o->width, o->height);
@@ -177,10 +146,10 @@ void EmulatedInputServer::ensurePointer(eis_event* event) {
 }
 
 void EmulatedInputServer::ensureKeyboard(eis_event* event) {
-    if (client.keyboard != nullptr)
+    if (client.keyboard)
         return;
 
-    struct eis_device* keyboard = eis_seat_new_device(client.seat);
+    eis_device* keyboard = eis_seat_new_device(client.seat);
     eis_device_configure_name(keyboard, "captured keyboard");
     eis_device_configure_capability(keyboard, EIS_DEVICE_CAP_KEYBOARD);
     // TODO: layout
@@ -193,7 +162,7 @@ void EmulatedInputServer::ensureKeyboard(eis_event* event) {
 //TODO: remove and re-add devices when monitors change (see: mutter/meta-input-capture-session.c:1107)
 
 void EmulatedInputServer::clearPointer() {
-    if (client.pointer == nullptr)
+    if (!client.pointer)
         return;
     Debug::log(LOG, "[EIS] Clearing pointer");
 
@@ -203,7 +172,7 @@ void EmulatedInputServer::clearPointer() {
 }
 
 void EmulatedInputServer::clearKeyboard() {
-    if (client.keyboard == nullptr)
+    if (!client.keyboard)
         return;
     Debug::log(LOG, "[EIS] Clearing keyboard");
 
@@ -213,74 +182,77 @@ void EmulatedInputServer::clearKeyboard() {
 }
 
 int EmulatedInputServer::getFileDescriptor() {
-    return eis_backend_fd_add_client(eis);
+    return eis_backend_fd_add_client(eisCtx);
 }
 
 void EmulatedInputServer::startEmulating(int sequence) {
     Debug::log(LOG, "[EIS] Start Emulating");
 
-    if (client.pointer != nullptr)
+    if (client.pointer)
         eis_device_start_emulating(client.pointer, sequence);
 
-    if (client.keyboard != nullptr)
+    if (client.keyboard)
         eis_device_start_emulating(client.keyboard, sequence);
 }
 
 void EmulatedInputServer::stopEmulating() {
     Debug::log(LOG, "[EIS] Stop Emulating");
 
-    if (client.pointer != nullptr)
+    if (client.pointer)
         eis_device_stop_emulating(client.pointer);
 
-    if (client.keyboard != nullptr)
+    if (client.keyboard)
         eis_device_stop_emulating(client.keyboard);
 }
 
 void EmulatedInputServer::sendMotion(double x, double y) {
-    if (client.pointer == nullptr)
+    if (!client.pointer)
         return;
     eis_device_pointer_motion(client.pointer, x, y);
 }
 
 void EmulatedInputServer::sendKey(uint32_t key, bool pressed) {
-    if (client.keyboard == nullptr)
+    if (!client.keyboard)
         return;
-    uint64_t now = eis_now(eis);
+    uint64_t now = eis_now(eisCtx);
     eis_device_keyboard_key(client.keyboard, key, pressed);
     eis_device_frame(client.keyboard, now);
 }
 
 void EmulatedInputServer::sendButton(uint32_t button, bool pressed) {
-    if (client.pointer == nullptr)
+    if (!client.pointer)
         return;
     eis_device_button_button(client.pointer, button, pressed);
 }
 
 void EmulatedInputServer::sendScrollDiscrete(int32_t x, int32_t y) {
-    if (client.pointer == nullptr)
+    if (!client.pointer)
         return;
     eis_device_scroll_discrete(client.pointer, x, y);
 }
 
 void EmulatedInputServer::sendScrollDelta(double x, double y) {
-    if (client.pointer == nullptr)
+    if (!client.pointer)
         return;
     eis_device_scroll_delta(client.pointer, x, y);
 }
 
 void EmulatedInputServer::sendScrollStop(bool x, bool y) {
-    if (client.pointer == nullptr)
+    if (!client.pointer)
         return;
     eis_device_scroll_stop(client.pointer, x, y);
 }
 
 void EmulatedInputServer::sendPointerFrame() {
-    if (client.pointer == nullptr)
+    if (!client.pointer)
         return;
-    uint64_t now = eis_now(eis);
+    uint64_t now = eis_now(eisCtx);
     eis_device_frame(client.pointer, now);
 }
 
 void EmulatedInputServer::stopServer() {
-    stop = true;
+    g_pPortalManager->removeFdFromEventLoop(eis_get_fd(eisCtx));
+    Debug::log(LOG, "[EIS] Server fd {} destroyed", eis_get_fd(eisCtx));
+    eis_unref(eisCtx);
+    eisCtx = nullptr;
 }

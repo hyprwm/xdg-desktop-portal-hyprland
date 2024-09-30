@@ -13,6 +13,7 @@
 #include "../shared/ToplevelManager.hpp"
 #include "../shared/ToplevelMappingManager.hpp"
 #include <gbm.h>
+#include <poll.h>
 #include <xf86drm.h>
 
 #include "hyprland-toplevel-export-v1.hpp"
@@ -35,9 +36,11 @@ struct SOutput {
     uint32_t            id          = 0;
     float               refreshRate = 60.0;
     wl_output_transform transform   = WL_OUTPUT_TRANSFORM_NORMAL;
-    uint32_t            width, height;
-    int32_t             x, y;
-    int32_t             scale;
+    uint32_t            width       = 0;
+    uint32_t            height      = 0;
+    int32_t             x           = 0;
+    int32_t             y           = 0;
+    int32_t             scale       = 1;
 };
 
 struct SDMABUFModifier {
@@ -51,8 +54,8 @@ class CPortalManager {
 
     void                                         init();
 
-    void                onGlobal(uint32_t name, const char* interface, uint32_t version);
-    void                onGlobalRemoved(uint32_t name);
+    void                                         onGlobal(uint32_t name, const char* interface, uint32_t version);
+    void                                         onGlobalRemoved(uint32_t name);
 
     sdbus::IConnection*                          getConnection();
     SOutput*                                     getOutputFromName(const std::string& name);
@@ -100,6 +103,9 @@ class CPortalManager {
 
     gbm_device*                  createGBMDevice(drmDevice* dev);
 
+    void                         addFdToEventLoop(int fd, short events, std::function<void()> callback);
+    void                         removeFdFromEventLoop(int fd);
+
     // terminate after the event loop has been created. Before we can exit()
     void terminate();
 
@@ -110,10 +116,12 @@ class CPortalManager {
     pid_t m_iPID       = 0;
 
     struct {
-        std::condition_variable loopSignal;
-        std::mutex              loopMutex;
-        std::atomic<bool>       shouldProcess = false;
-        std::mutex              loopRequestMutex;
+        std::condition_variable              loopSignal;
+        std::mutex                           loopMutex;
+        std::atomic<bool>                    shouldProcess = false;
+        std::mutex                           loopRequestMutex;
+        std::vector<pollfd>                  pollFds;
+        std::map<int, std::function<void()>> pollCallbacks;
     } m_sEventLoopInternals;
 
     struct {
