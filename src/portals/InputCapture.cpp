@@ -42,7 +42,7 @@ CInputCapturePortal::CInputCapturePortal(SP<CCHyprlandInputCaptureManagerV1> mgr
     m_pObject->registerMethod(INTERFACE_NAME, "Release", "osa{sv}", "ua{sv}", [&](sdbus::MethodCall c) { onRelease(c); });
     m_pObject->registerMethod(INTERFACE_NAME, "ConnectToEIS", "osa{sv}", "h", [&](sdbus::MethodCall c) { onConnectToEIS(c); });
 
-    m_pObject->registerProperty(INTERFACE_NAME, "SupportedCapabilities", "u", [](sdbus::PropertyGetReply& reply) { reply << (uint)(1 | 2); });
+    m_pObject->registerProperty(INTERFACE_NAME, "SupportedCapabilities", "u", [](sdbus::PropertyGetReply& reply) { reply << (uint32_t)(1 | 2); });
     m_pObject->registerProperty(INTERFACE_NAME, "version", "u", [](sdbus::PropertyGetReply& reply) { reply << (uint32_t)1; });
 
     m_pObject->finishRegistration();
@@ -420,9 +420,8 @@ void CInputCapturePortal::activate(sdbus::ObjectPath sessionHandle, double x, do
 }
 
 bool CInputCapturePortal::SSession::activate(double x, double y, uint32_t borderId) {
-    if (status != ENABLED) {
+    if (status != ENABLED)
         return false;
-    }
 
     activationId += 5;
     status = ACTIVATED;
