@@ -415,6 +415,7 @@ void CPortalManager::startEventLoop() {
     m_sPortals.globalShortcuts.reset();
     m_sPortals.screencopy.reset();
     m_sPortals.screenshot.reset();
+    m_sHelpers.toplevel.reset();
 
     m_pConnection.reset();
     pw_loop_destroy(m_sPipewire.loop);
