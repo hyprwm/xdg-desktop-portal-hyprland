@@ -20,6 +20,10 @@ CInputCapturePortal::CInputCapturePortal(SP<CCHyprlandInputCaptureManagerV1> mgr
         onMotion(wl_fixed_to_double(x), wl_fixed_to_double(y), wl_fixed_to_double(dx), wl_fixed_to_double(dy));
     });
 
+    mgr->setKeymap([this](CCHyprlandInputCaptureManagerV1* r, hyprlandInputCaptureManagerV1KeymapFormat format, int32_t fd, uint32_t size) {
+        onKeymap(format == HYPRLAND_INPUT_CAPTURE_MANAGER_V1_KEYMAP_FORMAT_XKB_V1 ? fd : 0, size);
+    });
+
     mgr->setKey([this](CCHyprlandInputCaptureManagerV1* r, uint32_t key, hyprlandInputCaptureManagerV1KeyState state) { onKey(key, state); });
 
     mgr->setButton([this](CCHyprlandInputCaptureManagerV1* r, uint32_t button, hyprlandInputCaptureManagerV1ButtonState state) { onButton(button, state); });
@@ -107,7 +111,7 @@ void CInputCapturePortal::onCreateSession(sdbus::MethodCall& call) {
     session->request            = createDBusRequest(requestHandle);
     session->request->onDestroy = [session]() { session->request.release(); };
 
-    session->eis = std::make_unique<EmulatedInputServer>("eis-" + sessionId);
+    session->eis = std::make_unique<EmulatedInputServer>("eis-" + sessionId, keymap);
 
     sessions.emplace(sessionHandle, session);
 
@@ -370,6 +374,13 @@ void CInputCapturePortal::onKey(uint32_t id, bool pressed) {
         value->key(id, pressed);
 }
 
+void CInputCapturePortal::onKeymap(int32_t fd, uint32_t size) {
+    keymap.fd   = fd;
+    keymap.size = size;
+    for (const auto& [key, value] : sessions)
+        value->keymap(keymap);
+}
+
 void CInputCapturePortal::onButton(uint32_t button, bool pressed) {
     for (const auto& [key, session] : sessions)
         session->button(button, pressed);
@@ -523,6 +534,13 @@ void CInputCapturePortal::SSession::motion(double dx, double dy) {
         return;
 
     eis->sendMotion(dx, dy);
+}
+
+void CInputCapturePortal::SSession::keymap(Keymap keymap) {
+    if (status == STOPPED)
+        return;
+
+    eis->setKeymap(keymap);
 }
 
 void CInputCapturePortal::SSession::key(uint32_t key, bool pressed) {
