@@ -1,10 +1,16 @@
 #include "Eis.hpp"
 #include "../core/PortalManager.hpp"
+#include "../helpers/MiscFunctions.hpp"
 #include "src/helpers/Log.hpp"
+#include <alloca.h>
 #include <libeis.h>
+#include <sys/mman.h>
+#include <unistd.h>
 
-EmulatedInputServer::EmulatedInputServer(std::string socketName) {
+EmulatedInputServer::EmulatedInputServer(std::string socketName, Keymap _keymap) {
     Debug::log(LOG, "[EIS] Init socket: {}", socketName);
+
+    keymap = _keymap;
 
     const char* xdg = getenv("XDG_RUNTIME_DIR");
     if (xdg)
@@ -152,11 +158,51 @@ void EmulatedInputServer::ensureKeyboard(eis_event* event) {
     eis_device* keyboard = eis_seat_new_device(client.seat);
     eis_device_configure_name(keyboard, "captured keyboard");
     eis_device_configure_capability(keyboard, EIS_DEVICE_CAP_KEYBOARD);
-    // TODO: layout
+
+    if (keymap.fd != 0) {
+        Keymap _keymap = openKeymap();
+        Debug::log(LOG, "Using keymap {}", _keymap.fd);
+        eis_keymap* eis_keymap = eis_device_new_keymap(keyboard, EIS_KEYMAP_TYPE_XKB, _keymap.fd, _keymap.size);
+        eis_keymap_add(eis_keymap);
+        eis_keymap_unref(eis_keymap);
+    }
+
     eis_device_add(keyboard);
     eis_device_resume(keyboard);
 
     client.keyboard = keyboard;
+}
+
+Keymap EmulatedInputServer::openKeymap() {
+    Keymap _keymap;
+
+    void*  src = mmap(nullptr, keymap.size, PROT_READ, MAP_PRIVATE, keymap.fd, 0);
+    if (src == MAP_FAILED) {
+        Debug::log(ERR, "Failed to mmap the compositor keymap fd");
+        return _keymap;
+    }
+
+    int keymapFD = allocateSHMFile(keymap.size);
+    if (keymapFD < 0) {
+        Debug::log(ERR, "Failed to create a keymap file for keyboard grab");
+        return _keymap;
+    }
+
+    char* dst = (char*)mmap(nullptr, keymap.size, PROT_READ | PROT_WRITE, MAP_SHARED, keymapFD, 0);
+    if (dst == MAP_FAILED) {
+        Debug::log(ERR, "Failed to mmap a keymap file for keyboard grab");
+        close(keymapFD);
+        return _keymap;
+    }
+
+    memcpy(dst, src, keymap.size);
+    munmap(dst, keymap.size);
+    munmap(src, keymap.size);
+
+    _keymap.fd   = keymapFD;
+    _keymap.size = keymap.size;
+
+    return _keymap;
 }
 
 //TODO: remove and re-add devices when monitors change (see: mutter/meta-input-capture-session.c:1107)
@@ -203,6 +249,10 @@ void EmulatedInputServer::stopEmulating() {
 
     if (client.keyboard)
         eis_device_stop_emulating(client.keyboard);
+}
+
+void EmulatedInputServer::setKeymap(Keymap _keymap) {
+    keymap = _keymap;
 }
 
 void EmulatedInputServer::sendMotion(double x, double y) {
