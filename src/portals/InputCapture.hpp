@@ -30,6 +30,7 @@ class CInputCapturePortal {
     void onConnectToEIS(sdbus::MethodCall& methodCall);
 
     void onMotion(double x, double y, double dx, double dy);
+    void onKeymap(int32_t fd, uint32_t size);
     void onKey(uint32_t key, bool pressed);
     void onButton(uint32_t button, bool pressed);
     void onAxis(bool axis, double value);
@@ -51,7 +52,7 @@ class CInputCapturePortal {
 
         std::unordered_map<uint32_t, SBarrier> barriers;
         uint32_t                               activationId = 0;
-        ClientStatus                           status = CREATED;
+        ClientStatus                           status       = CREATED;
 
         //
         bool     activate(double x, double y, uint32_t borderId);
@@ -61,6 +62,7 @@ class CInputCapturePortal {
 
         void     motion(double dx, double dy);
         void     key(uint32_t key, bool pressed);
+        void     keymap(Keymap keymap);
         void     button(uint32_t button, bool pressed);
         void     axis(bool axis, double value);
         void     axisValue120(bool axis, int32_t value120);
@@ -81,12 +83,14 @@ class CInputCapturePortal {
     uint                            sessionCounter = 0;
     uint                            lastZoneSet    = 0;
 
-    const std::string               INTERFACE_NAME = "org.freedesktop.impl.portal.InputCapture";
-    const std::string               OBJECT_PATH    = "/org/freedesktop/portal/desktop";
+    Keymap keymap; //We store the active keymap ready to be sent when creating EIS
 
-    bool                            sessionValid(sdbus::ObjectPath sessionHandle);
+    const std::string INTERFACE_NAME = "org.freedesktop.impl.portal.InputCapture";
+    const std::string OBJECT_PATH    = "/org/freedesktop/portal/desktop";
 
-    void                            activate(sdbus::ObjectPath sessionHandle, double x, double y, uint32_t borderId);
-    void                            deactivate(sdbus::ObjectPath sessionHandle);
-    void                            disable(sdbus::ObjectPath sessionHandle);
+    bool              sessionValid(sdbus::ObjectPath sessionHandle);
+
+    void              activate(sdbus::ObjectPath sessionHandle, double x, double y, uint32_t borderId);
+    void              deactivate(sdbus::ObjectPath sessionHandle);
+    void              disable(sdbus::ObjectPath sessionHandle);
 };
