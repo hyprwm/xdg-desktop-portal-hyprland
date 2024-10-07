@@ -3,16 +3,23 @@
 #include <libeis.h>
 #include <string>
 
+struct Keymap {
+    int32_t  fd   = 0;
+    uint32_t size = 0;
+};
+
 /*
  * Responsible to creating a socket for input communication
  */
 class EmulatedInputServer {
   public:
-    EmulatedInputServer(std::string socketPath);
+    EmulatedInputServer(std::string socketPath, Keymap keymap);
     std::string socketPath;
 
     void        startEmulating(int activationId);
     void        stopEmulating();
+
+    void        setKeymap(Keymap _keymap);
 
     void        sendMotion(double x, double y);
     void        sendKey(uint32_t key, bool pressed);
@@ -38,10 +45,13 @@ class EmulatedInputServer {
         eis_device* keyboard = nullptr;
     } client;
 
-    int  onEvent(eis_event* e);
-    void pollEvents();
-    void ensurePointer(eis_event* event);
-    void ensureKeyboard(eis_event* event);
-    void clearPointer();
-    void clearKeyboard();
+    Keymap keymap;
+
+    int    onEvent(eis_event* e);
+    void   pollEvents();
+    void   ensurePointer(eis_event* event);
+    void   ensureKeyboard(eis_event* event);
+    Keymap openKeymap();
+    void   clearPointer();
+    void   clearKeyboard();
 };
