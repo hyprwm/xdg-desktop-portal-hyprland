@@ -16,6 +16,8 @@
 CInputCapturePortal::CInputCapturePortal(SP<CCHyprlandInputCaptureManagerV1> mgr) : m_sState(mgr) {
     Debug::log(LOG, "[input-capture] initializing input capture portal");
 
+    mgr->setForceRelease([this](CCHyprlandInputCaptureManagerV1* r) { onForceRelease(); });
+
     mgr->setMotion([this](CCHyprlandInputCaptureManagerV1* r, wl_fixed_t x, wl_fixed_t y, wl_fixed_t dx, wl_fixed_t dy) {
         onMotion(wl_fixed_to_double(x), wl_fixed_to_double(y), wl_fixed_to_double(dx), wl_fixed_to_double(dy));
     });
@@ -102,6 +104,9 @@ void CInputCapturePortal::onCreateSession(sdbus::MethodCall& call) {
     session->session            = createDBusSession(sessionHandle);
     session->session->onDestroy = [session, this]() {
         disable(session->sessionHandle);
+        session->status = STOPPED;
+        session->eis->stopServer();
+        session->eis.reset();
 
         Debug::log(LOG, "[input-capture] Session {} destroyed", session->sessionHandle.c_str());
 
@@ -250,8 +255,10 @@ void CInputCapturePortal::onEnable(sdbus::MethodCall& call) {
     Debug::log(LOG, "[input-capture]  | {}", sessionHandle.c_str());
     Debug::log(LOG, "[input-capture]  | appid: {}", appID);
 
-    if (!sessionValid(sessionHandle))
+    if (!sessions.contains(sessionHandle)) {
+        Debug::log(WARN, "[input-capture] Unknown session handle: {}", sessionHandle.c_str());
         return complete(call);
+    }
 
     sessions[sessionHandle]->status = ENABLED;
 
@@ -322,6 +329,12 @@ bool CInputCapturePortal::sessionValid(sdbus::ObjectPath sessionHandle) {
     }
 
     return sessions[sessionHandle]->status != STOPPED;
+}
+
+void CInputCapturePortal::onForceRelease() {
+    Debug::log(LOG, "[input-capture] Released every captures");
+    for (auto [key, value] : sessions)
+        disable(key);
 }
 
 bool get_line_intersection(double p0_x, double p0_y, double p1_x, double p1_y, double p2_x, double p2_y, double p3_x, double p3_y, double* i_x, double* i_y) {
@@ -510,10 +523,7 @@ void CInputCapturePortal::disable(sdbus::ObjectPath sessionHandle) {
     if (!session->disable())
         return;
 
-    session->eis->stopServer();
-    session->eis.reset();
-
-    auto signal = m_pObject->createSignal(INTERFACE_NAME, "Disable");
+    auto signal = m_pObject->createSignal(INTERFACE_NAME, "Disabled");
     signal << sessionHandle;
 
     std::unordered_map<std::string, sdbus::Variant> options;
@@ -523,8 +533,8 @@ void CInputCapturePortal::disable(sdbus::ObjectPath sessionHandle) {
 }
 
 bool CInputCapturePortal::SSession::disable() {
-    status = STOPPED;
-
+    status = CREATED;
+    barriers.clear();
     Debug::log(LOG, "[input-capture] Session {} disabled", sessionHandle.c_str());
     return true;
 }
