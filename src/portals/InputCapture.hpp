@@ -29,6 +29,7 @@ class CInputCapturePortal {
     void onRelease(sdbus::MethodCall& methodCall);
     void onConnectToEIS(sdbus::MethodCall& methodCall);
 
+	void onForceRelease();
     void onMotion(double x, double y, double dx, double dy);
     void onKeymap(int32_t fd, uint32_t size);
     void onKey(uint32_t key, bool pressed);
