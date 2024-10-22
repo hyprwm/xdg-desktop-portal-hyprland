@@ -61,6 +61,9 @@ install_data(
 	'hyprland.portal',
 	install_dir: join_paths(get_option('datadir'), 'xdg-desktop-portal', 'portals'),
 )
+version = run_command('cat', files('VERSION'), check: true).stdout().strip()
+
+add_project_arguments(f'-DXDPH_VERSION="@version@"', language : 'cpp')
 
 inc = include_directories('.', 'protocols')
 
