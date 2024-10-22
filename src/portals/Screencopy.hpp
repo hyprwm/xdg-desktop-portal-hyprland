@@ -6,6 +6,7 @@
 #include "../shared/ScreencopyShared.hpp"
 #include <gbm.h>
 #include "../shared/Session.hpp"
+#include "../dbusDefines.hpp"
 #include <chrono>
 
 enum cursorModes {
@@ -53,11 +54,12 @@ class CScreencopyPortal {
   public:
     CScreencopyPortal(SP<CCZwlrScreencopyManagerV1>);
 
-    void appendToplevelExport(SP<CCHyprlandToplevelExportManagerV1>);
+    void   appendToplevelExport(SP<CCHyprlandToplevelExportManagerV1>);
 
-    void onCreateSession(sdbus::MethodCall& call);
-    void onSelectSources(sdbus::MethodCall& call);
-    void onStart(sdbus::MethodCall& call);
+    dbUasv onCreateSession(sdbus::ObjectPath requestHandle, sdbus::ObjectPath sessionHandle, std::string appID, std::unordered_map<std::string, sdbus::Variant> opts);
+    dbUasv onSelectSources(sdbus::ObjectPath requestHandle, sdbus::ObjectPath sessionHandle, std::string appID, std::unordered_map<std::string, sdbus::Variant> opts);
+    dbUasv onStart(sdbus::ObjectPath requestHandle, sdbus::ObjectPath sessionHandle, std::string appID, std::string parentWindow,
+                   std::unordered_map<std::string, sdbus::Variant> opts);
 
     struct SSession {
         std::string                   appid;
@@ -123,8 +125,8 @@ class CScreencopyPortal {
         SP<CCHyprlandToplevelExportManagerV1> toplevel   = nullptr;
     } m_sState;
 
-    const std::string INTERFACE_NAME = "org.freedesktop.impl.portal.ScreenCast";
-    const std::string OBJECT_PATH    = "/org/freedesktop/portal/desktop";
+    const sdbus::InterfaceName INTERFACE_NAME = sdbus::InterfaceName{"org.freedesktop.impl.portal.ScreenCast"};
+    const sdbus::ObjectPath    OBJECT_PATH    = sdbus::ObjectPath{"/org/freedesktop/portal/desktop"};
 
     friend struct SSession;
 };

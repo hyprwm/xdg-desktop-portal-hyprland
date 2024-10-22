@@ -68,7 +68,7 @@ pkg_check_modules(
   hyprwayland-scanner>=0.4.2)
 
 # check whether we can find sdbus-c++ through pkg-config
-pkg_check_modules(SDBUS IMPORTED_TARGET sdbus-c++)
+pkg_check_modules(SDBUS IMPORTED_TARGET sdbus-c++>=2.0.0)
 if(NOT SDBUS_FOUND)
   include_directories("subprojects/sdbus-cpp/include/")
   add_subdirectory(subprojects/sdbus-cpp EXCLUDE_FROM_ALL)

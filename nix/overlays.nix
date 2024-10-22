@@ -22,6 +22,7 @@ in {
     inputs.hyprland-protocols.overlays.default
     inputs.hyprutils.overlays.default
     inputs.hyprwayland-scanner.overlays.default
+    self.overlays.sdbuscpp
   ]);
   xdg-desktop-portal-hyprland = lib.composeManyExtensions [
     (final: prev: {
@@ -32,4 +33,17 @@ in {
       };
     })
   ];
+
+  sdbuscpp = final: prev: {
+    sdbus-cpp = prev.sdbus-cpp.overrideAttrs (self: super: {
+      version = "2.0.0";
+
+      src = final.fetchFromGitHub {
+        owner = "Kistler-group";
+        repo = "sdbus-cpp";
+        rev = "refs/tags/v${self.version}";
+        hash = "sha256-W8V5FRhV3jtERMFrZ4gf30OpIQLYoj2yYGpnYOmH2+g=";
+      };
+    });
+  };
 }

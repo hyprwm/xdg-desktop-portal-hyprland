@@ -2,30 +2,28 @@
 #include "../core/PortalManager.hpp"
 #include "../helpers/Log.hpp"
 
-static void onCloseRequest(sdbus::MethodCall& call, SDBusRequest* req) {
+static int onCloseRequest(SDBusRequest* req) {
     Debug::log(TRACE, "[internal] Close Request {}", (void*)req);
 
     if (!req)
-        return;
-
-    auto r = call.createReply();
-    r.send();
+        return 0;
 
     req->onDestroy();
     req->object.release();
+
+    return 0;
 }
 
-static void onCloseSession(sdbus::MethodCall& call, SDBusSession* sess) {
+static int onCloseSession(SDBusSession* sess) {
     Debug::log(TRACE, "[internal] Close Session {}", (void*)sess);
 
     if (!sess)
-        return;
-
-    auto r = call.createReply();
-    r.send();
+        return 0;
 
     sess->onDestroy();
     sess->object.release();
+
+    return 0;
 }
 
 std::unique_ptr<SDBusSession> createDBusSession(sdbus::ObjectPath handle) {
@@ -36,9 +34,7 @@ std::unique_ptr<SDBusSession> createDBusSession(sdbus::ObjectPath handle) {
 
     pSession->object = sdbus::createObject(*g_pPortalManager->getConnection(), handle);
 
-    pSession->object->registerMethod("org.freedesktop.impl.portal.Session", "Close", "", "", [PSESSION](sdbus::MethodCall c) { onCloseSession(c, PSESSION); });
-
-    pSession->object->finishRegistration();
+    pSession->object->addVTable(sdbus::registerMethod("Close").implementedAs([PSESSION]() { onCloseSession(PSESSION); })).forInterface("org.freedesktop.impl.portal.Session");
 
     return pSession;
 }
@@ -51,9 +47,7 @@ std::unique_ptr<SDBusRequest> createDBusRequest(sdbus::ObjectPath handle) {
 
     pRequest->object = sdbus::createObject(*g_pPortalManager->getConnection(), handle);
 
-    pRequest->object->registerMethod("org.freedesktop.impl.portal.Request", "Close", "", "", [PREQUEST](sdbus::MethodCall c) { onCloseRequest(c, PREQUEST); });
-
-    pRequest->object->finishRegistration();
+    pRequest->object->addVTable(sdbus::registerMethod("Close").implementedAs([PREQUEST]() { onCloseRequest(PREQUEST); })).forInterface("org.freedesktop.impl.portal.Request");
 
     return pRequest;
 }

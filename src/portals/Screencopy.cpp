@@ -16,33 +16,24 @@ static sdbus::Struct<std::string, uint32_t, sdbus::Variant> getFullRestoreStruct
 
     switch (data.type) {
         case TYPE_GEOMETRY:
-        case TYPE_OUTPUT: mapData["output"] = data.output; break;
+        case TYPE_OUTPUT: mapData["output"] = sdbus::Variant{data.output}; break;
         case TYPE_WINDOW:
-            mapData["windowHandle"] = (uint64_t)data.windowHandle->resource();
-            mapData["windowClass"]  = data.windowClass;
+            mapData["windowHandle"] = sdbus::Variant{(uint64_t)data.windowHandle->resource()};
+            mapData["windowClass"]  = sdbus::Variant{data.windowClass};
             break;
         default: Debug::log(ERR, "[screencopy] wonk selection in token saving"); break;
     }
-    mapData["timeIssued"] = uint64_t(time(nullptr));
-    mapData["token"]      = std::string("todo");
-    mapData["withCursor"] = cursor;
+    mapData["timeIssued"] = sdbus::Variant{uint64_t(time(nullptr))};
+    mapData["token"]      = sdbus::Variant{std::string("todo")};
+    mapData["withCursor"] = sdbus::Variant{cursor};
 
     sdbus::Variant restoreData{mapData};
 
     return sdbus::Struct<std::string, uint32_t, sdbus::Variant>{"hyprland", 3, restoreData};
 }
 
-void CScreencopyPortal::onCreateSession(sdbus::MethodCall& call) {
-    sdbus::ObjectPath requestHandle, sessionHandle;
-
-    g_pPortalManager->m_sHelpers.toplevel->activate();
-
-    call >> requestHandle;
-    call >> sessionHandle;
-
-    std::string appID;
-    call >> appID;
-
+dbUasv CScreencopyPortal::onCreateSession(sdbus::ObjectPath requestHandle, sdbus::ObjectPath sessionHandle, std::string appID,
+                                          std::unordered_map<std::string, sdbus::Variant> opts) {
     Debug::log(LOG, "[screencopy] New session:");
     Debug::log(LOG, "[screencopy]  | {}", requestHandle.c_str());
     Debug::log(LOG, "[screencopy]  | {}", sessionHandle.c_str());
@@ -66,21 +57,11 @@ void CScreencopyPortal::onCreateSession(sdbus::MethodCall& call) {
     PSESSION->request            = createDBusRequest(requestHandle);
     PSESSION->request->onDestroy = [PSESSION]() { PSESSION->request.release(); };
 
-    auto reply = call.createReply();
-    reply << (uint32_t)0;
-    reply << std::unordered_map<std::string, sdbus::Variant>{};
-    reply.send();
+    return {0, {}};
 }
 
-void CScreencopyPortal::onSelectSources(sdbus::MethodCall& call) {
-    sdbus::ObjectPath requestHandle, sessionHandle;
-
-    call >> requestHandle;
-    call >> sessionHandle;
-
-    std::string appID;
-    call >> appID;
-
+dbUasv CScreencopyPortal::onSelectSources(sdbus::ObjectPath requestHandle, sdbus::ObjectPath sessionHandle, std::string appID,
+                                          std::unordered_map<std::string, sdbus::Variant> options) {
     Debug::log(LOG, "[screencopy] SelectSources:");
     Debug::log(LOG, "[screencopy]  | {}", requestHandle.c_str());
     Debug::log(LOG, "[screencopy]  | {}", sessionHandle.c_str());
@@ -90,15 +71,9 @@ void CScreencopyPortal::onSelectSources(sdbus::MethodCall& call) {
 
     if (!PSESSION) {
         Debug::log(ERR, "[screencopy] SelectSources: no session found??");
-        auto reply = call.createErrorReply(sdbus::Error{"NOSESSION", "No session found"});
-        reply << (uint32_t)1;
-        reply.send();
-        return;
+        throw sdbus::Error{sdbus::Error::Name{"NOSESSION"}, "No session found"};
+        return {1, {}};
     }
-
-    std::unordered_map<std::string, sdbus::Variant> options;
-
-    call >> options;
 
     struct {
         bool        exists = false;
@@ -233,22 +208,11 @@ void CScreencopyPortal::onSelectSources(sdbus::MethodCall& call) {
 
     PSESSION->selection = SHAREDATA;
 
-    auto reply = call.createReply();
-    reply << (uint32_t)(SHAREDATA.type == TYPE_INVALID ? 1 : 0);
-    reply << std::unordered_map<std::string, sdbus::Variant>{};
-    reply.send();
+    return {SHAREDATA.type == TYPE_INVALID ? 1 : 0, {}};
 }
 
-void CScreencopyPortal::onStart(sdbus::MethodCall& call) {
-    sdbus::ObjectPath requestHandle, sessionHandle;
-
-    call >> requestHandle;
-    call >> sessionHandle;
-
-    std::string appID, parentWindow;
-    call >> appID;
-    call >> parentWindow;
-
+dbUasv CScreencopyPortal::onStart(sdbus::ObjectPath requestHandle, sdbus::ObjectPath sessionHandle, std::string appID, std::string parentWindow,
+                                  std::unordered_map<std::string, sdbus::Variant> opts) {
     Debug::log(LOG, "[screencopy] Start:");
     Debug::log(LOG, "[screencopy]  | {}", requestHandle.c_str());
     Debug::log(LOG, "[screencopy]  | {}", sessionHandle.c_str());
@@ -259,16 +223,11 @@ void CScreencopyPortal::onStart(sdbus::MethodCall& call) {
 
     if (!PSESSION) {
         Debug::log(ERR, "[screencopy] Start: no session found??");
-        auto reply = call.createErrorReply(sdbus::Error{"NOSESSION", "No session found"});
-        reply << (uint32_t)1;
-        reply.send();
-        return;
+        throw sdbus::Error{sdbus::Error::Name{"NOSESSION"}, "No session found"};
+        return {1, {}};
     }
 
     startSharing(PSESSION);
-
-    auto reply = call.createReply();
-    reply << (uint32_t)0;
 
     std::unordered_map<std::string, sdbus::Variant> options;
 
@@ -288,7 +247,7 @@ void CScreencopyPortal::onStart(sdbus::MethodCall& call) {
         case TYPE_WORKSPACE: type = 1 << VIRTUAL; break;
         default: type = 0; break;
     }
-    options["source_type"] = type;
+    options["source_type"] = sdbus::Variant{type};
 
     std::vector<sdbus::Struct<uint32_t, std::unordered_map<std::string, sdbus::Variant>>> streams;
 
@@ -298,11 +257,9 @@ void CScreencopyPortal::onStart(sdbus::MethodCall& call) {
     streamData["source_type"] = sdbus::Variant{uint32_t{type}};
     streams.emplace_back(sdbus::Struct<uint32_t, std::unordered_map<std::string, sdbus::Variant>>{PSESSION->sharingData.nodeID, streamData});
 
-    options["streams"] = streams;
+    options["streams"] = sdbus::Variant{streams};
 
-    reply << options;
-
-    reply.send();
+    return {0, options};
 }
 
 void CScreencopyPortal::startSharing(CScreencopyPortal::SSession* pSession) {
@@ -628,14 +585,21 @@ CScreencopyPortal::SSession* CScreencopyPortal::getSession(sdbus::ObjectPath& pa
 CScreencopyPortal::CScreencopyPortal(SP<CCZwlrScreencopyManagerV1> mgr) {
     m_pObject = sdbus::createObject(*g_pPortalManager->getConnection(), OBJECT_PATH);
 
-    m_pObject->registerMethod(INTERFACE_NAME, "CreateSession", "oosa{sv}", "ua{sv}", [&](sdbus::MethodCall c) { onCreateSession(c); });
-    m_pObject->registerMethod(INTERFACE_NAME, "SelectSources", "oosa{sv}", "ua{sv}", [&](sdbus::MethodCall c) { onSelectSources(c); });
-    m_pObject->registerMethod(INTERFACE_NAME, "Start", "oossa{sv}", "ua{sv}", [&](sdbus::MethodCall c) { onStart(c); });
-    m_pObject->registerProperty(INTERFACE_NAME, "AvailableSourceTypes", "u", [](sdbus::PropertyGetReply& reply) -> void { reply << (uint32_t)(VIRTUAL | MONITOR | WINDOW); });
-    m_pObject->registerProperty(INTERFACE_NAME, "AvailableCursorModes", "u", [](sdbus::PropertyGetReply& reply) -> void { reply << (uint32_t)(HIDDEN | EMBEDDED); });
-    m_pObject->registerProperty(INTERFACE_NAME, "version", "u", [](sdbus::PropertyGetReply& reply) -> void { reply << (uint32_t)(3); });
-
-    m_pObject->finishRegistration();
+    m_pObject
+        ->addVTable(sdbus::registerMethod("CreateSession")
+                        .implementedAs([this](sdbus::ObjectPath o1, sdbus::ObjectPath o2, std::string s1, std::unordered_map<std::string, sdbus::Variant> m1) {
+                            return onCreateSession(o1, o2, s1, m1);
+                        }),
+                    sdbus::registerMethod("SelectSources")
+                        .implementedAs([this](sdbus::ObjectPath o1, sdbus::ObjectPath o2, std::string s1, std::unordered_map<std::string, sdbus::Variant> m1) {
+                            return onSelectSources(o1, o2, s1, m1);
+                        }),
+                    sdbus::registerMethod("Start").implementedAs([this](sdbus::ObjectPath o1, sdbus::ObjectPath o2, std::string s1, std::string s2,
+                                                                        std::unordered_map<std::string, sdbus::Variant> m1) { return onStart(o1, o2, s1, s2, m1); }),
+                    sdbus::registerProperty("AvailableSourceTypes").withGetter([]() { return uint32_t{VIRTUAL | MONITOR | WINDOW}; }),
+                    sdbus::registerProperty("AvailableCursorModes").withGetter([]() { return uint32_t{HIDDEN | EMBEDDED}; }),
+                    sdbus::registerProperty("version").withGetter([]() { return uint32_t{3}; }))
+        .forInterface(INTERFACE_NAME);
 
     m_sState.screencopy = mgr;
     m_pPipewire         = std::make_unique<CPipewireConnection>();
