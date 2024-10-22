@@ -201,7 +201,7 @@ void CPortalManager::init() {
     m_iPID = getpid();
 
     try {
-        m_pConnection = sdbus::createSessionBusConnection("org.freedesktop.impl.portal.desktop.hyprland");
+        m_pConnection = sdbus::createSessionBusConnection(sdbus::ServiceName{"org.freedesktop.impl.portal.desktop.hyprland"});
     } catch (std::exception& e) {
         Debug::log(CRIT, "Couldn't create the dbus connection ({})", e.what());
         exit(1);
@@ -367,7 +367,7 @@ void CPortalManager::startEventLoop() {
         m_mEventLock.lock();
 
         if (pollfds[0].revents & POLLIN /* dbus */) {
-            while (m_pConnection->processPendingRequest()) {
+            while (m_pConnection->processPendingEvent()) {
                 ;
             }
         }

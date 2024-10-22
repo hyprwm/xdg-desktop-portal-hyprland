@@ -20,6 +20,7 @@
 #include "wlr-screencopy-unstable-v1.hpp"
 
 #include "../includes.hpp"
+#include "../dbusDefines.hpp"
 
 #include <mutex>
 

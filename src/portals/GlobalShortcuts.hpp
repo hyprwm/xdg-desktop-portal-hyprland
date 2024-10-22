@@ -3,6 +3,7 @@
 #include <sdbus-c++/sdbus-c++.h>
 #include "hyprland-global-shortcuts-v1.hpp"
 #include "../shared/Session.hpp"
+#include "../dbusDefines.hpp"
 
 struct SKeybind {
     SKeybind(SP<CCHyprlandGlobalShortcutV1> shortcut);
@@ -15,12 +16,15 @@ class CGlobalShortcutsPortal {
   public:
     CGlobalShortcutsPortal(SP<CCHyprlandGlobalShortcutsManagerV1> mgr);
 
-    void onCreateSession(sdbus::MethodCall& call);
-    void onBindShortcuts(sdbus::MethodCall& call);
-    void onListShortcuts(sdbus::MethodCall& call);
+    using DBusShortcut = sdbus::Struct<std::string, std::unordered_map<std::string, sdbus::Variant>>;
 
-    void onActivated(SKeybind* pKeybind, uint64_t time);
-    void onDeactivated(SKeybind* pKeybind, uint64_t time);
+    dbUasv onCreateSession(sdbus::ObjectPath requestHandle, sdbus::ObjectPath sessionHandle, std::string appID, std::unordered_map<std::string, sdbus::Variant> opts);
+    dbUasv onBindShortcuts(sdbus::ObjectPath requestHandle, sdbus::ObjectPath sessionHandle, std::vector<DBusShortcut> shortcuts, std::string appID,
+                           std::unordered_map<std::string, sdbus::Variant> opts);
+    dbUasv onListShortcuts(sdbus::ObjectPath sessionHandle, sdbus::ObjectPath requestHandle);
+
+    void   onActivated(SKeybind* pKeybind, uint64_t time);
+    void   onDeactivated(SKeybind* pKeybind, uint64_t time);
 
     struct SSession {
         std::string                            appid;
@@ -42,12 +46,10 @@ class CGlobalShortcutsPortal {
 
     std::unique_ptr<sdbus::IObject> m_pObject;
 
-    using DBusShortcut = sdbus::Struct<std::string, std::unordered_map<std::string, sdbus::Variant>>;
+    SSession*                       getSession(sdbus::ObjectPath& path);
+    SKeybind*                       getShortcutById(const std::string& appID, const std::string& shortcutId);
+    SKeybind*                       registerShortcut(SSession* session, const DBusShortcut& shortcut);
 
-    SSession*         getSession(sdbus::ObjectPath& path);
-    SKeybind*         getShortcutById(const std::string& appID, const std::string& shortcutId);
-    SKeybind*         registerShortcut(SSession* session, const DBusShortcut& shortcut);
-
-    const std::string INTERFACE_NAME = "org.freedesktop.impl.portal.GlobalShortcuts";
-    const std::string OBJECT_PATH    = "/org/freedesktop/portal/desktop";
+    const sdbus::InterfaceName      INTERFACE_NAME = sdbus::InterfaceName{"org.freedesktop.impl.portal.GlobalShortcuts"};
+    const sdbus::ObjectPath         OBJECT_PATH    = sdbus::ObjectPath{"/org/freedesktop/portal/desktop"};
 };
