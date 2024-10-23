@@ -51,4 +51,4 @@ There are two reasons for the above:
 ## Running, FAQs, etc.
 
 See
-[the Hyprland wiki](https://wiki.hyprland.org/Useful-Utilities/xdg-desktop-portal-hyprland/)
+[the Hyprland wiki](https://wiki.hyprland.org/Hypr-Ecosystem/xdg-desktop-portal-hyprland/)
