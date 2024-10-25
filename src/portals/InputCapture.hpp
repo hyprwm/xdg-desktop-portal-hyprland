@@ -1,4 +1,5 @@
 #pragma once
+#include "dbusDefines.hpp"
 #include "hyprland-input-capture-v1.hpp"
 #include "../shared/Eis.hpp"
 #include "../includes.hpp"
@@ -21,25 +22,27 @@ class CInputCapturePortal {
   public:
     CInputCapturePortal(SP<CCHyprlandInputCaptureManagerV1> mgr);
 
-    void onCreateSession(sdbus::MethodCall& methodCall);
-    void onGetZones(sdbus::MethodCall& methodCall);
-    void onSetPointerBarriers(sdbus::MethodCall& methodCall);
-    void onEnable(sdbus::MethodCall& methodCall);
-    void onDisable(sdbus::MethodCall& methodCall);
-    void onRelease(sdbus::MethodCall& methodCall);
-    void onConnectToEIS(sdbus::MethodCall& methodCall);
+    dbUasv        onCreateSession(sdbus::ObjectPath requestHandle, sdbus::ObjectPath sessionHandle, std::string appID, std::string parentWindow,
+                                  std::unordered_map<std::string, sdbus::Variant> options);
+    dbUasv        onGetZones(sdbus::ObjectPath requestHandle, sdbus::ObjectPath sessionHandle, std::string appID, std::unordered_map<std::string, sdbus::Variant> opts);
+    dbUasv        onSetPointerBarriers(sdbus::ObjectPath requestHandle, sdbus::ObjectPath sessionHandle, std::string appID, std::unordered_map<std::string, sdbus::Variant> opts,
+                                       std::vector<std::unordered_map<std::string, sdbus::Variant>> barriers, uint32_t zoneSet);
+    dbUasv        onEnable(sdbus::ObjectPath sessionHandle, std::string appID, std::unordered_map<std::string, sdbus::Variant> opts);
+    dbUasv        onDisable(sdbus::ObjectPath sessionHandle, std::string appID, std::unordered_map<std::string, sdbus::Variant> opts);
+    dbUasv        onRelease(sdbus::ObjectPath sessionHandle, std::string appID, std::unordered_map<std::string, sdbus::Variant> opts);
+    sdbus::UnixFd onConnectToEIS(sdbus::ObjectPath sessionHandle, std::string appID, std::unordered_map<std::string, sdbus::Variant> opts);
 
-	void onForceRelease();
-    void onMotion(double x, double y, double dx, double dy);
-    void onKeymap(int32_t fd, uint32_t size);
-    void onKey(uint32_t key, bool pressed);
-    void onButton(uint32_t button, bool pressed);
-    void onAxis(bool axis, double value);
-    void onAxisValue120(bool axis, int32_t value120);
-    void onAxisStop(bool axis);
-    void onFrame();
+    void          onForceRelease();
+    void          onMotion(double x, double y, double dx, double dy);
+    void          onKeymap(int32_t fd, uint32_t size);
+    void          onKey(uint32_t key, bool pressed);
+    void          onButton(uint32_t button, bool pressed);
+    void          onAxis(bool axis, double value);
+    void          onAxisValue120(bool axis, int32_t value120);
+    void          onAxisStop(bool axis);
+    void          onFrame();
 
-    void zonesChanged();
+    void          zonesChanged();
 
     struct SSession {
         std::string                            appid;
@@ -84,14 +87,14 @@ class CInputCapturePortal {
     uint                            sessionCounter = 0;
     uint                            lastZoneSet    = 0;
 
-    Keymap keymap; //We store the active keymap ready to be sent when creating EIS
+    Keymap                          keymap; //We store the active keymap ready to be sent when creating EIS
 
-    const std::string INTERFACE_NAME = "org.freedesktop.impl.portal.InputCapture";
-    const std::string OBJECT_PATH    = "/org/freedesktop/portal/desktop";
+    const sdbus::InterfaceName      INTERFACE_NAME = sdbus::InterfaceName{"org.freedesktop.impl.portal.InputCapture"};
+    const sdbus::ObjectPath         OBJECT_PATH    = sdbus::ObjectPath{"/org/freedesktop/portal/desktop"};
 
-    bool              sessionValid(sdbus::ObjectPath sessionHandle);
+    bool                            sessionValid(sdbus::ObjectPath sessionHandle);
 
-    void              activate(sdbus::ObjectPath sessionHandle, double x, double y, uint32_t borderId);
-    void              deactivate(sdbus::ObjectPath sessionHandle);
-    void              disable(sdbus::ObjectPath sessionHandle);
+    void                            activate(sdbus::ObjectPath sessionHandle, double x, double y, uint32_t borderId);
+    void                            deactivate(sdbus::ObjectPath sessionHandle);
+    void                            disable(sdbus::ObjectPath sessionHandle);
 };

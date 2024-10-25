@@ -369,7 +369,7 @@ void CPortalManager::startEventLoop() {
         m_mEventLock.lock();
 
         if (m_sEventLoopInternals.pollFds[0].revents & POLLIN /* dbus */) {
-            while (m_pConnection->processPendingRequest()) {
+            while (m_pConnection->processPendingEvent()) {
                 ;
             }
         }
