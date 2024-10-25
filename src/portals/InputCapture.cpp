@@ -7,6 +7,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <sdbus-c++/Types.h>
+#include <sdbus-c++/VTableItems.h>
 #include <string>
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -40,18 +42,36 @@ CInputCapturePortal::CInputCapturePortal(SP<CCHyprlandInputCaptureManagerV1> mgr
 
     m_pObject = sdbus::createObject(*g_pPortalManager->getConnection(), OBJECT_PATH);
 
-    m_pObject->registerMethod(INTERFACE_NAME, "CreateSession", "oossa{sv}", "ua{sv}", [&](sdbus::MethodCall c) { onCreateSession(c); });
-    m_pObject->registerMethod(INTERFACE_NAME, "GetZones", "oosa{sv}", "ua{sv}", [&](sdbus::MethodCall c) { onGetZones(c); });
-    m_pObject->registerMethod(INTERFACE_NAME, "SetPointerBarriers", "oosa{sv}aa{sv}u", "ua{sv}", [&](sdbus::MethodCall c) { onSetPointerBarriers(c); });
-    m_pObject->registerMethod(INTERFACE_NAME, "Enable", "osa{sv}", "ua{sv}", [&](sdbus::MethodCall c) { onEnable(c); });
-    m_pObject->registerMethod(INTERFACE_NAME, "Disable", "osa{sv}", "ua{sv}", [&](sdbus::MethodCall c) { onDisable(c); });
-    m_pObject->registerMethod(INTERFACE_NAME, "Release", "osa{sv}", "ua{sv}", [&](sdbus::MethodCall c) { onRelease(c); });
-    m_pObject->registerMethod(INTERFACE_NAME, "ConnectToEIS", "osa{sv}", "h", [&](sdbus::MethodCall c) { onConnectToEIS(c); });
+    m_pObject
+        ->addVTable(
+            sdbus::registerMethod("CreateSession")
+                .implementedAs([this](sdbus::ObjectPath o1, sdbus::ObjectPath o2, std::string s1, std::string s2, std::unordered_map<std::string, sdbus::Variant> m) {
+                    return onCreateSession(o1, o2, s1, s2, m);
+                }),
+            sdbus::registerMethod("GetZones").implementedAs([this](sdbus::ObjectPath o1, sdbus::ObjectPath o2, std::string s, std::unordered_map<std::string, sdbus::Variant> m) {
+                return onGetZones(o1, o2, s, m);
+            }),
+            sdbus::registerMethod("SetPointerBarriers")
+                .implementedAs([this](sdbus::ObjectPath o1, sdbus::ObjectPath o2, std::string s, std::unordered_map<std::string, sdbus::Variant> m,
+                                      std::vector<std::unordered_map<std::string, sdbus::Variant>> v, uint32_t u) { return onSetPointerBarriers(o1, o2, s, m, v, u); }),
+            sdbus::registerMethod("Enable").implementedAs(
+                [this](sdbus::ObjectPath o, std::string s, std::unordered_map<std::string, sdbus::Variant> m) { return onEnable(o, s, m); }),
 
-    m_pObject->registerProperty(INTERFACE_NAME, "SupportedCapabilities", "u", [](sdbus::PropertyGetReply& reply) { reply << (uint32_t)(1 | 2); });
-    m_pObject->registerProperty(INTERFACE_NAME, "version", "u", [](sdbus::PropertyGetReply& reply) { reply << (uint32_t)1; });
+            sdbus::registerMethod("Disable").implementedAs(
+                [this](sdbus::ObjectPath o, std::string s, std::unordered_map<std::string, sdbus::Variant> m) { return onDisable(o, s, m); }),
 
-    m_pObject->finishRegistration();
+            sdbus::registerMethod("Release").implementedAs(
+                [this](sdbus::ObjectPath o, std::string s, std::unordered_map<std::string, sdbus::Variant> m) { return onRelease(o, s, m); }),
+            sdbus::registerMethod("ConnectToEIS").implementedAs([this](sdbus::ObjectPath o, std::string s, std::unordered_map<std::string, sdbus::Variant> m) {
+                return onConnectToEIS(o, s, m);
+            }),
+            sdbus::registerProperty("SupportedCapabilities").withGetter([] { return (uint32_t)(1 | 2); }),
+            sdbus::registerProperty("version").withGetter([] { return (uint32_t)(1); }),
+            sdbus::registerSignal("Activated").withParameters<sdbus::ObjectPath, std::unordered_map<std::string, sdbus::Variant>>(),
+            sdbus::registerSignal("Disabled").withParameters<sdbus::ObjectPath, std::unordered_map<std::string, sdbus::Variant>>(),
+            sdbus::registerSignal("Deactivated").withParameters<sdbus::ObjectPath, std::unordered_map<std::string, sdbus::Variant>>(),
+            sdbus::registerSignal("ZonesChanged").withParameters<sdbus::ObjectPath, std::unordered_map<std::string, sdbus::Variant>>())
+        .forInterface(INTERFACE_NAME);
 
     for (auto& o : g_pPortalManager->getAllOutputs())
         Debug::log(LOG, "{} {}x{}", o->name, o->width, o->height);
@@ -66,23 +86,11 @@ void complete(sdbus::MethodCall& call) {
     reply.send();
 }
 
-void CInputCapturePortal::onCreateSession(sdbus::MethodCall& call) {
+dbUasv CInputCapturePortal::onCreateSession(sdbus::ObjectPath requestHandle, sdbus::ObjectPath sessionHandle, std::string appID, std::string parentWindow,
+                                            std::unordered_map<std::string, sdbus::Variant> options) {
     Debug::log(LOG, "[input-capture] New session:");
 
-    sdbus::ObjectPath requestHandle, sessionHandle;
-
-    call >> requestHandle;
-    call >> sessionHandle;
-
-    std::string appID;
-    call >> appID;
-
-    std::string parentWindow;
-    call >> parentWindow;
-
-    std::unordered_map<std::string, sdbus::Variant> options;
-    call >> options;
-    uint32_t capabilities = options["capabilities"];
+    uint32_t capabilities = options["capabilities"].get<uint32_t>();
 
     Debug::log(LOG, "[input-capture]  | {}", requestHandle.c_str());
     Debug::log(LOG, "[input-capture]  | {}", sessionHandle.c_str());
@@ -121,32 +129,19 @@ void CInputCapturePortal::onCreateSession(sdbus::MethodCall& call) {
     sessions.emplace(sessionHandle, session);
 
     std::unordered_map<std::string, sdbus::Variant> results;
-    results["capabilities"] = (uint)3;
-    results["session_id"]   = sessionId;
-
-    auto reply = call.createReply();
-    reply << (uint32_t)0;
-    reply << results;
-    reply.send();
+    results["capabilities"] = sdbus::Variant{(uint)3};
+    results["session_id"]   = sdbus::Variant{sessionId};
+    return {0, results};
 }
 
-void CInputCapturePortal::onGetZones(sdbus::MethodCall& call) {
+dbUasv CInputCapturePortal::onGetZones(sdbus::ObjectPath requestHandle, sdbus::ObjectPath sessionHandle, std::string appID, std::unordered_map<std::string, sdbus::Variant> opts) {
     Debug::log(LOG, "[input-capture] New GetZones request:");
-
-    sdbus::ObjectPath requestHandle, sessionHandle;
-
-    call >> requestHandle;
-    call >> sessionHandle;
-
-    std::string appID;
-    call >> appID;
-
     Debug::log(LOG, "[input-capture]  | {}", requestHandle.c_str());
     Debug::log(LOG, "[input-capture]  | {}", sessionHandle.c_str());
     Debug::log(LOG, "[input-capture]  | appid: {}", appID);
 
     if (!sessionValid(sessionHandle))
-        return;
+        return {1, {}};
 
     std::vector<sdbus::Struct<uint32_t, uint32_t, int32_t, int32_t>> zones;
     for (auto& o : g_pPortalManager->getAllOutputs()) {
@@ -154,55 +149,36 @@ void CInputCapturePortal::onGetZones(sdbus::MethodCall& call) {
     }
 
     std::unordered_map<std::string, sdbus::Variant> results;
-    results["zones"]    = zones;
-    results["zone_set"] = ++lastZoneSet;
-
-    auto reply = call.createReply();
-    reply << (uint32_t)0;
-    reply << results;
-    reply.send();
+    results["zones"]    = sdbus::Variant{zones};
+    results["zone_set"] = sdbus::Variant{++lastZoneSet};
+    return {0, results};
 }
 
-void CInputCapturePortal::onSetPointerBarriers(sdbus::MethodCall& call) {
+dbUasv CInputCapturePortal::onSetPointerBarriers(sdbus::ObjectPath requestHandle, sdbus::ObjectPath sessionHandle, std::string appID,
+                                                 std::unordered_map<std::string, sdbus::Variant> opts, std::vector<std::unordered_map<std::string, sdbus::Variant>> barriers,
+                                                 uint32_t zoneSet) {
     Debug::log(LOG, "[input-capture] New SetPointerBarriers request:");
-
-    sdbus::ObjectPath requestHandle, sessionHandle;
-
-    call >> requestHandle;
-    call >> sessionHandle;
-
-    std::string appID;
-    call >> appID;
 
     Debug::log(LOG, "[input-capture]  | {}", requestHandle.c_str());
     Debug::log(LOG, "[input-capture]  | {}", sessionHandle.c_str());
     Debug::log(LOG, "[input-capture]  | appid: {}", appID);
 
     if (!sessionValid(sessionHandle))
-        return complete(call);
+        return {1, {}};
 
-    std::unordered_map<std::string, sdbus::Variant> options;
-    call >> options;
-
-    std::vector<std::unordered_map<std::string, sdbus::Variant>> barriers;
-    call >> barriers;
-
-    uint32_t zoneSet;
-    call >> zoneSet;
     Debug::log(LOG, "[input-capture]  | zoneSet: {}", zoneSet);
 
     if (zoneSet != lastZoneSet) {
         Debug::log(WARN, "[input-capture] Invalid zone set discarding barriers");
-        complete(call); //TODO: We should return failed_barries
-        return;
+        return {1, {}}; //TODO: We should return failed_barries
     }
 
     sessions[sessionHandle]->barriers.clear();
     for (const auto& b : barriers) {
-        uint                              id = b.at("barrier_id");
+        uint                              id = b.at("barrier_id").get<uint>();
         int                               x1, y1, x2, y2;
 
-        sdbus::Struct<int, int, int, int> p = b.at("position");
+        sdbus::Struct<int, int, int, int> p = b.at("position").get<sdbus::Struct<int, int, int, int>>();
         x1                                  = p.get<0>();
         y1                                  = p.get<1>();
         x2                                  = p.get<2>();
@@ -215,111 +191,69 @@ void CInputCapturePortal::onSetPointerBarriers(sdbus::MethodCall& call) {
     std::vector<uint>                               failedBarriers;
 
     std::unordered_map<std::string, sdbus::Variant> results;
-    results["failed_barriers"] = failedBarriers;
-
-    auto reply = call.createReply();
-    reply << (uint32_t)0;
-    reply << results;
-    reply.send();
+    results["failed_barriers"] = sdbus::Variant{failedBarriers};
+    return {0, results};
 }
 
-void CInputCapturePortal::onDisable(sdbus::MethodCall& call) {
+dbUasv CInputCapturePortal::onDisable(sdbus::ObjectPath sessionHandle, std::string appID, std::unordered_map<std::string, sdbus::Variant> opts) {
     Debug::log(LOG, "[input-capture] New Disable request:");
-
-    sdbus::ObjectPath sessionHandle;
-    call >> sessionHandle;
-
-    std::string appID;
-    call >> appID;
-
     Debug::log(LOG, "[input-capture]  | {}", sessionHandle.c_str());
     Debug::log(LOG, "[input-capture]  | appid: {}", appID);
 
     if (!sessionValid(sessionHandle))
-        return complete(call);
+        return {1, {}};
 
     disable(sessionHandle);
-
-    complete(call);
+    return {0, {}};
 }
 
-void CInputCapturePortal::onEnable(sdbus::MethodCall& call) {
+dbUasv CInputCapturePortal::onEnable(sdbus::ObjectPath sessionHandle, std::string appID, std::unordered_map<std::string, sdbus::Variant> opts) {
     Debug::log(LOG, "[input-capture] New Enable request:");
-
-    sdbus::ObjectPath sessionHandle;
-    call >> sessionHandle;
-
-    std::string appID;
-    call >> appID;
-
     Debug::log(LOG, "[input-capture]  | {}", sessionHandle.c_str());
     Debug::log(LOG, "[input-capture]  | appid: {}", appID);
 
     if (!sessions.contains(sessionHandle)) {
         Debug::log(WARN, "[input-capture] Unknown session handle: {}", sessionHandle.c_str());
-        return complete(call);
+        return {1, {}};
     }
 
     sessions[sessionHandle]->status = ENABLED;
-
-    complete(call);
+    return {0, {}};
 }
 
-void CInputCapturePortal::onRelease(sdbus::MethodCall& call) {
+dbUasv CInputCapturePortal::onRelease(sdbus::ObjectPath sessionHandle, std::string appID, std::unordered_map<std::string, sdbus::Variant> opts) {
     Debug::log(LOG, "[input-capture] New Release request:");
-
-    sdbus::ObjectPath sessionHandle;
-    call >> sessionHandle;
-
-    std::string appID;
-    call >> appID;
-
     Debug::log(LOG, "[input-capture]  | {}", sessionHandle.c_str());
     Debug::log(LOG, "[input-capture]  | appid: {}", appID);
 
     if (!sessionValid(sessionHandle))
-        return complete(call);
+        return {1, {}};
 
-    std::unordered_map<std::string, sdbus::Variant> options;
-    call >> options;
-    uint32_t activationId = options["activation_id"];
+    uint32_t activationId = opts["activation_id"].get<uint32_t>();
     if (activationId != sessions[sessionHandle]->activationId) {
         Debug::log(WARN, "[input-capture] Invalid activation id {} expected {}", activationId, sessions[sessionHandle]->activationId);
-        complete(call);
-        return;
+        return {1, {}};
     }
 
     deactivate(sessionHandle);
 
     //TODO: maybe warp pointer
 
-    complete(call);
+    return {0, {}};
 }
 
-void CInputCapturePortal::onConnectToEIS(sdbus::MethodCall& call) {
+sdbus::UnixFd CInputCapturePortal::onConnectToEIS(sdbus::ObjectPath sessionHandle, std::string appID, std::unordered_map<std::string, sdbus::Variant> opts) {
     Debug::log(LOG, "[input-capture] New ConnectToEIS request:");
-
-    sdbus::ObjectPath sessionHandle;
-    call >> sessionHandle;
-
-    std::string appID;
-    call >> appID;
-
-    std::unordered_map<std::string, sdbus::Variant> options;
-    call >> options;
-
     Debug::log(LOG, "[input-capture]  | {}", sessionHandle.c_str());
     Debug::log(LOG, "[input-capture]  | appid: {}", appID);
 
     if (!sessionValid(sessionHandle))
-        return complete(call);
+        return (sdbus::UnixFd)0;
 
     int sockfd = sessions[sessionHandle]->eis->getFileDescriptor();
 
     Debug::log(LOG, "[input-capture] Connected to the socket. File descriptor: {}", sockfd);
-    auto reply = call.createReply();
-    reply << (sdbus::UnixFd)sockfd;
-    reply.send();
+    return (sdbus::UnixFd)sockfd;
 }
 
 bool CInputCapturePortal::sessionValid(sdbus::ObjectPath sessionHandle) {
@@ -334,7 +268,7 @@ bool CInputCapturePortal::sessionValid(sdbus::ObjectPath sessionHandle) {
 void CInputCapturePortal::onForceRelease() {
     Debug::log(LOG, "[input-capture] Released every captures");
     for (auto [key, value] : sessions)
-        disable(key);
+        disable(value->sessionHandle);
 }
 
 bool get_line_intersection(double p0_x, double p0_y, double p1_x, double p1_y, double p2_x, double p2_y, double p3_x, double p3_y, double* i_x, double* i_y) {
@@ -376,7 +310,7 @@ void CInputCapturePortal::onMotion(double x, double y, double dx, double dy) {
     for (const auto& [key, session] : sessions) {
         int matched = session->isColliding(x, y, x - dx, y - dy);
         if (matched != 0)
-            activate(key, x, y, matched);
+            activate(session->sessionHandle, x, y, matched);
 
         session->motion(dx, dy);
     }
@@ -429,18 +363,12 @@ void CInputCapturePortal::activate(sdbus::ObjectPath sessionHandle, double x, do
 
     m_sState.manager->sendCapture();
 
-    auto signal = m_pObject->createSignal(INTERFACE_NAME, "Activated");
-    signal << sessionHandle;
-
-    g_pPortalManager->m_sPortals.inputCapture->INTERFACE_NAME;
-
     std::unordered_map<std::string, sdbus::Variant> results;
-    results["activation_id"]   = session->activationId;
-    results["cursor_position"] = sdbus::Struct<double, double>(x, y);
-    results["barrier_id"]      = borderId;
-    signal << results;
+    results["activation_id"]   = sdbus::Variant{session->activationId};
+    results["cursor_position"] = sdbus::Variant{sdbus::Struct<double, double>(x, y)};
+    results["barrier_id"]      = sdbus::Variant{borderId};
 
-    m_pObject->emitSignal(signal);
+    m_pObject->emitSignal("Activated").onInterface(INTERFACE_NAME).withArguments(sessionHandle, results);
 }
 
 bool CInputCapturePortal::SSession::activate(double x, double y, uint32_t borderId) {
@@ -465,13 +393,10 @@ void CInputCapturePortal::deactivate(sdbus::ObjectPath sessionHandle) {
 
     m_sState.manager->sendRelease();
 
-    auto signal = m_pObject->createSignal(INTERFACE_NAME, "Deactivated");
-    signal << sessionHandle;
     std::unordered_map<std::string, sdbus::Variant> options;
-    options["activation_id"] = session->activationId;
-    signal << options;
+    options["activation_id"] = sdbus::Variant{session->activationId};
 
-    m_pObject->emitSignal(signal);
+    m_pObject->emitSignal("Deactivated").onInterface(INTERFACE_NAME).withArguments(sessionHandle, options);
 }
 
 bool CInputCapturePortal::SSession::deactivate() {
@@ -496,13 +421,8 @@ void CInputCapturePortal::zonesChanged() {
         if (!value->zoneChanged())
             continue;
 
-        auto signal = m_pObject->createSignal(INTERFACE_NAME, "Deactivated");
-        signal << key;
-
         std::unordered_map<std::string, sdbus::Variant> options;
-        signal << options;
-
-        m_pObject->emitSignal(signal);
+        m_pObject->emitSignal("ZonesChanged").onInterface(INTERFACE_NAME).withArguments(key, options);
     }
 }
 
@@ -523,13 +443,8 @@ void CInputCapturePortal::disable(sdbus::ObjectPath sessionHandle) {
     if (!session->disable())
         return;
 
-    auto signal = m_pObject->createSignal(INTERFACE_NAME, "Disabled");
-    signal << sessionHandle;
-
     std::unordered_map<std::string, sdbus::Variant> options;
-    signal << options;
-
-    m_pObject->emitSignal(signal);
+    m_pObject->emitSignal("Disabled").onInterface(INTERFACE_NAME).withArguments(sessionHandle, options);
 }
 
 bool CInputCapturePortal::SSession::disable() {
