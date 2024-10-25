@@ -146,5 +146,5 @@ if(SYSTEMD_SERVICES)
   install(
     FILES
       ${CMAKE_BINARY_DIR}/contrib/systemd/xdg-desktop-portal-hyprland.service
-    DESTINATION "lib/systemd/user")
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/systemd/user)
 endif()
