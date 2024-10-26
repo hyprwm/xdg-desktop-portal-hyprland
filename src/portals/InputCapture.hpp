@@ -1,5 +1,5 @@
 #pragma once
-#include "dbusDefines.hpp"
+#include "../dbusDefines.hpp"
 #include "hyprland-input-capture-v1.hpp"
 #include "../shared/Eis.hpp"
 #include "../includes.hpp"
