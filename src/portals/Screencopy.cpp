@@ -34,6 +34,8 @@ static sdbus::Struct<std::string, uint32_t, sdbus::Variant> getFullRestoreStruct
 
 dbUasv CScreencopyPortal::onCreateSession(sdbus::ObjectPath requestHandle, sdbus::ObjectPath sessionHandle, std::string appID,
                                           std::unordered_map<std::string, sdbus::Variant> opts) {
+    g_pPortalManager->m_sHelpers.toplevel->activate();
+
     Debug::log(LOG, "[screencopy] New session:");
     Debug::log(LOG, "[screencopy]  | {}", requestHandle.c_str());
     Debug::log(LOG, "[screencopy]  | {}", sessionHandle.c_str());
