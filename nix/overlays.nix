@@ -13,14 +13,14 @@
 
   version = ver + "+date=" + (mkDate (self.lastModifiedDate or "19700101")) + "_" + (self.shortRev or "dirty");
 in {
-  default = lib.composeManyExtensions (with self.overlays; [
-    xdg-desktop-portal-hyprland
+  default = lib.composeManyExtensions [
+    self.overlays.xdg-desktop-portal-hyprland
     inputs.hyprlang.overlays.default
     inputs.hyprland-protocols.overlays.default
     inputs.hyprutils.overlays.default
     inputs.hyprwayland-scanner.overlays.default
     self.overlays.sdbus-cpp_2
-  ]);
+  ];
 
   xdg-desktop-portal-hyprland = lib.composeManyExtensions [
     (final: prev: {
