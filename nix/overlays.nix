@@ -22,6 +22,7 @@ in {
     inputs.hyprland-protocols.overlays.default
     inputs.hyprutils.overlays.default
     inputs.hyprwayland-scanner.overlays.default
+    self.overlays.sdbus-cpp_2
   ]);
 
   xdg-desktop-portal-hyprland = lib.composeManyExtensions [
