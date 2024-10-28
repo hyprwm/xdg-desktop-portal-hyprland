@@ -49,7 +49,7 @@
     overlays = import ./nix/overlays.nix {inherit self inputs lib;};
 
     packages = eachSystem (system: {
-      inherit (pkgsFor.${system}) xdg-desktop-portal-hyprland;
+      inherit (pkgsFor.${system}) xdg-desktop-portal-hyprland sdbus-cpp_2;
       default = self.packages.${system}.xdg-desktop-portal-hyprland;
     });
 
