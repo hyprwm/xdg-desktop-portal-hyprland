@@ -13,13 +13,14 @@
 
   version = ver + "+date=" + (mkDate (self.lastModifiedDate or "19700101")) + "_" + (self.shortRev or "dirty");
 in {
+  # List dependencies in ascending order with respect to usage (`foldr`).
   default = lib.composeManyExtensions [
     self.overlays.xdg-desktop-portal-hyprland
-    inputs.hyprlang.overlays.default
-    inputs.hyprland-protocols.overlays.default
-    inputs.hyprutils.overlays.default
-    inputs.hyprwayland-scanner.overlays.default
     self.overlays.sdbus-cpp_2
+    inputs.hyprland-protocols.overlays.default
+    inputs.hyprwayland-scanner.overlays.default
+    inputs.hyprlang.overlays.default
+    inputs.hyprutils.overlays.default
   ];
 
   xdg-desktop-portal-hyprland = lib.composeManyExtensions [
