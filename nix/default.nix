@@ -16,7 +16,7 @@
   qtbase,
   qttools,
   qtwayland,
-  sdbus-cpp,
+  sdbus-cpp_2,
   slurp,
   systemd,
   wayland,
@@ -53,7 +53,7 @@ stdenv.mkDerivation {
     qtbase
     qttools
     qtwayland
-    sdbus-cpp
+    sdbus-cpp_2
     systemd
     wayland
     wayland-protocols
