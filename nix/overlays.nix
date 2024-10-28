@@ -22,12 +22,14 @@ in {
     inputs.hyprland-protocols.overlays.default
     inputs.hyprutils.overlays.default
     inputs.hyprwayland-scanner.overlays.default
+    self.overlays.sdbus-cpp_2
   ]);
 
   xdg-desktop-portal-hyprland = lib.composeManyExtensions [
     (final: prev: {
       xdg-desktop-portal-hyprland = final.callPackage ./default.nix {
         stdenv = prev.gcc13Stdenv;
+        sdbus-cpp = final.sdbus-cpp_2;
         inherit (final.qt6) qtbase qttools wrapQtAppsHook qtwayland;
         inherit version;
       };
