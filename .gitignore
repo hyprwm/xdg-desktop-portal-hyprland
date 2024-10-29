@@ -62,3 +62,7 @@ hyprland-share-picker/build/
 
 protocols/*.c*
 protocols/*.h*
+
+# Nix build results
+result
+result-man
