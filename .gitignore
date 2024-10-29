@@ -51,18 +51,21 @@ Module.symvers
 Mkfile.old
 dkms.conf
 
-# build folder
+# Build folders
 build/
 build-*/
-
-.cache
-.vscode/
-
 hyprland-share-picker/build/
 
+# Generated code files
 protocols/*.c*
 protocols/*.h*
 
 # Nix build results
 result
 result-man
+
+# Code editors
+.vscode/
+
+# MISCELLANEOUS
+.cache
