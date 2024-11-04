@@ -62,10 +62,12 @@ pkg_check_modules(
   libpipewire-0.3>=1.1.82
   libspa-0.2
   libdrm
+  libeis-1.0
   gbm
   hyprlang>=0.2.0
   hyprutils
-  hyprwayland-scanner>=0.4.2)
+  hyprwayland-scanner>=0.4.2
+  uuid)
 
 # check whether we can find sdbus-c++ through pkg-config
 pkg_check_modules(SDBUS IMPORTED_TARGET sdbus-c++>=2.0.0)
@@ -88,7 +90,6 @@ add_executable(xdg-desktop-portal-hyprland ${SRCFILES})
 target_link_libraries(
   xdg-desktop-portal-hyprland PRIVATE rt PkgConfig::SDBUS Threads::Threads
                                       PkgConfig::deps)
-
 # protocols
 pkg_get_variable(WAYLAND_PROTOCOLS_DIR wayland-protocols pkgdatadir)
 message(STATUS "Found wayland-protocols at ${WAYLAND_PROTOCOLS_DIR}")
@@ -129,6 +130,8 @@ protocolnew("${CMAKE_SOURCE_DIR}/protocols" "wlr-screencopy-unstable-v1" true)
 protocolnew("${HYPRLAND_PROTOCOLS}/protocols" "hyprland-global-shortcuts-v1"
             true)
 protocolnew("${HYPRLAND_PROTOCOLS}/protocols" "hyprland-toplevel-export-v1"
+            true)
+protocolnew("${HYPRLAND_PROTOCOLS}/protocols" "hyprland-input-capture-v1"
             true)
 protocolnew("unstable/linux-dmabuf" "linux-dmabuf-unstable-v1" false)
 
