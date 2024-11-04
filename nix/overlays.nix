@@ -46,7 +46,7 @@ in {
   #
   # TODO: Remove this overlay after the next stable Nixpkgs release.
   sdbus-cpp_2 = final: prev: {
-    sdbus-cpp_2 = prev.sdbus-cpp_2 or final.sdbus-cpp.overrideAttrs (self: _: {
+    sdbus-cpp_2 = prev.sdbus-cpp_2 or (final.sdbus-cpp.overrideAttrs (self: _: {
       version = "2.0.0";
 
       src = final.fetchFromGitHub {
@@ -55,6 +55,6 @@ in {
         rev = "v${self.version}";
         hash = "sha256-W8V5FRhV3jtERMFrZ4gf30OpIQLYoj2yYGpnYOmH2+g=";
       };
-    });
+    }));
   };
 }
