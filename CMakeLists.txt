@@ -64,7 +64,7 @@ pkg_check_modules(
   libdrm
   gbm
   hyprlang>=0.2.0
-  hyprutils
+  hyprutils>=0.2.6
   hyprwayland-scanner>=0.4.2)
 
 # check whether we can find sdbus-c++ through pkg-config

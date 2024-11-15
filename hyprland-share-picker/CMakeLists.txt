@@ -17,6 +17,13 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(QT NAMES Qt6 REQUIRED COMPONENTS Widgets)
 find_package(Qt6 REQUIRED COMPONENTS Widgets)
 
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(
+  deps
+  REQUIRED
+  IMPORTED_TARGET
+  hyprutils>=0.2.6)
+
 set(PROJECT_SOURCES main.cpp mainpicker.cpp mainpicker.h mainpicker.ui
                     elidedbutton.h elidedbutton.cpp)
 
@@ -38,7 +45,7 @@ else()
 endif()
 
 target_link_libraries(hyprland-share-picker
-                      PRIVATE Qt${QT_VERSION_MAJOR}::Widgets)
+                      PRIVATE Qt${QT_VERSION_MAJOR}::Widgets PkgConfig::deps)
 
 set_target_properties(
   hyprland-share-picker

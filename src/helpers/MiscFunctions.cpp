@@ -8,20 +8,17 @@
 #include <string>
 #include <algorithm>
 
-std::string execAndGet(const char* cmd) {
-    Debug::log(LOG, "execAndGet: {}", cmd);
+#include <hyprutils/os/Process.hpp>
+using namespace Hyprutils::OS;
 
-    std::array<char, 128>                          buffer;
-    std::string                                    result;
-    const std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(cmd, "r"), pclose);
-    if (!pipe) {
-        Debug::log(ERR, "execAndGet: failed in pipe");
-        return "";
-    }
-    while (fgets(buffer.data(), buffer.size(), pipe.get()) != nullptr) {
-        result += buffer.data();
-    }
-    return result;
+std::string execAndGet(const char* cmd) {
+    std::string command = cmd + std::string{" 2>&1"};
+    CProcess    proc("/bin/sh", {"-c", cmd});
+
+    if (!proc.runSync())
+        return "error";
+
+    return proc.stdOut();
 }
 
 void addHyprlandNotification(const std::string& icon, float timeMs, const std::string& color, const std::string& message) {

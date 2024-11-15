@@ -9,10 +9,15 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 
+#include <hyprutils/os/Process.hpp>
+using namespace Hyprutils::OS;
+
 std::string sanitizeNameForWindowList(const std::string& name) {
     std::string result = name;
     std::replace(result.begin(), result.end(), '\'', ' ');
     std::replace(result.begin(), result.end(), '\"', ' ');
+    std::replace(result.begin(), result.end(), '$', ' ');
+    std::replace(result.begin(), result.end(), '`', ' ');
     for (size_t i = 1; i < result.size(); ++i) {
         if (result[i - 1] == '>' && result[i] == ']')
             result[i] = ' ';
@@ -43,19 +48,28 @@ SSelectionData promptForScreencopySelection() {
     static auto* const* PALLOWTOKENBYDEFAULT =
         (Hyprlang::INT* const*)g_pPortalManager->m_sConfig.config->getConfigValuePtr("screencopy:allow_token_by_default")->getDataStaticPtr();
 
-    // DANGEROUS: we are sending a list of app IDs and titles via env. Make sure it's in 'singlequotes' to avoid something like $(rm -rf /)
-    // TODO: this is dumb, use a pipe or something.
-    std::string cmd =
-        std::format("WAYLAND_DISPLAY='{}' QT_QPA_PLATFORM='wayland' XCURSOR_SIZE='{}' HYPRLAND_INSTANCE_SIGNATURE='{}' XDPH_WINDOW_SHARING_LIST='{}' hyprland-share-picker{} 2>&1",
-                    WAYLAND_DISPLAY ? WAYLAND_DISPLAY : "", XCURSOR_SIZE ? XCURSOR_SIZE : "24", HYPRLAND_INSTANCE_SIGNATURE ? HYPRLAND_INSTANCE_SIGNATURE : "0", buildWindowList(),
-                    (**PALLOWTOKENBYDEFAULT ? " --allow-token" : ""));
+    std::vector<std::string> args;
+    if (**PALLOWTOKENBYDEFAULT)
+        args.emplace_back("--allow-token");
 
-    const auto RETVAL = execAndGet(cmd.c_str());
+    CProcess proc("hyprland-share-picker", args);
+    proc.addEnv("WAYLAND_DISPLAY", WAYLAND_DISPLAY ? WAYLAND_DISPLAY : "");
+    proc.addEnv("QT_QPA_PLATFORM", "wayland");
+    proc.addEnv("XCURSOR_SIZE", XCURSOR_SIZE ? XCURSOR_SIZE : "24");
+    proc.addEnv("HYPRLAND_INSTANCE_SIGNATURE", HYPRLAND_INSTANCE_SIGNATURE ? HYPRLAND_INSTANCE_SIGNATURE : "0");
+    proc.addEnv("XDPH_WINDOW_SHARING_LIST", buildWindowList()); // buildWindowList will sanitize any shell stuff in case the picker (qt) does something funky? It shouldn't.
+
+    if (!proc.runSync())
+        return data;
+
+    const auto RETVAL    = proc.stdOut();
+    const auto RETVALERR = proc.stdErr();
 
     if (!RETVAL.contains("[SELECTION]")) {
         // failed
+        constexpr const char* QPA_ERR = "qt.qpa.plugin: Could not find the Qt platform plugin";
 
-        if (RETVAL.contains("qt.qpa.plugin: Could not find the Qt platform plugin")) {
+        if (RETVAL.contains(QPA_ERR) || RETVALERR.contains(QPA_ERR)) {
             // prompt the user to install qt5-wayland and qt6-wayland
             addHyprlandNotification("3", 7000, "0", "[xdph] Could not open the picker: qt5-wayland or qt6-wayland doesn't seem to be installed.");
         }
@@ -71,11 +85,10 @@ SSelectionData promptForScreencopySelection() {
     const auto SEL   = SELECTION.substr(SELECTION.find_first_of('/') + 1);
 
     for (auto& flag : FLAGS) {
-        if (flag == 'r') {
+        if (flag == 'r')
             data.allowToken = true;
-        } else {
+        else
             Debug::log(LOG, "[screencopy] unknown flag from share-picker: {}", flag);
-        }
     }
 
     if (SEL.find("screen:") == 0) {

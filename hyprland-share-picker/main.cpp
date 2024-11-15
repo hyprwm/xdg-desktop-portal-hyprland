@@ -15,21 +15,20 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include <hyprutils/os/Process.hpp>
+using namespace Hyprutils::OS;
 
 #include "mainpicker.h"
 #include "elidedbutton.h"
 
 std::string execAndGet(const char* cmd) {
-    std::array<char, 128>                    buffer;
-    std::string                              result;
-    std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(cmd, "r"), pclose);
-    if (!pipe) {
-        throw std::runtime_error("popen() failed!");
-    }
-    while (fgets(buffer.data(), buffer.size(), pipe.get()) != nullptr) {
-        result += buffer.data();
-    }
-    return result;
+    std::string command = cmd + std::string{" 2>&1"};
+    CProcess    proc("/bin/sh", {"-c", cmd});
+
+    if (!proc.runSync())
+        return "error";
+
+    return proc.stdOut();
 }
 
 QApplication* pickerPtr     = nullptr;
