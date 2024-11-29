@@ -5,7 +5,7 @@
 
 #include <libdrm/drm_fourcc.h>
 #include <pipewire/pipewire.h>
-#include "linux-dmabuf-unstable-v1.hpp"
+#include "linux-dmabuf-v1.hpp"
 #include <unistd.h>
 
 constexpr static int MAX_RETRIES = 10;
