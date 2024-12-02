@@ -15,7 +15,7 @@
 
 #include "hyprland-toplevel-export-v1.hpp"
 #include "hyprland-global-shortcuts-v1.hpp"
-#include "linux-dmabuf-unstable-v1.hpp"
+#include "linux-dmabuf-v1.hpp"
 #include "wlr-foreign-toplevel-management-unstable-v1.hpp"
 #include "wlr-screencopy-unstable-v1.hpp"
 

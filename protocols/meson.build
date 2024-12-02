@@ -22,7 +22,7 @@ client_protocols = [
 	'wlr-foreign-toplevel-management-unstable-v1.xml',
 	hl_protocol_dir / 'protocols/hyprland-toplevel-export-v1.xml',
 	hl_protocol_dir / 'protocols/hyprland-global-shortcuts-v1.xml',
-	wl_protocol_dir / 'unstable/linux-dmabuf/linux-dmabuf-unstable-v1.xml',
+	wl_protocol_dir / 'stable/linux-dmabuf/linux-dmabuf-v1.xml',
 ]
 
 wl_proto_files = []

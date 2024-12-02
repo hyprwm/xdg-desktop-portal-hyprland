@@ -130,7 +130,7 @@ protocolnew("${HYPRLAND_PROTOCOLS}/protocols" "hyprland-global-shortcuts-v1"
             true)
 protocolnew("${HYPRLAND_PROTOCOLS}/protocols" "hyprland-toplevel-export-v1"
             true)
-protocolnew("unstable/linux-dmabuf" "linux-dmabuf-unstable-v1" false)
+protocolnew("stable/linux-dmabuf" "linux-dmabuf-v1" false)
 
 # Installation
 install(TARGETS hyprland-share-picker)
