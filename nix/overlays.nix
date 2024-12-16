@@ -26,7 +26,7 @@ in {
   xdg-desktop-portal-hyprland = lib.composeManyExtensions [
     (final: prev: {
       xdg-desktop-portal-hyprland = final.callPackage ./default.nix {
-        stdenv = prev.gcc13Stdenv;
+        stdenv = prev.gcc14Stdenv;
         inherit (final.qt6) qtbase qttools wrapQtAppsHook qtwayland;
         inherit version;
       };
