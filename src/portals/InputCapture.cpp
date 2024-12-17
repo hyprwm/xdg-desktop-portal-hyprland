@@ -28,6 +28,10 @@ CInputCapturePortal::CInputCapturePortal(SP<CCHyprlandInputCaptureManagerV1> mgr
         onKeymap(format == HYPRLAND_INPUT_CAPTURE_MANAGER_V1_KEYMAP_FORMAT_XKB_V1 ? fd : 0, size);
     });
 
+    mgr->setModifiers([this](CCHyprlandInputCaptureManagerV1* r, uint32_t mods_depressed, uint32_t mods_latched, uint32_t mods_locked, uint32_t group) {
+        onModifiers(mods_depressed, mods_latched, mods_locked, group);
+    });
+
     mgr->setKey([this](CCHyprlandInputCaptureManagerV1* r, uint32_t key, hyprlandInputCaptureManagerV1KeyState state) { onKey(key, state); });
 
     mgr->setButton([this](CCHyprlandInputCaptureManagerV1* r, uint32_t button, hyprlandInputCaptureManagerV1ButtonState state) { onButton(button, state); });
@@ -321,6 +325,11 @@ void CInputCapturePortal::onKey(uint32_t id, bool pressed) {
         value->key(id, pressed);
 }
 
+void CInputCapturePortal::onModifiers(uint32_t modsDepressed, uint32_t modsLatched, uint32_t modsLocked, uint32_t group) {
+    for (const auto& [key, value] : sessions)
+        value->modifiers(modsDepressed, modsLatched, modsLocked, group);
+}
+
 void CInputCapturePortal::onKeymap(int32_t fd, uint32_t size) {
     keymap.fd   = fd;
     keymap.size = size;
@@ -473,6 +482,13 @@ void CInputCapturePortal::SSession::key(uint32_t key, bool pressed) {
         return;
 
     eis->sendKey(key, pressed);
+}
+
+void CInputCapturePortal::SSession::modifiers(uint32_t modsDepressed, uint32_t modsLatched, uint32_t modsLocked, uint32_t group) {
+    if (status != ACTIVATED)
+        return;
+
+    eis->sendModifiers(modsDepressed, modsLatched, modsLocked, group);
 }
 
 void CInputCapturePortal::SSession::button(uint32_t button, bool pressed) {
