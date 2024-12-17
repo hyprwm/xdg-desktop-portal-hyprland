@@ -23,6 +23,7 @@ class EmulatedInputServer {
 
     void        sendMotion(double x, double y);
     void        sendKey(uint32_t key, bool pressed);
+    void        sendModifiers(uint32_t modsDepressed, uint32_t modsLatched, uint32_t modsLocked, uint32_t group);
     void        sendButton(uint32_t button, bool pressed);
     void        sendScrollDelta(double x, double y);
     void        sendScrollDiscrete(int32_t x, int32_t y);

@@ -36,6 +36,7 @@ class CInputCapturePortal {
     void          onMotion(double x, double y, double dx, double dy);
     void          onKeymap(int32_t fd, uint32_t size);
     void          onKey(uint32_t key, bool pressed);
+    void          onModifiers(uint32_t modsDepressed, uint32_t modsLatched, uint32_t modsLocked, uint32_t group);
     void          onButton(uint32_t button, bool pressed);
     void          onAxis(bool axis, double value);
     void          onAxisValue120(bool axis, int32_t value120);
@@ -66,6 +67,7 @@ class CInputCapturePortal {
 
         void     motion(double dx, double dy);
         void     key(uint32_t key, bool pressed);
+        void     modifiers(uint32_t modsDepressed, uint32_t modsLatched, uint32_t modsLocked, uint32_t group);
         void     keymap(Keymap keymap);
         void     button(uint32_t button, bool pressed);
         void     axis(bool axis, double value);
