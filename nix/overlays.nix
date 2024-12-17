@@ -17,6 +17,7 @@ in {
   default = lib.composeManyExtensions [
     self.overlays.xdg-desktop-portal-hyprland
     self.overlays.sdbus-cpp_2
+    self.overlays.hypr-gcc14Stdenv
     inputs.hyprland-protocols.overlays.default
     inputs.hyprwayland-scanner.overlays.default
     inputs.hyprlang.overlays.default
@@ -46,15 +47,31 @@ in {
   #
   # TODO: Remove this overlay after the next stable Nixpkgs release.
   sdbus-cpp_2 = final: prev: {
-    sdbus-cpp_2 = prev.sdbus-cpp_2 or (final.sdbus-cpp.overrideAttrs (self: _: {
-      version = "2.0.0";
+    sdbus-cpp_2 =
+      prev.sdbus-cpp_2
+      or (final.sdbus-cpp.overrideAttrs (self: _: {
+        version = "2.0.0";
 
+        src = final.fetchFromGitHub {
+          owner = "Kistler-group";
+          repo = "sdbus-cpp";
+          rev = "v${self.version}";
+          hash = "sha256-W8V5FRhV3jtERMFrZ4gf30OpIQLYoj2yYGpnYOmH2+g=";
+        };
+      }));
+  };
+
+  # TODO: remove this when the next version of Hyprland is available (in Nixpkgs)
+  hypr-gcc14Stdenv = final: prev: {
+    hyprcursor = (prev.hyprcursor.override {stdenv = prev.gcc14Stdenv;}).overrideAttrs (self: super: {
       src = final.fetchFromGitHub {
-        owner = "Kistler-group";
-        repo = "sdbus-cpp";
-        rev = "v${self.version}";
-        hash = "sha256-W8V5FRhV3jtERMFrZ4gf30OpIQLYoj2yYGpnYOmH2+g=";
+        owner = "hyprwm";
+        repo = "hyprcursor";
+        rev = "f388aacd22be4a6e4d634fbaf6f75eb0713d239a";
+        hash = "sha256-+2bZJL2u5hva7rSp65OfKJBK+k03T6GB/NCvpoS1OOo=";
       };
-    }));
+    });
+    hyprlang = prev.hyprlang.override {stdenv = prev.gcc14Stdenv;};
+    hyprutil = prev.hyprutil.override {stdenv = prev.gcc14Stdenv;};
   };
 }
