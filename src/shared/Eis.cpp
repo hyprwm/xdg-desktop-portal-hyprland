@@ -269,6 +269,14 @@ void EmulatedInputServer::sendKey(uint32_t key, bool pressed) {
     eis_device_frame(client.keyboard, now);
 }
 
+void EmulatedInputServer::sendModifiers(uint32_t modsDepressed, uint32_t modsLatched, uint32_t modsLocked, uint32_t group) {
+    if (!client.keyboard)
+        return;
+    uint64_t now = eis_now(eisCtx);
+	eis_device_keyboard_send_xkb_modifiers(client.keyboard, modsDepressed, modsLatched, modsLocked, group);
+    eis_device_frame(client.keyboard, now);
+}
+
 void EmulatedInputServer::sendButton(uint32_t button, bool pressed) {
     if (!client.pointer)
         return;
