@@ -1,7 +1,11 @@
 #pragma once
 
-#include <libeis.h>
+#include <libei-1.0/libeis.h>
 #include <string>
+#include "wlr-virtual-pointer-unstable-v1.hpp"
+#include "virtual-keyboard-unstable-v1.hpp"
+#include <memory>
+#include "../includes.hpp"
 
 struct Keymap {
     int32_t  fd   = 0;
@@ -13,7 +17,7 @@ struct Keymap {
  */
 class EmulatedInputServer {
   public:
-    EmulatedInputServer(std::string socketPath, Keymap keymap);
+    EmulatedInputServer(std::string socketPath);
     std::string socketPath;
 
     void        startEmulating(int activationId);
@@ -33,6 +37,9 @@ class EmulatedInputServer {
 
     int         getFileDescriptor();
 
+    void        setVirtualPointer(SP<CCZwlrVirtualPointerV1> ptr) {virtualPointer  = ptr;}
+    void        setVirtualKeyboard(SP<CCZwpVirtualKeyboardV1> kb) {virtualKeyboard = kb; }
+
     void        stopServer();
 
   private:
@@ -46,6 +53,15 @@ class EmulatedInputServer {
         eis_device* pointer  = nullptr;
         eis_device* keyboard = nullptr;
     } client;
+
+    SP<CCZwlrVirtualPointerV1> virtualPointer  = nullptr;
+    SP<CCZwpVirtualKeyboardV1> virtualKeyboard = nullptr;
+    uint32_t                   screenWidth     = 0;
+    uint32_t                   screenHeight    = 0;
+
+    uint32_t                   depressed       = 0;
+    uint32_t                   latched         = 0;
+    uint32_t                   locked          = 0;
 
     Keymap keymap;
 

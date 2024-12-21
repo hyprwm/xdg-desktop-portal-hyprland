@@ -11,6 +11,7 @@
 #include "../portals/Screenshot.hpp"
 #include "../portals/GlobalShortcuts.hpp"
 #include "../portals/InputCapture.hpp"
+#include "../portals/RemoteDesktop.hpp"
 #include "../helpers/Timer.hpp"
 #include "../shared/ToplevelManager.hpp"
 #include "../shared/ToplevelMappingManager.hpp"
@@ -23,6 +24,9 @@
 #include "linux-dmabuf-v1.hpp"
 #include "wlr-foreign-toplevel-management-unstable-v1.hpp"
 #include "wlr-screencopy-unstable-v1.hpp"
+#include "hyprland-input-capture-v1.hpp"
+#include "wlr-virtual-pointer-unstable-v1.hpp"
+#include "virtual-keyboard-unstable-v1.hpp"
 
 #include "../includes.hpp"
 #include "../dbusDefines.hpp"
@@ -64,6 +68,12 @@ class CPortalManager {
     std::vector<std::unique_ptr<SOutput>> const& getAllOutputs();
 
     struct {
+        enum wl_keyboard_keymap_format format;
+        int32_t                        fd;
+        uint32_t                       size;
+    } m_sKeymap;
+
+    struct {
         pw_loop* loop = nullptr;
     } m_sPipewire;
 
@@ -72,6 +82,7 @@ class CPortalManager {
         std::unique_ptr<CScreenshotPortal>      screenshot;
         std::unique_ptr<CGlobalShortcutsPortal> globalShortcuts;
         std::unique_ptr<CInputCapturePortal>    inputCapture;
+        std::unique_ptr<CRemoteDesktopPortal>   remoteDesktop;
     } m_sPortals;
 
     struct {
@@ -81,6 +92,7 @@ class CPortalManager {
 
     struct {
         wl_display*                           display = nullptr;
+        SP<CCWlSeat>                          seat;
         SP<CCWlRegistry>                      registry;
         SP<CCHyprlandToplevelExportManagerV1> hyprlandToplevelMgr;
         SP<CCZwpLinuxDmabufV1>                linuxDmabuf;
@@ -134,8 +146,8 @@ class CPortalManager {
         std::unique_ptr<std::thread>         thread;
     } m_sTimersThread;
 
-    std::unique_ptr<sdbus::IConnection>   m_pConnection;
-    std::vector<std::unique_ptr<SOutput>> m_vOutputs;
+    std::unique_ptr<sdbus::IConnection>     m_pConnection;
+    std::vector<std::unique_ptr<SOutput>>   m_vOutputs;
 
     std::mutex                            m_mEventLock;
 };
