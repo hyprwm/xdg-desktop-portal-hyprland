@@ -126,6 +126,9 @@ int EmulatedInputServer::onEvent(eis_event* e) {
         case EIS_EVENT_DEVICE_STOP_EMULATING:
             device = eis_event_get_device(e);
             Debug::log(LOG, "[EIS] Device {} will no longer send events", eis_device_get_name(device));
+
+            depressed = 0;
+            virtualKeyboard->sendModifiers(depressed, latched, locked, 3);
             break;
         case EIS_EVENT_POINTER_MOTION:
             if (virtualPointer != nullptr) {
