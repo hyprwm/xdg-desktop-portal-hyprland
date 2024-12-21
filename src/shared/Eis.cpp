@@ -128,7 +128,7 @@ int EmulatedInputServer::onEvent(eis_event* e) {
             Debug::log(LOG, "[EIS] Device {} will no longer send events", eis_device_get_name(device));
 
             depressed = 0;
-            virtualKeyboard->sendModifiers(depressed, latched, locked, 3);
+            virtualKeyboard->sendModifiers(depressed, 0, locked, 3);
             break;
         case EIS_EVENT_POINTER_MOTION:
             if (virtualPointer != nullptr) {
@@ -161,8 +161,10 @@ int EmulatedInputServer::onEvent(eis_event* e) {
             break;
         case EIS_EVENT_SCROLL_DISCRETE:
             if (virtualPointer != nullptr) {
-                virtualPointer->sendAxisDiscrete(1, 0, 1, eis_event_scroll_get_discrete_dy(e));
-                virtualPointer->sendAxisDiscrete(1, 1, 1, eis_event_scroll_get_discrete_dx(e));
+                int32_t dx = eis_event_scroll_get_discrete_dx(e);
+                int32_t dy = eis_event_scroll_get_discrete_dy(e);
+                virtualPointer->sendAxisDiscrete(1, 0, dy*30, 1);
+                virtualPointer->sendAxisDiscrete(0, 1, dx*30, 1);
             }
             break;
         case EIS_EVENT_KEYBOARD_KEY:
@@ -176,58 +178,48 @@ int EmulatedInputServer::onEvent(eis_event* e) {
                             if (pressed)
                                 depressed |= 1;
                             else
-                                depressed &= ~(1);
+                                depressed &= ~((uint32_t)1);
                             break;
                         case KEY_CAPSLOCK:
-                            if (pressed) {
-                                if (locked & (1 << 1))
-                                    locked &= ~(1 << 1);
-                                else 
-                                    locked |= 1 << 1;
-                            }
+                            locked ^= ((uint32_t)1 << 4);
                             break;
                         case KEY_LEFTCTRL:
                         case KEY_RIGHTCTRL:
                             if (pressed)
-                                depressed |= 1 << 2;
+                                depressed |= (uint32_t)1 << 2;
                             else
-                                depressed &= ~(1 << 2);
+                                depressed &= ~((uint32_t)1 << 2);
                             break;
                         case KEY_LEFTALT:
                         case KEY_RIGHTALT:
                             if (pressed)
-                                depressed |= 1 << 3;
+                                depressed |= (uint32_t)1 << 3;
                             else
-                                depressed &= ~(1 << 3);
+                                depressed &= ~((uint32_t)1 << 3);
                             break;
                         case KEY_NUMLOCK:
                             if (pressed) {
-                                if (locked & (1 << 4))
-                                    locked &= ~(1 << 4);
-                                else 
-                                    locked |= 1 << 4;
+                                locked ^= ((uint32_t)1 << 4);
                             }
                             break;
                         case KEY_LEFTMETA:
                         case KEY_RIGHTMETA:
                             if (pressed)
-                                depressed |= 1 << 6;
+                                depressed |= (uint32_t)1 << 6;
                             else
-                                depressed &= ~(1 << 6);
+                                depressed &= ~((uint32_t)1 << 6);
                             break;
                         case KEY_SCROLLLOCK:
                             if (pressed) {
-                                if (locked & (1 << 7))
-                                    locked &= ~(1 << 7);
-                                else 
-                                    locked |= 1 << 7;
+                                locked ^= ((uint32_t)1 << 7);
                             }
                             break;
                         default:
-                            virtualKeyboard->sendModifiers(depressed, latched, locked, 3);
-                            virtualKeyboard->sendKey(1, keycode, pressed);
                             break;
                     }
+
+                    virtualKeyboard->sendModifiers(depressed, 0, locked, 3);
+                    virtualKeyboard->sendKey(1, keycode, pressed);
                 }
             }
             break;
