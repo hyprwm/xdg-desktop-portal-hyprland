@@ -6,11 +6,10 @@
 #include <libeis.h>
 #include <sys/mman.h>
 #include <unistd.h>
+#include <linux/input-event-codes.h>
 
-EmulatedInputServer::EmulatedInputServer(std::string socketName, Keymap _keymap) {
+EmulatedInputServer::EmulatedInputServer(std::string socketName) {
     Debug::log(LOG, "[EIS] Init socket: {}", socketName);
-
-    keymap = _keymap;
 
     const char* xdg = getenv("XDG_RUNTIME_DIR");
     if (xdg)
@@ -61,12 +60,6 @@ int EmulatedInputServer::onEvent(eis_event* e) {
             eisClient = eis_event_get_client(e);
             Debug::log(LOG, "[EIS] {} client connected: {}", eis_client_is_sender(eisClient) ? "Sender" : "Receiver", eis_client_get_name(eisClient));
 
-            if (eis_client_is_sender(eisClient)) {
-                Debug::log(WARN, "[EIS] Unexpected sender client {} connected to input capture session", eis_client_get_name(eisClient));
-                eis_client_disconnect(eisClient);
-                return 0;
-            }
-
             if (client.handle) {
                 Debug::log(WARN, "[EIS] Unexpected additional client {} connected to input capture session", eis_client_get_name(eisClient));
                 eis_client_disconnect(eisClient);
@@ -80,6 +73,7 @@ int EmulatedInputServer::onEvent(eis_event* e) {
             seat = eis_client_new_seat(eisClient, "default");
 
             eis_seat_configure_capability(seat, EIS_DEVICE_CAP_POINTER);
+            eis_seat_configure_capability(seat, EIS_DEVICE_CAP_POINTER_ABSOLUTE);
             eis_seat_configure_capability(seat, EIS_DEVICE_CAP_BUTTON);
             eis_seat_configure_capability(seat, EIS_DEVICE_CAP_SCROLL);
             eis_seat_configure_capability(seat, EIS_DEVICE_CAP_KEYBOARD);
@@ -120,6 +114,121 @@ int EmulatedInputServer::onEvent(eis_event* e) {
             } else
                 Debug::log(WARN, "[EIS] Unknown device to close");
             break;
+        case EIS_EVENT_FRAME:
+            if (virtualPointer != nullptr) {
+                virtualPointer->sendFrame();
+            }
+            break;
+        case EIS_EVENT_DEVICE_START_EMULATING:
+            device = eis_event_get_device(e);
+            Debug::log(LOG, "[EIS] Device {} is ready to send events", eis_device_get_name(device));
+            break;
+        case EIS_EVENT_DEVICE_STOP_EMULATING:
+            device = eis_event_get_device(e);
+            Debug::log(LOG, "[EIS] Device {} will no longer send events", eis_device_get_name(device));
+            break;
+        case EIS_EVENT_POINTER_MOTION:
+            if (virtualPointer != nullptr) {
+                virtualPointer->sendMotion(0, eis_event_pointer_get_dx(e), eis_event_pointer_get_dy(e));
+            }
+            break;
+        case EIS_EVENT_POINTER_MOTION_ABSOLUTE:
+            if (virtualPointer != nullptr) {
+                virtualPointer->sendMotionAbsolute(0, eis_event_pointer_get_absolute_x(e), eis_event_pointer_get_absolute_y(e), screenWidth, screenHeight);
+            }
+            break;
+        case EIS_EVENT_BUTTON_BUTTON:
+            if (virtualPointer != nullptr) {
+                virtualPointer->sendButton(0, eis_event_button_get_button(e), eis_event_button_get_is_press(e));
+            }
+            break;
+        case EIS_EVENT_SCROLL_DELTA:
+            if (virtualPointer != nullptr) {
+                virtualPointer->sendAxis(0, 0, eis_event_scroll_get_dy(e));
+                virtualPointer->sendAxis(0, 1, eis_event_scroll_get_dx(e));
+            }
+            break;
+        case EIS_EVENT_SCROLL_STOP:
+            if (virtualPointer != nullptr) {
+                if (eis_event_scroll_get_stop_x(e))
+                    virtualPointer->sendAxisStop(0, 1);
+                if (eis_event_scroll_get_stop_y(e))
+                    virtualPointer->sendAxisStop(0, 0);
+            }
+            break;
+        case EIS_EVENT_SCROLL_DISCRETE:
+            if (virtualPointer != nullptr) {
+                virtualPointer->sendAxisDiscrete(1, 0, 1, eis_event_scroll_get_discrete_dy(e));
+                virtualPointer->sendAxisDiscrete(1, 1, 1, eis_event_scroll_get_discrete_dx(e));
+            }
+            break;
+        case EIS_EVENT_KEYBOARD_KEY:
+            {
+                if (virtualKeyboard != nullptr) {
+                    uint32_t keycode = eis_event_keyboard_get_key(e);
+                    bool     pressed = eis_event_keyboard_get_key_is_press(e);
+                    switch (keycode) {
+                        case KEY_LEFTSHIFT:
+                        case KEY_RIGHTSHIFT:
+                            if (pressed)
+                                depressed |= 1;
+                            else
+                                depressed &= ~(1);
+                            break;
+                        case KEY_CAPSLOCK:
+                            if (pressed) {
+                                if (locked & (1 << 1))
+                                    locked &= ~(1 << 1);
+                                else 
+                                    locked |= 1 << 1;
+                            }
+                            break;
+                        case KEY_LEFTCTRL:
+                        case KEY_RIGHTCTRL:
+                            if (pressed)
+                                depressed |= 1 << 2;
+                            else
+                                depressed &= ~(1 << 2);
+                            break;
+                        case KEY_LEFTALT:
+                        case KEY_RIGHTALT:
+                            if (pressed)
+                                depressed |= 1 << 3;
+                            else
+                                depressed &= ~(1 << 3);
+                            break;
+                        case KEY_NUMLOCK:
+                            if (pressed) {
+                                if (locked & (1 << 4))
+                                    locked &= ~(1 << 4);
+                                else 
+                                    locked |= 1 << 4;
+                            }
+                            break;
+                        case KEY_LEFTMETA:
+                        case KEY_RIGHTMETA:
+                            if (pressed)
+                                depressed |= 1 << 6;
+                            else
+                                depressed &= ~(1 << 6);
+                            break;
+                        case KEY_SCROLLLOCK:
+                            if (pressed) {
+                                if (locked & (1 << 7))
+                                    locked &= ~(1 << 7);
+                                else 
+                                    locked |= 1 << 7;
+                            }
+                            break;
+                        default:
+                            virtualKeyboard->sendModifiers(depressed, latched, locked, 3);
+                            virtualKeyboard->sendKey(1, keycode, pressed);
+                            break;
+                    }
+                }
+            }
+            break;
+       
         default: return 0;
     }
     return 0;
@@ -133,6 +242,7 @@ void EmulatedInputServer::ensurePointer() {
     eis_device* pointer = eis_seat_new_device(client.seat);
     eis_device_configure_name(pointer, "captured relative pointer");
     eis_device_configure_capability(pointer, EIS_DEVICE_CAP_POINTER);
+    eis_device_configure_capability(pointer, EIS_DEVICE_CAP_POINTER_ABSOLUTE);
     eis_device_configure_capability(pointer, EIS_DEVICE_CAP_BUTTON);
     eis_device_configure_capability(pointer, EIS_DEVICE_CAP_SCROLL);
 
@@ -141,9 +251,15 @@ void EmulatedInputServer::ensurePointer() {
 
         eis_region_set_offset(r, o->x, o->y);
         eis_region_set_size(r, o->width, o->height);
+        Debug::log(LOG, "[EIS] REGION TME {} {}", o->width, o->height);
         eis_region_set_physical_scale(r, o->scale);
         eis_region_add(r);
         eis_region_unref(r);
+
+        //#FIXME: #TODO: this doesn't work if there are multiple outputs in getAllOutPuts()
+        screenWidth  = o->width;
+        screenHeight = o->height;
+
     }
 
     eis_device_add(pointer);

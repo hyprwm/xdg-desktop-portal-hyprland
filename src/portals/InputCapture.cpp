@@ -25,7 +25,11 @@ CInputCapturePortal::CInputCapturePortal(SP<CCHyprlandInputCaptureManagerV1> mgr
     });
 
     mgr->setKeymap([this](CCHyprlandInputCaptureManagerV1* r, hyprlandInputCaptureManagerV1KeymapFormat format, int32_t fd, uint32_t size) {
+        Debug::log(LOG, "[input-capture] got keymap");
         onKeymap(format == HYPRLAND_INPUT_CAPTURE_MANAGER_V1_KEYMAP_FORMAT_XKB_V1 ? fd : 0, size);
+        g_pPortalManager->m_sKeymap.format = wl_keyboard_keymap_format(format);
+        g_pPortalManager->m_sKeymap.fd     = fd;
+        g_pPortalManager->m_sKeymap.size   = size;
     });
 
     mgr->setModifiers([this](CCHyprlandInputCaptureManagerV1* r, uint32_t mods_depressed, uint32_t mods_latched, uint32_t mods_locked, uint32_t group) {
@@ -128,7 +132,8 @@ dbUasv CInputCapturePortal::onCreateSession(sdbus::ObjectPath requestHandle, sdb
     session->request            = createDBusRequest(requestHandle);
     session->request->onDestroy = [session]() { session->request.release(); };
 
-    session->eis = std::make_unique<EmulatedInputServer>("eis-" + sessionId, keymap);
+    session->eis = std::make_unique<EmulatedInputServer>("eis-" + sessionId);
+    session->eis->setKeymap(keymap);
 
     sessions.emplace(sessionHandle, session);
 
