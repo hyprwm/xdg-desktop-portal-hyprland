@@ -163,8 +163,8 @@ int EmulatedInputServer::onEvent(eis_event* e) {
             if (virtualPointer != nullptr) {
                 int32_t dx = eis_event_scroll_get_discrete_dx(e);
                 int32_t dy = eis_event_scroll_get_discrete_dy(e);
-                virtualPointer->sendAxisDiscrete(1, 0, dy*30, 1);
-                virtualPointer->sendAxisDiscrete(0, 1, dx*30, 1);
+                virtualPointer->sendAxisDiscrete(1, 0, dy*30, dy > 0 ? 1 : -1);
+                virtualPointer->sendAxisDiscrete(0, 1, dx*30, dx > 0 ? 1 : -1);
             }
             break;
         case EIS_EVENT_KEYBOARD_KEY:
