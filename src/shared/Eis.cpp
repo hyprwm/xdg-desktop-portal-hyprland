@@ -101,12 +101,12 @@ int EmulatedInputServer::onEvent(eis_event* e) {
 
             if (eis_event_seat_has_capability(e, EIS_DEVICE_CAP_POINTER) && eis_event_seat_has_capability(e, EIS_DEVICE_CAP_BUTTON) &&
                 eis_event_seat_has_capability(e, EIS_DEVICE_CAP_SCROLL))
-                ensurePointer(e);
+                ensurePointer();
             else
                 clearPointer();
 
             if (eis_event_seat_has_capability(e, EIS_DEVICE_CAP_KEYBOARD))
-                ensureKeyboard(e);
+                ensureKeyboard();
             else
                 clearKeyboard();
             break;
@@ -125,10 +125,11 @@ int EmulatedInputServer::onEvent(eis_event* e) {
     return 0;
 }
 
-void EmulatedInputServer::ensurePointer(eis_event* event) {
+void EmulatedInputServer::ensurePointer() {
     if (client.pointer)
         return;
 
+    Debug::log(LOG, "[EIS] Creating pointer");
     eis_device* pointer = eis_seat_new_device(client.seat);
     eis_device_configure_name(pointer, "captured relative pointer");
     eis_device_configure_capability(pointer, EIS_DEVICE_CAP_POINTER);
@@ -151,7 +152,7 @@ void EmulatedInputServer::ensurePointer(eis_event* event) {
     client.pointer = pointer;
 }
 
-void EmulatedInputServer::ensureKeyboard(eis_event* event) {
+void EmulatedInputServer::ensureKeyboard() {
     if (client.keyboard)
         return;
 
@@ -254,6 +255,11 @@ void EmulatedInputServer::stopEmulating() {
 
 void EmulatedInputServer::setKeymap(Keymap _keymap) {
     keymap = _keymap;
+}
+
+void EmulatedInputServer::resetPointer() {
+	clearPointer();
+	ensurePointer();
 }
 
 void EmulatedInputServer::sendMotion(double x, double y) {

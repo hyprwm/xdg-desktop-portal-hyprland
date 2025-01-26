@@ -20,6 +20,7 @@ class EmulatedInputServer {
     void        stopEmulating();
 
     void        setKeymap(Keymap _keymap);
+    void        resetPointer();
 
     void        sendMotion(double x, double y);
     void        sendKey(uint32_t key, bool pressed);
@@ -50,8 +51,8 @@ class EmulatedInputServer {
 
     int    onEvent(eis_event* e);
     void   pollEvents();
-    void   ensurePointer(eis_event* event);
-    void   ensureKeyboard(eis_event* event);
+    void   ensurePointer();
+    void   ensureKeyboard();
     Keymap openKeymap();
     void   clearPointer();
     void   clearKeyboard();
