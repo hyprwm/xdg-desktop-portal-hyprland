@@ -165,6 +165,7 @@ void EmulatedInputServer::ensureKeyboard(eis_event* event) {
         eis_keymap* eis_keymap = eis_device_new_keymap(keyboard, EIS_KEYMAP_TYPE_XKB, _keymap.fd, _keymap.size);
         eis_keymap_add(eis_keymap);
         eis_keymap_unref(eis_keymap);
+        close(_keymap.fd);
     }
 
     eis_device_add(keyboard);
@@ -273,7 +274,7 @@ void EmulatedInputServer::sendModifiers(uint32_t modsDepressed, uint32_t modsLat
     if (!client.keyboard)
         return;
     uint64_t now = eis_now(eisCtx);
-	eis_device_keyboard_send_xkb_modifiers(client.keyboard, modsDepressed, modsLatched, modsLocked, group);
+    eis_device_keyboard_send_xkb_modifiers(client.keyboard, modsDepressed, modsLatched, modsLocked, group);
     eis_device_frame(client.keyboard, now);
 }
 
