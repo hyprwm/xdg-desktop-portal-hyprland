@@ -106,6 +106,9 @@ class CPortalManager {
         std::mutex              loopMutex;
         std::atomic<bool>       shouldProcess = false;
         std::mutex              loopRequestMutex;
+
+        std::condition_variable wlDispatchCV;
+        bool                    wlDispatched = false;
     } m_sEventLoopInternals;
 
     struct {

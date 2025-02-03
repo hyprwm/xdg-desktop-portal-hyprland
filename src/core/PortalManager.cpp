@@ -287,27 +287,43 @@ void CPortalManager::startEventLoop() {
 
     std::thread pollThr([this, &pollfds]() {
         while (1) {
-            int ret = poll(pollfds, 3, 5000 /* 5 seconds, reasonable. It's because we might need to terminate */);
-            if (ret < 0) {
-                Debug::log(CRIT, "[core] Polling fds failed with {}", strerror(errno));
-                g_pPortalManager->terminate();
-            }
+            bool preparedToRead = wl_display_prepare_read(m_sWaylandConnection.display) == 0;
 
-            for (size_t i = 0; i < 3; ++i) {
-                if (pollfds[i].revents & POLLHUP) {
-                    Debug::log(CRIT, "[core] Disconnected from pollfd id {}", i);
+            int  events = 0;
+            if (preparedToRead) {
+                events = poll(pollfds, 3, 5000 /* 5 seconds, reasonable. It's because we might need to terminate */);
+                if (events < 0) {
+                    if (preparedToRead)
+                        wl_display_cancel_read(m_sWaylandConnection.display);
+
+                    if (errno == EINTR)
+                        continue;
+
+                    Debug::log(CRIT, "[core] Polling fds failed with {}", strerror(errno));
                     g_pPortalManager->terminate();
                 }
+
+                for (size_t i = 0; i < 3; ++i) {
+                    if (pollfds[i].revents & POLLHUP) {
+                        Debug::log(CRIT, "[core] Disconnected from pollfd id {}", i);
+                        g_pPortalManager->terminate();
+                    }
+                }
+
+                if (m_bTerminate)
+                    break;
+
+                wl_display_read_events(m_sWaylandConnection.display);
+                m_sEventLoopInternals.wlDispatched = false;
             }
 
-            if (m_bTerminate)
-                break;
-
-            if (ret != 0) {
+            if (events > 0 || !preparedToRead) {
                 Debug::log(TRACE, "[core] got poll event");
-                std::lock_guard<std::mutex> lg(m_sEventLoopInternals.loopRequestMutex);
+                std::unique_lock lk(m_sEventLoopInternals.loopRequestMutex);
                 m_sEventLoopInternals.shouldProcess = true;
                 m_sEventLoopInternals.loopSignal.notify_all();
+
+                m_sEventLoopInternals.wlDispatchCV.wait_for(lk, std::chrono::milliseconds(100), [this] { return m_sEventLoopInternals.wlDispatched; });
             }
         }
     });
@@ -352,7 +368,7 @@ void CPortalManager::startEventLoop() {
         }
     });
 
-    while (1) { // dbus events
+    while (1) { // process events
         // wait for being awakened
         std::unique_lock lk(m_sEventLoopInternals.loopMutex);
         if (m_sEventLoopInternals.shouldProcess == false) // avoid a lock if a thread managed to request something already since we .unlock()ed
@@ -373,16 +389,6 @@ void CPortalManager::startEventLoop() {
             }
         }
 
-        if (pollfds[1].revents & POLLIN /* wl */) {
-            wl_display_flush(m_sWaylandConnection.display);
-            if (wl_display_prepare_read(m_sWaylandConnection.display) == 0) {
-                wl_display_read_events(m_sWaylandConnection.display);
-                wl_display_dispatch_pending(m_sWaylandConnection.display);
-            } else {
-                wl_display_dispatch(m_sWaylandConnection.display);
-            }
-        }
-
         if (pollfds[2].revents & POLLIN /* pw */) {
             while (pw_loop_iterate(m_sPipewire.loop, 0) != 0) {
                 ;
@@ -398,11 +404,11 @@ void CPortalManager::startEventLoop() {
             }
         }
 
-        int ret = 0;
-        do {
-            ret = wl_display_dispatch_pending(m_sWaylandConnection.display);
-            wl_display_flush(m_sWaylandConnection.display);
-        } while (ret > 0);
+        wl_display_dispatch_pending(m_sWaylandConnection.display);
+        wl_display_flush(m_sWaylandConnection.display);
+
+        m_sEventLoopInternals.wlDispatched = true;
+        m_sEventLoopInternals.wlDispatchCV.notify_all();
 
         if (!toRemove.empty())
             std::erase_if(m_sTimersThread.timers,
@@ -422,7 +428,7 @@ void CPortalManager::startEventLoop() {
     pw_loop_destroy(m_sPipewire.loop);
     wl_display_disconnect(m_sWaylandConnection.display);
 
-    m_sTimersThread.thread.release();
+    m_sTimersThread.thread.reset();
     pollThr.join(); // wait for poll to exit
 }
 
