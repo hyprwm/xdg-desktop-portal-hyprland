@@ -328,37 +328,37 @@ void CPortalManager::startEventLoop() {
         }
     });
 
-    m_sTimersThread.thread = std::make_unique<std::thread>([this] {
-        while (1) {
-            std::unique_lock lk(m_sTimersThread.loopMutex);
+    std::thread timersThr([this]() {
+        while (!m_bTerminate) {
+            m_sEventLoopInternals.timersMutex.lock();
 
             // find nearest timer ms
-            m_mEventLock.lock();
             float nearest = 60000; /* reasonable timeout */
-            for (auto& t : m_sTimersThread.timers) {
+            for (auto& t : m_timers) {
                 float until = t->duration() - t->passedMs();
                 if (until < nearest)
                     nearest = until;
             }
-            m_mEventLock.unlock();
 
-            m_sTimersThread.loopSignal.wait_for(lk, std::chrono::milliseconds((int)nearest), [this] { return m_sTimersThread.shouldProcess; });
-            m_sTimersThread.shouldProcess = false;
+            m_sEventLoopInternals.timersMutex.unlock();
 
-            if (m_bTerminate)
-                break;
+            std::unique_lock lk(m_sEventLoopInternals.timerRequestMutex);
+            m_sEventLoopInternals.timerRequestCV.wait_for(lk, std::chrono::milliseconds((int)nearest), [this] { return m_sEventLoopInternals.timerEvent; });
+            m_sEventLoopInternals.timerEvent = false;
+
+            m_sEventLoopInternals.timersMutex.lock();
 
             // awakened. Check if any timers passed
-            m_mEventLock.lock();
             bool notify = false;
-            for (auto& t : m_sTimersThread.timers) {
+            for (auto& t : m_timers) {
                 if (t->passed()) {
                     Debug::log(TRACE, "[core] got timer event");
                     notify = true;
                     break;
                 }
             }
-            m_mEventLock.unlock();
+
+            m_sEventLoopInternals.timersMutex.unlock();
 
             if (notify) {
                 std::lock_guard<std::mutex> lg(m_sEventLoopInternals.loopRequestMutex);
@@ -381,8 +381,6 @@ void CPortalManager::startEventLoop() {
 
         m_sEventLoopInternals.shouldProcess = false;
 
-        m_mEventLock.lock();
-
         if (pollfds[0].revents & POLLIN /* dbus */) {
             while (m_pConnection->processPendingEvent()) {
                 ;
@@ -395,8 +393,10 @@ void CPortalManager::startEventLoop() {
             }
         }
 
+        m_sEventLoopInternals.timersMutex.lock();
+
         std::vector<CTimer*> toRemove;
-        for (auto& t : m_sTimersThread.timers) {
+        for (auto& t : m_timers) {
             if (t->passed()) {
                 t->m_fnCallback();
                 toRemove.emplace_back(t.get());
@@ -404,17 +404,17 @@ void CPortalManager::startEventLoop() {
             }
         }
 
+        if (!toRemove.empty())
+            std::erase_if(m_timers,
+                          [&](const auto& t) { return std::find_if(toRemove.begin(), toRemove.end(), [&](const auto& other) { return other == t.get(); }) != toRemove.end(); });
+
+        m_sEventLoopInternals.timersMutex.unlock();
+
         wl_display_dispatch_pending(m_sWaylandConnection.display);
         wl_display_flush(m_sWaylandConnection.display);
 
         m_sEventLoopInternals.wlDispatched = true;
         m_sEventLoopInternals.wlDispatchCV.notify_all();
-
-        if (!toRemove.empty())
-            std::erase_if(m_sTimersThread.timers,
-                          [&](const auto& t) { return std::find_if(toRemove.begin(), toRemove.end(), [&](const auto& other) { return other == t.get(); }) != toRemove.end(); });
-
-        m_mEventLock.unlock();
     }
 
     Debug::log(ERR, "[core] Terminated");
@@ -428,7 +428,7 @@ void CPortalManager::startEventLoop() {
     pw_loop_destroy(m_sPipewire.loop);
     wl_display_disconnect(m_sWaylandConnection.display);
 
-    m_sTimersThread.thread.reset();
+    timersThr.join();
     pollThr.join(); // wait for poll to exit
 }
 
@@ -488,9 +488,12 @@ gbm_device* CPortalManager::createGBMDevice(drmDevice* dev) {
 
 void CPortalManager::addTimer(const CTimer& timer) {
     Debug::log(TRACE, "[core] adding timer for {}ms", timer.duration());
-    m_sTimersThread.timers.emplace_back(std::make_unique<CTimer>(timer));
-    m_sTimersThread.shouldProcess = true;
-    m_sTimersThread.loopSignal.notify_all();
+    m_sEventLoopInternals.timersMutex.lock();
+    m_timers.emplace_back(std::make_unique<CTimer>(timer));
+    m_sEventLoopInternals.timersMutex.unlock();
+
+    m_sEventLoopInternals.timerEvent = true;
+    m_sEventLoopInternals.timerRequestCV.notify_all();
 }
 
 void CPortalManager::terminate() {
@@ -506,6 +509,6 @@ void CPortalManager::terminate() {
         m_sEventLoopInternals.loopSignal.notify_all();
     }
 
-    m_sTimersThread.shouldProcess = true;
-    m_sTimersThread.loopSignal.notify_all();
+    m_sEventLoopInternals.timerEvent = true;
+    m_sEventLoopInternals.timerRequestCV.notify_all();
 }

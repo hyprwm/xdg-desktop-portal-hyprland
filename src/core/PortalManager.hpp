@@ -109,20 +109,17 @@ class CPortalManager {
 
         std::condition_variable wlDispatchCV;
         bool                    wlDispatched = false;
+
+        std::mutex              timersMutex;
+        std::condition_variable timerRequestCV;
+        std::mutex              timerRequestMutex;
+        bool                    timerEvent = false;
     } m_sEventLoopInternals;
 
-    struct {
-        std::condition_variable              loopSignal;
-        std::mutex                           loopMutex;
-        bool                                 shouldProcess = false;
-        std::vector<std::unique_ptr<CTimer>> timers;
-        std::unique_ptr<std::thread>         thread;
-    } m_sTimersThread;
+    std::vector<std::unique_ptr<CTimer>>  m_timers;
 
     std::unique_ptr<sdbus::IConnection>   m_pConnection;
     std::vector<std::unique_ptr<SOutput>> m_vOutputs;
-
-    std::mutex                            m_mEventLock;
 };
 
 inline std::unique_ptr<CPortalManager> g_pPortalManager;
