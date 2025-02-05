@@ -207,8 +207,6 @@ Keymap EmulatedInputServer::openKeymap() {
     return _keymap;
 }
 
-//TODO: remove and re-add devices when monitors change (see: mutter/meta-input-capture-session.c:1107)
-
 void EmulatedInputServer::clearPointer() {
     if (!client.pointer)
         return;

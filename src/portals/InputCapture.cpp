@@ -432,7 +432,7 @@ void CInputCapturePortal::zonesChanged() {
         if (!sessionValid(value->sessionHandle))
             continue;
         disable(value->sessionHandle);
-        if (!value->zoneChanged())
+        if (!value->zonesChanged())
             continue;
 
         std::unordered_map<std::string, sdbus::Variant> options;
@@ -441,7 +441,7 @@ void CInputCapturePortal::zonesChanged() {
     }
 }
 
-bool CInputCapturePortal::SSession::zoneChanged() {
+bool CInputCapturePortal::SSession::zonesChanged() {
     eis->resetPointer();
     return true;
 }
