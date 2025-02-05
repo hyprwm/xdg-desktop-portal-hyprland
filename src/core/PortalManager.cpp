@@ -22,7 +22,6 @@ SOutput::SOutput(SP<CCWlOutput> output_) : output(output_) {
         refreshRate = refresh;
         width       = width_;
         height      = height_;
-		Debug::log(LOG, "??? {} {}", flags, refresh);
     });
     output->setGeometry(
         [this](CCWlOutput* r, int32_t x_, int32_t y_, int32_t physical_width, int32_t physical_height, int32_t subpixel, const char* make, const char* model, int32_t transform_) {
@@ -31,7 +30,10 @@ SOutput::SOutput(SP<CCWlOutput> output_) : output(output_) {
             y         = y_;
         });
     output->setScale([this](CCWlOutput* r, uint32_t factor_) { scale = factor_; });
-    output->setDone([](CCWlOutput* r) { g_pPortalManager->m_sPortals.inputCapture->zonesChanged(); });
+    output->setDone([](CCWlOutput* r) {
+        if (g_pPortalManager->m_sPortals.inputCapture != nullptr)
+            g_pPortalManager->m_sPortals.inputCapture->zonesChanged();
+    });
 }
 
 CPortalManager::CPortalManager() {
