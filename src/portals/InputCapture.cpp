@@ -332,6 +332,10 @@ void CInputCapturePortal::onModifiers(uint32_t modsDepressed, uint32_t modsLatch
 }
 
 void CInputCapturePortal::onKeymap(int32_t fd, uint32_t size) {
+    if (keymap.fd != 0) {
+        close(keymap.fd);
+    }
+
     keymap.fd   = fd;
     keymap.size = size;
     for (const auto& [key, value] : sessions)
