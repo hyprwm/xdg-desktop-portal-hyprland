@@ -35,7 +35,7 @@ EmulatedInputServer::EmulatedInputServer(std::string socketName, Keymap _keymap)
 void EmulatedInputServer::pollEvents() {
     eis_dispatch(eisCtx);
 
-    //Pull every availaible events
+    //Pull every available events
     while (true) {
         eis_event* e = eis_get_event(eisCtx);
 
