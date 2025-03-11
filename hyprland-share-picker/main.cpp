@@ -20,6 +20,7 @@ using namespace Hyprutils::OS;
 
 #include "mainpicker.h"
 #include "elidedbutton.h"
+#include "screenview.h"
 
 std::string execAndGet(const char* cmd) {
     std::string command = cmd + std::string{" 2>&1"};
@@ -102,45 +103,17 @@ int main(int argc, char* argv[]) {
 
     const auto TAB1 = (QWidget*)TABWIDGET->children()[0];
 
-    const auto SCREENS_SCROLL_AREA_CONTENTS =
-        (QWidget*)TAB1->findChild<QWidget*>("screens")->findChild<QScrollArea*>("scrollArea")->findChild<QWidget*>("scrollAreaWidgetContents");
+    const auto SCREENS_WIDGET = (QWidget*)TAB1->findChild<QWidget*>("screens");
 
-    const auto SCREENS_SCROLL_AREA_CONTENTS_LAYOUT = SCREENS_SCROLL_AREA_CONTENTS->layout();
+    auto       SCREENVIEW = new ScreenView();
+    SCREENS_WIDGET->layout()->addWidget(SCREENVIEW);
+    SCREENVIEW->activate(pickerPtr, ALLOWTOKENBUTTON, settings, mainPickerPtr);
+    SCREENVIEW->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 
     // add all screens
     const auto    SCREENS = picker.screens();
 
     constexpr int BUTTON_HEIGHT = 41;
-
-    for (int i = 0; i < SCREENS.size(); ++i) {
-        const auto    GEOMETRY = SCREENS[i]->geometry();
-
-        QString       text = QString::fromStdString(std::string("Screen " + std::to_string(i) + " at " + std::to_string(GEOMETRY.x()) + ", " + std::to_string(GEOMETRY.y()) + " (" +
-                                                                std::to_string(GEOMETRY.width()) + "x" + std::to_string(GEOMETRY.height()) + ") (") +
-                                                    SCREENS[i]->name().toStdString() + ")");
-        QString       outputName = SCREENS[i]->name();
-        ElidedButton* button     = new ElidedButton(text);
-        button->setMinimumSize(0, BUTTON_HEIGHT);
-        SCREENS_SCROLL_AREA_CONTENTS_LAYOUT->addWidget(button);
-
-        QObject::connect(button, &QPushButton::clicked, [=]() {
-            std::cout << "[SELECTION]";
-            std::cout << (ALLOWTOKENBUTTON->isChecked() ? "r" : "");
-            std::cout << "/";
-
-            std::cout << "screen:" << outputName.toStdString() << "\n";
-
-            settings->setValue("width", mainPickerPtr->width());
-            settings->setValue("height", mainPickerPtr->height());
-            settings->sync();
-
-            pickerPtr->quit();
-            return 0;
-        });
-    }
-
-    QSpacerItem* SCREENS_SPACER = new QSpacerItem(0, 10000, QSizePolicy::Expanding, QSizePolicy::Expanding);
-    SCREENS_SCROLL_AREA_CONTENTS_LAYOUT->addItem(SCREENS_SPACER);
 
     // windows
     const auto WINDOWS_SCROLL_AREA_CONTENTS =
