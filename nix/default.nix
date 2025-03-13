@@ -11,7 +11,7 @@
   hyprutils,
   hyprwayland-scanner,
   libdrm,
-  mesa,
+  libgbm,
   pipewire,
   qtbase,
   qttools,
@@ -48,7 +48,7 @@ stdenv.mkDerivation {
     hyprlang
     hyprutils
     libdrm
-    mesa
+    libgbm
     pipewire
     qtbase
     qttools
