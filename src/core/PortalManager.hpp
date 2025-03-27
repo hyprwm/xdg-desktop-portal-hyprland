@@ -10,6 +10,7 @@
 #include "../portals/GlobalShortcuts.hpp"
 #include "../helpers/Timer.hpp"
 #include "../shared/ToplevelManager.hpp"
+#include "../shared/ToplevelMappingManager.hpp"
 #include <gbm.h>
 #include <xf86drm.h>
 
@@ -64,6 +65,7 @@ class CPortalManager {
 
     struct {
         std::unique_ptr<CToplevelManager> toplevel;
+        std::unique_ptr<CToplevelMappingManager> toplevelMapping;
     } m_sHelpers;
 
     struct {
