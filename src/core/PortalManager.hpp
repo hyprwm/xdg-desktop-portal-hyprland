@@ -64,7 +64,7 @@ class CPortalManager {
     } m_sPortals;
 
     struct {
-        std::unique_ptr<CToplevelManager> toplevel;
+        std::unique_ptr<CToplevelManager>        toplevel;
         std::unique_ptr<CToplevelMappingManager> toplevelMapping;
     } m_sHelpers;
 
