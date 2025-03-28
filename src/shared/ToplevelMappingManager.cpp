@@ -17,7 +17,7 @@ void CToplevelMappingManager::fetchWindowForToplevel(SP<CCZwlrForeignToplevelHan
 
     HANDLE->setWindowAddress([this, handle](CCHyprlandToplevelWindowMappingHandleV1* h, uint32_t address_hi, uint32_t address) {
         const auto ADDRESS = (uint64_t)address_hi << 32 | address;
-        this->m_mapAddresses.insert_or_assign(handle, ADDRESS);
+        this->m_muAddresses.insert_or_assign(handle, ADDRESS);
         Debug::log(TRACE, "[toplevel mapping] mapped toplevel at {} to window {}", (void*)handle.get(), ADDRESS);
         std::erase_if(this->m_vHandles, [&](const auto& other) { return other.get() == h; });
     });
@@ -29,8 +29,8 @@ void CToplevelMappingManager::fetchWindowForToplevel(SP<CCZwlrForeignToplevelHan
 }
 
 uint64_t CToplevelMappingManager::getWindowForToplevel(CSharedPointer<CCZwlrForeignToplevelHandleV1> handle) {
-    auto iter = m_mapAddresses.find(handle);
-    if (iter != m_mapAddresses.end())
+    auto iter = m_muAddresses.find(handle);
+    if (iter != m_muAddresses.end())
         return iter->second;
 
     if (handle)

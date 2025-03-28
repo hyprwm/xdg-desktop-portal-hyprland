@@ -19,7 +19,7 @@ SToplevelHandle::SToplevelHandle(SP<CCZwlrForeignToplevelHandleV1> handle_) : ha
         Debug::log(TRACE, "[toplevel] toplevel at {} closed", (void*)this);
 
         std::erase_if(g_pPortalManager->m_sHelpers.toplevel->m_vToplevels, [&](const auto& e) { return e.get() == this; });
-        g_pPortalManager->m_sHelpers.toplevelMapping->m_mapAddresses.erase(this->handle);
+        g_pPortalManager->m_sHelpers.toplevelMapping->m_muAddresses.erase(this->handle);
     });
 }
 
@@ -47,7 +47,7 @@ void CToplevelManager::activate() {
     });
     m_pManager->setFinished([this](CCZwlrForeignToplevelManagerV1* r) {
         m_vToplevels.clear();
-        g_pPortalManager->m_sHelpers.toplevelMapping->m_mapAddresses.clear();
+        g_pPortalManager->m_sHelpers.toplevelMapping->m_muAddresses.clear();
     });
 
     wl_display_roundtrip(g_pPortalManager->m_sWaylandConnection.display);
@@ -65,7 +65,7 @@ void CToplevelManager::deactivate() {
 
     m_pManager.reset();
     m_vToplevels.clear();
-    g_pPortalManager->m_sHelpers.toplevelMapping->m_mapAddresses.clear();
+    g_pPortalManager->m_sHelpers.toplevelMapping->m_muAddresses.clear();
 
     Debug::log(LOG, "[toplevel] unbound manager");
 }
