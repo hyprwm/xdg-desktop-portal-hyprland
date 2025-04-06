@@ -32,7 +32,8 @@ std::string buildWindowList() {
 
     for (auto& e : g_pPortalManager->m_sHelpers.toplevel->m_vToplevels) {
         result += std::format("{}[HC>]{}[HT>]{}[HE>]{}[HA>]", (uint32_t)(((uint64_t)e->handle->resource()) & 0xFFFFFFFF), sanitizeNameForWindowList(e->windowClass),
-                              sanitizeNameForWindowList(e->windowTitle), g_pPortalManager->m_sHelpers.toplevelMapping->getWindowForToplevel(e->handle));
+                              sanitizeNameForWindowList(e->windowTitle),
+                              g_pPortalManager->m_sHelpers.toplevelMapping ? g_pPortalManager->m_sHelpers.toplevelMapping->getWindowForToplevel(e->handle) : 0);
     }
 
     return result;

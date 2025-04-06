@@ -125,8 +125,6 @@ protocolwayland()
 
 protocolnew("${CMAKE_SOURCE_DIR}/protocols"
             "wlr-foreign-toplevel-management-unstable-v1" true)
-protocolnew("${CMAKE_SOURCE_DIR}/protocols"
-        "ext-foreign-toplevel-list-v1" true)
 protocolnew("${CMAKE_SOURCE_DIR}/protocols" "wlr-screencopy-unstable-v1" true)
 protocolnew("${HYPRLAND_PROTOCOLS}/protocols" "hyprland-global-shortcuts-v1"
             true)
@@ -135,6 +133,7 @@ protocolnew("${HYPRLAND_PROTOCOLS}/protocols" "hyprland-toplevel-export-v1"
 protocolnew("${HYPRLAND_PROTOCOLS}/protocols" "hyprland-toplevel-mapping-v1"
         true)
 protocolnew("stable/linux-dmabuf" "linux-dmabuf-v1" false)
+protocolnew("staging/ext-foreign-toplevel-list" "ext-foreign-toplevel-list-v1" false)
 
 # Installation
 install(TARGETS hyprland-share-picker)

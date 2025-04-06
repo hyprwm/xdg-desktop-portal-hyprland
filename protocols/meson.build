@@ -24,6 +24,7 @@ client_protocols = [
 	hl_protocol_dir / 'protocols/hyprland-toplevel-mapping-v1.xml',
 	hl_protocol_dir / 'protocols/hyprland-global-shortcuts-v1.xml',
 	wl_protocol_dir / 'stable/linux-dmabuf/linux-dmabuf-v1.xml',
+	wl_protocol_dir / 'staging/ext-foreign-toplevel-list/ext-foreign-toplevel-list-v1.xml',
 ]
 
 wl_proto_files = []
