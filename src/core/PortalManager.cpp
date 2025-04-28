@@ -192,6 +192,11 @@ void CPortalManager::onGlobal(uint32_t name, const char* interface, uint32_t ver
         if (!std::any_cast<Hyprlang::INT>(m_sConfig.config->getConfigValue("general:toplevel_dynamic_bind")))
             m_sHelpers.toplevel->activate();
     }
+
+    else if (INTERFACE == hyprland_toplevel_mapping_manager_v1_interface.name) {
+        m_sHelpers.toplevelMapping = std::make_unique<CToplevelMappingManager>(makeShared<CCHyprlandToplevelMappingManagerV1>(
+            (wl_proxy*)wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &hyprland_toplevel_mapping_manager_v1_interface, version)));
+    }
 }
 
 void CPortalManager::onGlobalRemoved(uint32_t name) {
