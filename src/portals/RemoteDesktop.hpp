@@ -9,6 +9,8 @@
 #include <libei-1.0/libeis.h>
 #include <queue>
 
+class CPipewireConnection;
+
 class CRemoteDesktopPortal {
   public:
     CRemoteDesktopPortal();
@@ -58,6 +60,8 @@ class CRemoteDesktopPortal {
 
     std::unique_ptr<sdbus::IObject> m_pObject;
     uint                            m_uSessionCounter = 0;
+
+    std::unique_ptr<CPipewireConnection> m_pPipewire;
 
     const sdbus::InterfaceName      INTERFACE_NAME = sdbus::InterfaceName{"org.freedesktop.impl.portal.RemoteDesktop"};
     const sdbus::ObjectPath         OBJECT_PATH    = sdbus::ObjectPath{"/org/freedesktop/portal/desktop"};

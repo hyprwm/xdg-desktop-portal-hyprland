@@ -154,6 +154,7 @@ dbUasv CInputCapturePortal::onGetZones(sdbus::ObjectPath requestHandle, sdbus::O
 
     std::vector<sdbus::Struct<uint32_t, uint32_t, int32_t, int32_t>> zones;
     for (auto& o : g_pPortalManager->getAllOutputs()) {
+        Debug::log(LOG, "[input-capture]  | w: {} h: {} x: {} y: {}", o->width, o->height, o->x, o->y);
         zones.push_back(sdbus::Struct(o->width, o->height, o->x, o->y));
     }
 
@@ -179,7 +180,7 @@ dbUasv CInputCapturePortal::onSetPointerBarriers(sdbus::ObjectPath requestHandle
 
     if (zoneSet != lastZoneSet) {
         Debug::log(WARN, "[input-capture] Invalid zone set discarding barriers");
-        return {1, {}}; //TODO: We should return failed_barries
+        return {0, {}}; //TODO: We should return failed_barries
     }
 
     sessions[sessionHandle]->barriers.clear();
@@ -336,6 +337,10 @@ void CInputCapturePortal::onModifiers(uint32_t modsDepressed, uint32_t modsLatch
 }
 
 void CInputCapturePortal::onKeymap(int32_t fd, uint32_t size) {
+    if (keymap.fd != 0) {
+        close(keymap.fd);
+    }
+
     keymap.fd   = fd;
     keymap.size = size;
     for (const auto& [key, value] : sessions)
@@ -430,18 +435,23 @@ void CInputCapturePortal::zonesChanged() {
         return;
 
     Debug::log(LOG, "[input-capture] Monitor layout has changed, notifing clients");
+    lastZoneSet++;
 
     for (auto& [key, value] : sessions) {
-        if (!value->zoneChanged())
+        if (!sessionValid(value->sessionHandle))
+            continue;
+        disable(value->sessionHandle);
+        if (!value->zonesChanged())
             continue;
 
         std::unordered_map<std::string, sdbus::Variant> options;
-        m_pObject->emitSignal("ZonesChanged").onInterface(INTERFACE_NAME).withArguments(key, options);
+        options["zone_set"] = sdbus::Variant{lastZoneSet - 1};
+        m_pObject->emitSignal("ZonesChanged").onInterface(INTERFACE_NAME).withArguments(value->sessionHandle, options);
     }
 }
 
-bool CInputCapturePortal::SSession::zoneChanged() {
-    //TODO: notify EIS
+bool CInputCapturePortal::SSession::zonesChanged() {
+    eis->resetPointer();
     return true;
 }
 

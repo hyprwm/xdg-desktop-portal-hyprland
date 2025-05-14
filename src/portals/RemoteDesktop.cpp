@@ -4,10 +4,12 @@
 #include "../helpers/MiscFunctions.hpp"
 
 void CRemoteDesktopPortal::registerPointer(SP<CCZwlrVirtualPointerManagerV1> mgr) {
+    Debug::log(LOG, "[remotedesktop] got virtual pointer manager");
     m_sState.pointerMgr = mgr;
 }
 
 void CRemoteDesktopPortal::registerKeyboard(SP<CCZwpVirtualKeyboardManagerV1> mgr) {
+    Debug::log(LOG, "[remotedesktop] got virtual keyboard manager");
     m_sState.keyboardMgr = mgr;
 }
 

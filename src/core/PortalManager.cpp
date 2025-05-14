@@ -22,7 +22,6 @@ SOutput::SOutput(SP<CCWlOutput> output_) : output(output_) {
         refreshRate = refresh;
         width       = width_;
         height      = height_;
-		Debug::log(LOG, "??? {} {}", flags, refresh);
     });
     output->setGeometry(
         [this](CCWlOutput* r, int32_t x_, int32_t y_, int32_t physical_width, int32_t physical_height, int32_t subpixel, const char* make, const char* model, int32_t transform_) {
@@ -31,7 +30,10 @@ SOutput::SOutput(SP<CCWlOutput> output_) : output(output_) {
             y         = y_;
         });
     output->setScale([this](CCWlOutput* r, uint32_t factor_) { scale = factor_; });
-    output->setDone([](CCWlOutput* r) {});
+    output->setDone([](CCWlOutput* r) {
+        if (g_pPortalManager->m_sPortals.inputCapture != nullptr)
+            g_pPortalManager->m_sPortals.inputCapture->zonesChanged();
+    });
 }
 
 CPortalManager::CPortalManager() {
@@ -85,7 +87,6 @@ void CPortalManager::onGlobal(uint32_t name, const char* interface, uint32_t ver
     if (INTERFACE == zwp_virtual_keyboard_manager_v1_interface.name)
         m_sPortals.remoteDesktop->registerKeyboard(makeShared<CCZwpVirtualKeyboardManagerV1>(
             (wl_proxy*)wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &zwp_virtual_keyboard_manager_v1_interface, version)));
-
 
     else if (INTERFACE == hyprland_toplevel_export_manager_v1_interface.name) {
         m_sWaylandConnection.hyprlandToplevelMgr = makeShared<CCHyprlandToplevelExportManagerV1>(
@@ -228,6 +229,11 @@ void CPortalManager::onGlobal(uint32_t name, const char* interface, uint32_t ver
         // remove when another fix is found for https://github.com/hyprwm/xdg-desktop-portal-hyprland/issues/147
         if (!std::any_cast<Hyprlang::INT>(m_sConfig.config->getConfigValue("general:toplevel_dynamic_bind")))
             m_sHelpers.toplevel->activate();
+    }
+
+    else if (INTERFACE == hyprland_toplevel_mapping_manager_v1_interface.name) {
+        m_sHelpers.toplevelMapping = std::make_unique<CToplevelMappingManager>(makeShared<CCHyprlandToplevelMappingManagerV1>(
+            (wl_proxy*)wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &hyprland_toplevel_mapping_manager_v1_interface, version)));
     }
 }
 
@@ -451,6 +457,7 @@ void CPortalManager::startEventLoop() {
     m_sPortals.inputCapture.reset();
     m_sPortals.remoteDesktop.reset();
     m_sHelpers.toplevel.reset();
+    m_sPortals.inputCapture.reset();
 
     m_pConnection.reset();
     pw_loop_destroy(m_sPipewire.loop);

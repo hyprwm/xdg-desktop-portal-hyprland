@@ -130,7 +130,7 @@ dbUasv CGlobalShortcutsPortal::onBindShortcuts(sdbus::ObjectPath requestHandle, 
     return {0, data};
 }
 
-dbUasv CGlobalShortcutsPortal::onListShortcuts(sdbus::ObjectPath sessionHandle, sdbus::ObjectPath requestHandle) {
+dbUasv CGlobalShortcutsPortal::onListShortcuts(sdbus::ObjectPath requestHandle, sdbus::ObjectPath sessionHandle) {
     Debug::log(LOG, "[globalshortcuts] List keys:");
     Debug::log(LOG, "[globalshortcuts]  | {}", sessionHandle.c_str());
 

@@ -12,6 +12,7 @@
 #include "../portals/RemoteDesktop.hpp"
 #include "../helpers/Timer.hpp"
 #include "../shared/ToplevelManager.hpp"
+#include "../shared/ToplevelMappingManager.hpp"
 #include <gbm.h>
 #include <poll.h>
 #include <xf86drm.h>
@@ -83,7 +84,8 @@ class CPortalManager {
     } m_sPortals;
 
     struct {
-        std::unique_ptr<CToplevelManager> toplevel;
+        std::unique_ptr<CToplevelManager>        toplevel;
+        std::unique_ptr<CToplevelMappingManager> toplevelMapping;
     } m_sHelpers;
 
     struct {

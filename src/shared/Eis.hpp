@@ -1,11 +1,12 @@
 #pragma once
 
-#include <libei-1.0/libeis.h>
+#include <libeis.h>
 #include <string>
 #include "wlr-virtual-pointer-unstable-v1.hpp"
 #include "virtual-keyboard-unstable-v1.hpp"
 #include <memory>
 #include "../includes.hpp"
+#include <string>
 
 struct Keymap {
     int32_t  fd   = 0;
@@ -24,6 +25,7 @@ class EmulatedInputServer {
     void        stopEmulating();
 
     void        setKeymap(Keymap _keymap);
+    void        resetPointer();
 
     void        sendMotion(double x, double y);
     void        sendKey(uint32_t key, bool pressed);
@@ -55,8 +57,6 @@ class EmulatedInputServer {
 
     SP<CCZwlrVirtualPointerV1> virtualPointer  = nullptr;
     SP<CCZwpVirtualKeyboardV1> virtualKeyboard = nullptr;
-    uint32_t                   screenWidth     = 0;
-    uint32_t                   screenHeight    = 0;
 
     uint32_t                   depressed       = 0;
     uint32_t                   latched         = 0;
@@ -66,8 +66,8 @@ class EmulatedInputServer {
 
     int    onEvent(eis_event* e);
     void   pollEvents();
-    void   ensurePointer(eis_event* event);
-    void   ensureKeyboard(eis_event* event);
+    void   ensurePointer();
+    void   ensureKeyboard();
     Keymap openKeymap();
     void   clearPointer();
     void   clearKeyboard();
