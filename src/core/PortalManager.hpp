@@ -22,7 +22,6 @@
 #include "linux-dmabuf-v1.hpp"
 #include "wlr-foreign-toplevel-management-unstable-v1.hpp"
 #include "wlr-screencopy-unstable-v1.hpp"
-#include "hyprland-input-capture-v1.hpp"
 #include "wlr-virtual-pointer-unstable-v1.hpp"
 #include "virtual-keyboard-unstable-v1.hpp"
 
@@ -144,8 +143,8 @@ class CPortalManager {
         std::unique_ptr<std::thread>         thread;
     } m_sTimersThread;
 
-    std::unique_ptr<sdbus::IConnection>     m_pConnection;
-    std::vector<std::unique_ptr<SOutput>>   m_vOutputs;
+    std::unique_ptr<sdbus::IConnection>   m_pConnection;
+    std::vector<std::unique_ptr<SOutput>> m_vOutputs;
 
     std::mutex                            m_mEventLock;
 };

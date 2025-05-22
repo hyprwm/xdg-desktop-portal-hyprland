@@ -62,7 +62,6 @@ void CPortalManager::onGlobal(uint32_t name, const char* interface, uint32_t ver
 
     Debug::log(LOG, " | Got interface: {} (ver {})", INTERFACE, version);
 
-
     if (INTERFACE == zwlr_screencopy_manager_v1_interface.name && m_sPipewire.loop) {
         m_sPortals.screencopy = std::make_unique<CScreencopyPortal>(makeShared<CCZwlrScreencopyManagerV1>(
             (wl_proxy*)wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &zwlr_screencopy_manager_v1_interface, version)));
@@ -105,16 +104,6 @@ void CPortalManager::onGlobal(uint32_t name, const char* interface, uint32_t ver
     else if (INTERFACE == wl_seat_interface.name) {
         m_sWaylandConnection.seat = makeShared<CCWlSeat>((wl_proxy*)wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &wl_seat_interface, version));
     }
-
-    /*
-    else if (INTERFACE == wl_keyboard_interface.name) {
-        const auto PKEYBOARD = m_vKeyboards
-                                 .emplace_back(std::make_unique<SKeyboard>(makeShared<CCWlKeyboard>(
-                                     (wl_proxy*)wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &wl_keyboard_interface, version))))
-                                 .get();
-        PKEYBOARD->id = name;
-    }
-    */
 
     else if (INTERFACE == zwp_linux_dmabuf_v1_interface.name) {
         if (version < 4) {
@@ -455,9 +444,9 @@ void CPortalManager::startEventLoop() {
     m_sPortals.globalShortcuts.reset();
     m_sPortals.screencopy.reset();
     m_sPortals.screenshot.reset();
+    m_sHelpers.toplevel.reset();
     m_sPortals.inputCapture.reset();
     m_sPortals.remoteDesktop.reset();
-    m_sHelpers.toplevel.reset();
 
     m_pConnection.reset();
     pw_loop_destroy(m_sPipewire.loop);
