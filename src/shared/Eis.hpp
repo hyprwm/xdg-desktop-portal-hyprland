@@ -56,8 +56,6 @@ class EmulatedInputServer {
 
     SP<CCZwlrVirtualPointerV1> virtualPointer  = nullptr;
     SP<CCZwpVirtualKeyboardV1> virtualKeyboard = nullptr;
-    uint32_t                   screenWidth     = 0;
-    uint32_t                   screenHeight    = 0;
 
     uint32_t                   depressed       = 0;
     uint32_t                   latched         = 0;

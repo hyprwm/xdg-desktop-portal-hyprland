@@ -99,7 +99,6 @@ dbUasv CInputCapturePortal::onCreateSession(sdbus::ObjectPath requestHandle, sdb
     Debug::log(LOG, "[input-capture] New session:");
 
     uint32_t capabilities = options["capabilities"].get<uint32_t>();
-    Debug::log(LOG, "[input-capture] New session:");
 
     Debug::log(LOG, "[input-capture]  | {}", requestHandle.c_str());
     Debug::log(LOG, "[input-capture]  | {}", sessionHandle.c_str());
