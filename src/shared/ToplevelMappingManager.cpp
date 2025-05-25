@@ -1,5 +1,6 @@
 #include "ToplevelMappingManager.hpp"
 #include "../helpers/Log.hpp"
+#include <vector>
 
 CToplevelMappingManager::CToplevelMappingManager(SP<CCHyprlandToplevelMappingManagerV1> mgr) : m_pManager(mgr) {
     Debug::log(LOG, "[toplevel mapping] registered manager");
