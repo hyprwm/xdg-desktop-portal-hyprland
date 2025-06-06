@@ -24,12 +24,13 @@
   wayland-scanner,
   debug ? false,
   version ? "git",
+  src,
 }:
 stdenv.mkDerivation {
   pname = "xdg-desktop-portal-hyprland" + lib.optionalString debug "-debug";
   inherit version;
 
-  src = ../.;
+  inherit src;
 
   depsBuildBuild = [
     pkg-config

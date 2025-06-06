@@ -29,6 +29,7 @@ in {
         stdenv = prev.gcc15Stdenv;
         inherit (final.qt6) qtbase qttools wrapQtAppsHook qtwayland;
         inherit version;
+        src = self;
       };
     })
   ];
