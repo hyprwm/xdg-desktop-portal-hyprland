@@ -97,6 +97,8 @@ int main(int argc, char* argv[]) {
     QSettings* settings = new QSettings("/tmp/hypr/hyprland-share-picker.conf", QSettings::IniFormat);
     w.setGeometry(0, 0, settings->value("width").toInt(), settings->value("height").toInt());
 
+    QCoreApplication::setApplicationName("org.hyprland.xdg-desktop-portal-hyprland");
+
     // get the tabwidget
     const auto TABWIDGET        = w.findChild<QTabWidget*>("tabWidget");
     const auto ALLOWTOKENBUTTON = w.findChild<QCheckBox*>("checkBox");
