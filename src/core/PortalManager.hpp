@@ -81,6 +81,7 @@ class CPortalManager {
             void*  formatTable     = nullptr;
             size_t formatTableSize = 0;
             bool   deviceUsed      = false;
+            bool   done            = false;
         } dma;
     } m_sWaylandConnection;
 

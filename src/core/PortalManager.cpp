@@ -90,6 +90,9 @@ void CPortalManager::onGlobal(uint32_t name, const char* interface, uint32_t ver
         m_sWaylandConnection.linuxDmabufFeedback->setMainDevice([this](CCZwpLinuxDmabufFeedbackV1* r, wl_array* device_arr) {
             Debug::log(LOG, "[core] dmabufFeedbackMainDevice");
 
+            if (m_sWaylandConnection.dma.done)
+                return;
+
             RASSERT(!m_sWaylandConnection.gbm, "double dmabuf feedback");
 
             dev_t device;
@@ -107,6 +110,9 @@ void CPortalManager::onGlobal(uint32_t name, const char* interface, uint32_t ver
         m_sWaylandConnection.linuxDmabufFeedback->setFormatTable([this](CCZwpLinuxDmabufFeedbackV1* r, int fd, uint32_t size) {
             Debug::log(TRACE, "[core] dmabufFeedbackFormatTable");
 
+            if (m_sWaylandConnection.dma.done)
+                return;
+
             m_vDMABUFMods.clear();
 
             m_sWaylandConnection.dma.formatTable = mmap(NULL, size, PROT_READ, MAP_PRIVATE, fd, 0);
@@ -123,14 +129,21 @@ void CPortalManager::onGlobal(uint32_t name, const char* interface, uint32_t ver
         m_sWaylandConnection.linuxDmabufFeedback->setDone([this](CCZwpLinuxDmabufFeedbackV1* r) {
             Debug::log(TRACE, "[core] dmabufFeedbackDone");
 
+            if (m_sWaylandConnection.dma.done)
+                return;
+
             if (m_sWaylandConnection.dma.formatTable)
                 munmap(m_sWaylandConnection.dma.formatTable, m_sWaylandConnection.dma.formatTableSize);
 
             m_sWaylandConnection.dma.formatTable     = nullptr;
             m_sWaylandConnection.dma.formatTableSize = 0;
+            m_sWaylandConnection.dma.done            = true;
         });
         m_sWaylandConnection.linuxDmabufFeedback->setTrancheTargetDevice([this](CCZwpLinuxDmabufFeedbackV1* r, wl_array* device_arr) {
             Debug::log(TRACE, "[core] dmabufFeedbackTrancheTargetDevice");
+
+            if (m_sWaylandConnection.dma.done)
+                return;
 
             dev_t device;
             assert(device_arr->size == sizeof(device));
@@ -151,6 +164,9 @@ void CPortalManager::onGlobal(uint32_t name, const char* interface, uint32_t ver
         });
         m_sWaylandConnection.linuxDmabufFeedback->setTrancheFormats([this](CCZwpLinuxDmabufFeedbackV1* r, wl_array* indices) {
             Debug::log(TRACE, "[core] dmabufFeedbackTrancheFormats");
+
+            if (m_sWaylandConnection.dma.done)
+                return;
 
             if (!m_sWaylandConnection.dma.deviceUsed || !m_sWaylandConnection.dma.formatTable)
                 return;
@@ -176,6 +192,9 @@ void CPortalManager::onGlobal(uint32_t name, const char* interface, uint32_t ver
         });
         m_sWaylandConnection.linuxDmabufFeedback->setTrancheDone([this](CCZwpLinuxDmabufFeedbackV1* r) {
             Debug::log(TRACE, "[core] dmabufFeedbackTrancheDone");
+
+            if (m_sWaylandConnection.dma.done)
+                return;
 
             m_sWaylandConnection.dma.deviceUsed = false;
         });
