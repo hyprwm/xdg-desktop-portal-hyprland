@@ -41,13 +41,14 @@ dbUasv CScreencopyPortal::onCreateSession(sdbus::ObjectPath requestHandle, sdbus
     Debug::log(LOG, "[screencopy]  | {}", sessionHandle.c_str());
     Debug::log(LOG, "[screencopy]  | appid: {}", appID);
 
-    const auto PSESSION = m_vSessions.emplace_back(std::make_unique<SSession>(appID, requestHandle, sessionHandle)).get();
+    const Hyprutils::Memory::CWeakPointer<SSession> PSESSION = m_vSessions.emplace_back(Hyprutils::Memory::makeUnique<SSession>(appID, requestHandle, sessionHandle));
+    PSESSION->self                                           = PSESSION;
 
     // create objects
     PSESSION->session            = createDBusSession(sessionHandle);
     PSESSION->session->onDestroy = [PSESSION, this]() {
         if (PSESSION->sharingData.active) {
-            m_pPipewire->destroyStream(PSESSION);
+            m_pPipewire->destroyStream(PSESSION.get());
             Debug::log(LOG, "[screencopy] Stream destroyed");
         }
         PSESSION->session.release();
@@ -346,8 +347,10 @@ void CScreencopyPortal::SSession::startCopy() {
 
 void CScreencopyPortal::SSession::initCallbacks() {
     if (sharingData.frameCallback) {
-        sharingData.frameCallback->setBuffer([this](CCZwlrScreencopyFrameV1* r, uint32_t format, uint32_t width, uint32_t height, uint32_t stride) {
-            Debug::log(TRACE, "[sc] wlrOnBuffer for {}", (void*)this);
+        sharingData.frameCallback->setBuffer([this, self = self](CCZwlrScreencopyFrameV1* r, uint32_t format, uint32_t width, uint32_t height, uint32_t stride) {
+            Debug::log(TRACE, "[sc] wlrOnBuffer for {}", (void*)self.get());
+            if (!self)
+                return;
 
             sharingData.frameInfoSHM.w      = width;
             sharingData.frameInfoSHM.h      = height;
@@ -357,8 +360,10 @@ void CScreencopyPortal::SSession::initCallbacks() {
 
             // todo: done if ver < 3
         });
-        sharingData.frameCallback->setReady([this](CCZwlrScreencopyFrameV1* r, uint32_t tv_sec_hi, uint32_t tv_sec_lo, uint32_t tv_nsec) {
-            Debug::log(TRACE, "[sc] wlrOnReady for {}", (void*)this);
+        sharingData.frameCallback->setReady([this, self = self](CCZwlrScreencopyFrameV1* r, uint32_t tv_sec_hi, uint32_t tv_sec_lo, uint32_t tv_nsec) {
+            Debug::log(TRACE, "[sc] wlrOnReady for {}", (void*)self.get());
+            if (!self)
+                return;
 
             sharingData.status = FRAME_READY;
 
@@ -375,12 +380,16 @@ void CScreencopyPortal::SSession::initCallbacks() {
 
             sharingData.frameCallback.reset();
         });
-        sharingData.frameCallback->setFailed([this](CCZwlrScreencopyFrameV1* r) {
-            Debug::log(TRACE, "[sc] wlrOnFailed for {}", (void*)this);
+        sharingData.frameCallback->setFailed([this, self = self](CCZwlrScreencopyFrameV1* r) {
+            Debug::log(TRACE, "[sc] wlrOnFailed for {}", (void*)self.get());
+            if (!self)
+                return;
             sharingData.status = FRAME_FAILED;
         });
-        sharingData.frameCallback->setDamage([this](CCZwlrScreencopyFrameV1* r, uint32_t x, uint32_t y, uint32_t width, uint32_t height) {
-            Debug::log(TRACE, "[sc] wlrOnDamage for {}", (void*)this);
+        sharingData.frameCallback->setDamage([this, self = self](CCZwlrScreencopyFrameV1* r, uint32_t x, uint32_t y, uint32_t width, uint32_t height) {
+            Debug::log(TRACE, "[sc] wlrOnDamage for {}", (void*)self.get());
+            if (!self)
+                return;
 
             if (sharingData.damageCount > 3) {
                 sharingData.damage[0] = {0, 0, sharingData.frameInfoDMA.w, sharingData.frameInfoDMA.h};
@@ -391,15 +400,19 @@ void CScreencopyPortal::SSession::initCallbacks() {
 
             Debug::log(TRACE, "[sc] wlr damage: {} {} {} {}", x, y, width, height);
         });
-        sharingData.frameCallback->setLinuxDmabuf([this](CCZwlrScreencopyFrameV1* r, uint32_t format, uint32_t width, uint32_t height) {
-            Debug::log(TRACE, "[sc] wlrOnDmabuf for {}", (void*)this);
+        sharingData.frameCallback->setLinuxDmabuf([this, self = self](CCZwlrScreencopyFrameV1* r, uint32_t format, uint32_t width, uint32_t height) {
+            Debug::log(TRACE, "[sc] wlrOnDmabuf for {}", (void*)self.get());
+            if (!self)
+                return;
 
             sharingData.frameInfoDMA.w   = width;
             sharingData.frameInfoDMA.h   = height;
             sharingData.frameInfoDMA.fmt = format;
         });
-        sharingData.frameCallback->setBufferDone([this](CCZwlrScreencopyFrameV1* r) {
-            Debug::log(TRACE, "[sc] wlrOnBufferDone for {}", (void*)this);
+        sharingData.frameCallback->setBufferDone([this, self = self](CCZwlrScreencopyFrameV1* r) {
+            Debug::log(TRACE, "[sc] wlrOnBufferDone for {}", (void*)self.get());
+            if (!self)
+                return;
 
             const auto PSTREAM = g_pPortalManager->m_sPortals.screencopy->m_pPipewire->streamFromSession(this);
 
@@ -449,8 +462,10 @@ void CScreencopyPortal::SSession::initCallbacks() {
             Debug::log(TRACE, "[sc] wlr frame copied");
         });
     } else if (sharingData.windowFrameCallback) {
-        sharingData.windowFrameCallback->setBuffer([this](CCHyprlandToplevelExportFrameV1* r, uint32_t format, uint32_t width, uint32_t height, uint32_t stride) {
-            Debug::log(TRACE, "[sc] hlOnBuffer for {}", (void*)this);
+        sharingData.windowFrameCallback->setBuffer([this, self = self](CCHyprlandToplevelExportFrameV1* r, uint32_t format, uint32_t width, uint32_t height, uint32_t stride) {
+            Debug::log(TRACE, "[sc] hlOnBuffer for {}", (void*)self.get());
+            if (!self)
+                return;
 
             sharingData.frameInfoSHM.w      = width;
             sharingData.frameInfoSHM.h      = height;
@@ -460,8 +475,10 @@ void CScreencopyPortal::SSession::initCallbacks() {
 
             // todo: done if ver < 3
         });
-        sharingData.windowFrameCallback->setReady([this](CCHyprlandToplevelExportFrameV1* r, uint32_t tv_sec_hi, uint32_t tv_sec_lo, uint32_t tv_nsec) {
-            Debug::log(TRACE, "[sc] hlOnReady for {}", (void*)this);
+        sharingData.windowFrameCallback->setReady([this, self = self](CCHyprlandToplevelExportFrameV1* r, uint32_t tv_sec_hi, uint32_t tv_sec_lo, uint32_t tv_nsec) {
+            Debug::log(TRACE, "[sc] hlOnReady for {}", (void*)self.get());
+            if (!self)
+                return;
 
             sharingData.status = FRAME_READY;
 
@@ -478,12 +495,16 @@ void CScreencopyPortal::SSession::initCallbacks() {
 
             sharingData.windowFrameCallback.reset();
         });
-        sharingData.windowFrameCallback->setFailed([this](CCHyprlandToplevelExportFrameV1* r) {
-            Debug::log(TRACE, "[sc] hlOnFailed for {}", (void*)this);
+        sharingData.windowFrameCallback->setFailed([this, self = self](CCHyprlandToplevelExportFrameV1* r) {
+            Debug::log(TRACE, "[sc] hlOnFailed for {}", (void*)self.get());
+            if (!self)
+                return;
             sharingData.status = FRAME_FAILED;
         });
-        sharingData.windowFrameCallback->setDamage([this](CCHyprlandToplevelExportFrameV1* r, uint32_t x, uint32_t y, uint32_t width, uint32_t height) {
-            Debug::log(TRACE, "[sc] hlOnDamage for {}", (void*)this);
+        sharingData.windowFrameCallback->setDamage([this, self = self](CCHyprlandToplevelExportFrameV1* r, uint32_t x, uint32_t y, uint32_t width, uint32_t height) {
+            Debug::log(TRACE, "[sc] hlOnDamage for {}", (void*)self.get());
+            if (!self)
+                return;
 
             if (sharingData.damageCount > 3) {
                 sharingData.damage[0] = {0, 0, sharingData.frameInfoDMA.w, sharingData.frameInfoDMA.h};
@@ -494,15 +515,19 @@ void CScreencopyPortal::SSession::initCallbacks() {
 
             Debug::log(TRACE, "[sc] hl damage: {} {} {} {}", x, y, width, height);
         });
-        sharingData.windowFrameCallback->setLinuxDmabuf([this](CCHyprlandToplevelExportFrameV1* r, uint32_t format, uint32_t width, uint32_t height) {
-            Debug::log(TRACE, "[sc] hlOnDmabuf for {}", (void*)this);
+        sharingData.windowFrameCallback->setLinuxDmabuf([this, self = self](CCHyprlandToplevelExportFrameV1* r, uint32_t format, uint32_t width, uint32_t height) {
+            Debug::log(TRACE, "[sc] hlOnDmabuf for {}", (void*)self.get());
+            if (!self)
+                return;
 
             sharingData.frameInfoDMA.w   = width;
             sharingData.frameInfoDMA.h   = height;
             sharingData.frameInfoDMA.fmt = format;
         });
-        sharingData.windowFrameCallback->setBufferDone([this](CCHyprlandToplevelExportFrameV1* r) {
-            Debug::log(TRACE, "[sc] hlOnBufferDone for {}", (void*)this);
+        sharingData.windowFrameCallback->setBufferDone([this, self = self](CCHyprlandToplevelExportFrameV1* r) {
+            Debug::log(TRACE, "[sc] hlOnBufferDone for {}", (void*)self.get());
+            if (!self)
+                return;
 
             const auto PSTREAM = g_pPortalManager->m_sPortals.screencopy->m_pPipewire->streamFromSession(this);
 
