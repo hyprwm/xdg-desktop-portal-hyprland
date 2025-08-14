@@ -2,6 +2,8 @@
 
 #include "wlr-screencopy-unstable-v1.hpp"
 #include "hyprland-toplevel-export-v1.hpp"
+#include <hyprutils/memory/UniquePtr.hpp>
+#include <hyprutils/memory/WeakPtr.hpp>
 #include <sdbus-c++/sdbus-c++.h>
 #include "../shared/ScreencopyShared.hpp"
 #include <gbm.h>
@@ -62,17 +64,18 @@ class CScreencopyPortal {
                    std::unordered_map<std::string, sdbus::Variant> opts);
 
     struct SSession {
-        std::string                   appid;
-        sdbus::ObjectPath             requestHandle, sessionHandle;
-        uint32_t                      cursorMode  = HIDDEN;
-        uint32_t                      persistMode = 0;
+        std::string                               appid;
+        sdbus::ObjectPath                         requestHandle, sessionHandle;
+        uint32_t                                  cursorMode  = HIDDEN;
+        uint32_t                                  persistMode = 0;
 
-        std::unique_ptr<SDBusRequest> request;
-        std::unique_ptr<SDBusSession> session;
-        SSelectionData                selection;
+        std::unique_ptr<SDBusRequest>             request;
+        std::unique_ptr<SDBusSession>             session;
+        SSelectionData                            selection;
+        Hyprutils::Memory::CWeakPointer<SSession> self;
 
-        void                          startCopy();
-        void                          initCallbacks();
+        void                                      startCopy();
+        void                                      initCallbacks();
 
         struct {
             bool                                  active              = false;
@@ -113,12 +116,12 @@ class CScreencopyPortal {
     std::unique_ptr<CPipewireConnection> m_pPipewire;
 
   private:
-    std::unique_ptr<sdbus::IObject>        m_pObject;
+    std::unique_ptr<sdbus::IObject>                          m_pObject;
 
-    std::vector<std::unique_ptr<SSession>> m_vSessions;
+    std::vector<Hyprutils::Memory::CUniquePointer<SSession>> m_vSessions;
 
-    SSession*                              getSession(sdbus::ObjectPath& path);
-    void                                   startSharing(SSession* pSession);
+    SSession*                                                getSession(sdbus::ObjectPath& path);
+    void                                                     startSharing(SSession* pSession);
 
     struct {
         SP<CCZwlrScreencopyManagerV1>         screencopy = nullptr;
