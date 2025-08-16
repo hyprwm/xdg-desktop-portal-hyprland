@@ -418,8 +418,8 @@ void CScreencopyPortal::SSession::initCallbacks() {
 
             if (!PSTREAM) {
                 Debug::log(TRACE, "[sc] wlrOnBufferDone: no stream");
-                sharingData.frameCallback.reset();
                 sharingData.status = FRAME_NONE;
+                sharingData.frameCallback.reset();
                 return;
             }
 
@@ -432,10 +432,10 @@ void CScreencopyPortal::SSession::initCallbacks() {
                 (PSTREAM->pwVideoInfo.size.width != sharingData.frameInfoDMA.w || PSTREAM->pwVideoInfo.size.height != sharingData.frameInfoDMA.h)) {
                 Debug::log(LOG, "[sc] Incompatible formats, renegotiate stream");
                 sharingData.status = FRAME_RENEG;
-                sharingData.frameCallback.reset();
                 g_pPortalManager->m_sPortals.screencopy->m_pPipewire->updateStreamParam(PSTREAM);
                 g_pPortalManager->m_sPortals.screencopy->queueNextShareFrame(this);
                 sharingData.status = FRAME_NONE;
+                sharingData.frameCallback.reset();
                 return;
             }
 
@@ -445,7 +445,6 @@ void CScreencopyPortal::SSession::initCallbacks() {
             }
 
             if (!PSTREAM->currentPWBuffer) {
-                sharingData.frameCallback.reset();
                 Debug::log(LOG, "[screencopy/pipewire] Out of buffers");
                 sharingData.status = FRAME_NONE;
                 if (sharingData.copyRetries++ < MAX_RETRIES) {
@@ -453,6 +452,7 @@ void CScreencopyPortal::SSession::initCallbacks() {
                     g_pPortalManager->m_sPortals.screencopy->m_pPipewire->updateStreamParam(PSTREAM);
                     g_pPortalManager->m_sPortals.screencopy->queueNextShareFrame(this);
                 }
+                sharingData.frameCallback.reset();
                 return;
             }
 
@@ -533,8 +533,8 @@ void CScreencopyPortal::SSession::initCallbacks() {
 
             if (!PSTREAM) {
                 Debug::log(TRACE, "[sc] hlOnBufferDone: no stream");
-                sharingData.windowFrameCallback.reset();
                 sharingData.status = FRAME_NONE;
+                sharingData.windowFrameCallback.reset();
                 return;
             }
 
@@ -547,10 +547,10 @@ void CScreencopyPortal::SSession::initCallbacks() {
                 (PSTREAM->pwVideoInfo.size.width != sharingData.frameInfoDMA.w || PSTREAM->pwVideoInfo.size.height != sharingData.frameInfoDMA.h)) {
                 Debug::log(LOG, "[sc] Incompatible formats, renegotiate stream");
                 sharingData.status = FRAME_RENEG;
-                sharingData.windowFrameCallback.reset();
                 g_pPortalManager->m_sPortals.screencopy->m_pPipewire->updateStreamParam(PSTREAM);
                 g_pPortalManager->m_sPortals.screencopy->queueNextShareFrame(this);
                 sharingData.status = FRAME_NONE;
+                sharingData.windowFrameCallback.reset();
                 return;
             }
 
@@ -560,7 +560,6 @@ void CScreencopyPortal::SSession::initCallbacks() {
             }
 
             if (!PSTREAM->currentPWBuffer) {
-                sharingData.windowFrameCallback.reset();
                 Debug::log(LOG, "[screencopy/pipewire] Out of buffers");
                 sharingData.status = FRAME_NONE;
                 if (sharingData.copyRetries++ < MAX_RETRIES) {
@@ -568,6 +567,7 @@ void CScreencopyPortal::SSession::initCallbacks() {
                     g_pPortalManager->m_sPortals.screencopy->m_pPipewire->updateStreamParam(PSTREAM);
                     g_pPortalManager->m_sPortals.screencopy->queueNextShareFrame(this);
                 }
+                sharingData.windowFrameCallback.reset();
                 return;
             }
 
