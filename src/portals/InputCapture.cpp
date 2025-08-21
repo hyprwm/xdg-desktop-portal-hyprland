@@ -13,6 +13,7 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unordered_map>
+#include <utility>
 #include <wayland-util.h>
 
 CInputCapturePortal::CInputCapturePortal(SP<CCHyprlandInputCaptureManagerV1> mgr) : m_sState(mgr) {
@@ -159,6 +160,65 @@ dbUasv CInputCapturePortal::onGetZones(sdbus::ObjectPath requestHandle, sdbus::O
     return {0, results};
 }
 
+enum ValidResult {
+    Invalid,
+    Partial,
+    Valid
+};
+
+ValidResult isBarrierValidAgainstMonitor(int x1, int x2, int y1, int y2, const std::unique_ptr<SOutput>& monitor) {
+    int mx1 = monitor->x;
+    int my1 = monitor->y;
+    int mx2 = mx1 + monitor->width - 1;
+    int my2 = my1 + monitor->height - 1;
+
+    if (x1 == x2) {                     //If zone is vertical
+        if (x1 != mx1 && x1 != mx2 + 1) //If the zone don't touch the left or right side
+            return Invalid;
+
+        if (y1 != my1 || y2 != my2) {                                 //If the zone is shorter than the height of the screen
+            if ((my1 <= y1 && y1 <= my2) || (my1 <= y2 && y2 <= my2)) //Maybe the segments are overlapping
+                return Partial;
+            return Invalid;
+        }
+    } else {
+        if (y1 != my1 && y1 != my2 + 1) //If the zone don't touch the bottom or top side
+            return Invalid;
+        if (x1 != mx1 || x2 != mx2) {                                 //If the zone is shorter than the height of the screen
+            if ((mx1 <= x1 && x1 <= mx2) || (mx1 <= x2 && x2 <= mx2)) //Maybe the segments are overlapping
+                return Partial;
+            return Invalid;
+        }
+    }
+
+    return Valid;
+}
+
+bool isBarrierValid(int x1, int x2, int y1, int y2) {
+    if (x1 != x2 && y1 != y2) //At least one axis should be aligned
+        return false;
+
+    if (x1 == x2 && y1 == y2) //The barrier should have non-null area
+        return false;
+
+    if (x1 > x2)
+        std::swap(x1, x2);
+
+    if (y1 > y2)
+        std::swap(y1, y2);
+
+    int valid   = 0;
+    int partial = 0; //Used to detect if a barrier is placed on the side of two monitors
+    for (auto& o : g_pPortalManager->getAllOutputs())
+        switch (isBarrierValidAgainstMonitor(x1, x2, y1, y2, o)) {
+            case Valid: valid++; break;
+            case Partial: partial++; break;
+            case Invalid: break;
+        }
+
+    return valid == 1 && partial == 0;
+}
+
 dbUasv CInputCapturePortal::onSetPointerBarriers(sdbus::ObjectPath requestHandle, sdbus::ObjectPath sessionHandle, std::string appID,
                                                  std::unordered_map<std::string, sdbus::Variant> opts, std::vector<std::unordered_map<std::string, sdbus::Variant>> barriers,
                                                  uint32_t zoneSet) {
@@ -174,10 +234,11 @@ dbUasv CInputCapturePortal::onSetPointerBarriers(sdbus::ObjectPath requestHandle
     Debug::log(LOG, "[input-capture]  | zoneSet: {}", zoneSet);
 
     if (zoneSet != lastZoneSet) {
-        Debug::log(WARN, "[input-capture] Invalid zone set discarding barriers");
+        Debug::log(WARN, "[input-capture] Invalid zone set, discarding barriers");
         return {0, {}}; //TODO: We should return failed_barries
     }
 
+    std::vector<uint> failedBarriers;
     sessions[sessionHandle]->barriers.clear();
     for (const auto& b : barriers) {
         uint                              id = b.at("barrier_id").get<uint>();
@@ -189,11 +250,13 @@ dbUasv CInputCapturePortal::onSetPointerBarriers(sdbus::ObjectPath requestHandle
         x2                                  = p.get<2>();
         y2                                  = p.get<3>();
 
-        Debug::log(LOG, "[input-capture]  | barrier: {}, [{}, {}] [{}, {}]", id, x1, y1, x2, y2);
-        sessions[sessionHandle]->barriers[id] = {id, x1, y1, x2, y2};
+        bool valid = isBarrierValid(x1, x2, y1, y2);
+        Debug::log(LOG, "[input-capture]  | barrier: {}, [{}, {}] [{}, {}] valid: {}", id, x1, y1, x2, y2, valid);
+        if (valid)
+            sessions[sessionHandle]->barriers[id] = {id, x1, y1, x2, y2};
+        else
+            failedBarriers.push_back(id);
     }
-
-    std::vector<uint>                               failedBarriers;
 
     std::unordered_map<std::string, sdbus::Variant> results;
     results["failed_barriers"] = sdbus::Variant{failedBarriers};
