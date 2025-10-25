@@ -143,7 +143,7 @@ dbUasv CScreencopyPortal::onSelectSources(sdbus::ObjectPath requestHandle, sdbus
                     else if (tkkey == "windowClass")
                         restoreData.windowClass = tkval.get<std::string>();
                     else if (tkkey == "withCursor")
-                        restoreData.withCursor = (bool)tkval.get<uint32_t>();
+                        restoreData.withCursor = tkval.get<uint32_t>() == EMBEDDED;
                     else if (tkkey == "timeIssued")
                         restoreData.timeIssued = tkval.get<uint64_t>();
                     else if (tkkey == "token")
@@ -184,7 +184,7 @@ dbUasv CScreencopyPortal::onSelectSources(sdbus::ObjectPath requestHandle, sdbus
         SHAREDATA.windowHandle = WINDOW ? (HANDLEMATCH ? HANDLEMATCH->handle : g_pPortalManager->m_sHelpers.toplevel->handleFromClass(restoreData.windowClass)->handle) : nullptr;
         SHAREDATA.windowClass  = restoreData.windowClass;
         SHAREDATA.allowToken   = true; // user allowed token before
-        PSESSION->cursorMode   = restoreData.withCursor;
+        PSESSION->cursorMode   = restoreData.withCursor ? EMBEDDED : HIDDEN;
     } else {
         Debug::log(LOG, "[screencopy] restore data invalid / missing, prompting");
 
@@ -302,7 +302,8 @@ void CScreencopyPortal::startFrameCopy(CScreencopyPortal::SSession* pSession) {
 }
 
 void CScreencopyPortal::SSession::startCopy() {
-    const auto POUTPUT = g_pPortalManager->getOutputFromName(selection.output);
+    const auto     POUTPUT       = g_pPortalManager->getOutputFromName(selection.output);
+    const uint32_t OVERLAYCURSOR = cursorMode == EMBEDDED ? 1 : 0;
 
     if (!sharingData.active) {
         Debug::log(TRACE, "[sc] startFrameCopy: not copying, inactive session");
@@ -321,11 +322,11 @@ void CScreencopyPortal::SSession::startCopy() {
 
     if (selection.type == TYPE_GEOMETRY) {
         sharingData.frameCallback = makeShared<CCZwlrScreencopyFrameV1>(g_pPortalManager->m_sPortals.screencopy->m_sState.screencopy->sendCaptureOutputRegion(
-            cursorMode, POUTPUT->output->resource(), selection.x, selection.y, selection.w, selection.h));
+            OVERLAYCURSOR, POUTPUT->output->resource(), selection.x, selection.y, selection.w, selection.h));
         sharingData.transform     = POUTPUT->transform;
     } else if (selection.type == TYPE_OUTPUT) {
         sharingData.frameCallback =
-            makeShared<CCZwlrScreencopyFrameV1>(g_pPortalManager->m_sPortals.screencopy->m_sState.screencopy->sendCaptureOutput(cursorMode, POUTPUT->output->resource()));
+            makeShared<CCZwlrScreencopyFrameV1>(g_pPortalManager->m_sPortals.screencopy->m_sState.screencopy->sendCaptureOutput(OVERLAYCURSOR, POUTPUT->output->resource()));
         sharingData.transform = POUTPUT->transform;
     } else if (selection.type == TYPE_WINDOW) {
         if (!selection.windowHandle) {
@@ -333,7 +334,7 @@ void CScreencopyPortal::SSession::startCopy() {
             return;
         }
         sharingData.windowFrameCallback = makeShared<CCHyprlandToplevelExportFrameV1>(
-            g_pPortalManager->m_sPortals.screencopy->m_sState.toplevel->sendCaptureToplevelWithWlrToplevelHandle(cursorMode, selection.windowHandle->resource()));
+            g_pPortalManager->m_sPortals.screencopy->m_sState.toplevel->sendCaptureToplevelWithWlrToplevelHandle(OVERLAYCURSOR, selection.windowHandle->resource()));
         sharingData.transform = WL_OUTPUT_TRANSFORM_NORMAL;
     } else {
         Debug::log(ERR, "[screencopy] Unsupported selection {}", (int)selection.type);
