@@ -44,6 +44,7 @@ CPortalManager::CPortalManager() {
     m_sConfig.config->addConfigValue("screencopy:max_fps", Hyprlang::INT{120L});
     m_sConfig.config->addConfigValue("screencopy:allow_token_by_default", Hyprlang::INT{0L});
     m_sConfig.config->addConfigValue("screencopy:custom_picker_binary", Hyprlang::STRING{""});
+    m_sConfig.config->addConfigValue("screencopy:cursor_mode", Hyprlang::INT{0L});
 
     m_sConfig.config->commence();
     m_sConfig.config->parse();

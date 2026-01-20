@@ -70,12 +70,18 @@ dbUasv CScreencopyPortal::onSelectSources(sdbus::ObjectPath requestHandle, sdbus
     Debug::log(LOG, "[screencopy]  | {}", sessionHandle.c_str());
     Debug::log(LOG, "[screencopy]  | appid: {}", appID);
 
-    const auto PSESSION = getSession(sessionHandle);
+    const auto          PSESSION    = getSession(sessionHandle);
+    static auto* const* PCURSORMODE = (Hyprlang::INT* const*)g_pPortalManager->m_sConfig.config->getConfigValuePtr("screencopy:cursor_mode")->getDataStaticPtr();
 
     if (!PSESSION) {
         Debug::log(ERR, "[screencopy] SelectSources: no session found??");
         throw sdbus::Error{sdbus::Error::Name{"NOSESSION"}, "No session found"};
         return {1, {}};
+    }
+
+    if (**PCURSORMODE == HIDDEN || **PCURSORMODE == EMBEDDED) {
+        PSESSION->cursorMode = **PCURSORMODE;
+        Debug::log(LOG, "[screencopy] default cursor_mode to {}", PSESSION->cursorMode);
     }
 
     struct {
@@ -90,8 +96,14 @@ dbUasv CScreencopyPortal::onSelectSources(sdbus::ObjectPath requestHandle, sdbus
     for (auto& [key, val] : options) {
 
         if (key == "cursor_mode") {
-            PSESSION->cursorMode = val.get<uint32_t>();
-            Debug::log(LOG, "[screencopy] option cursor_mode to {}", PSESSION->cursorMode);
+            auto mode = val.get<uint32_t>();
+            if (mode == METADATA) {
+                // the portal spec actually says to kill the session here, but what's the point
+                Debug::log(LOG, "[screencopy] unsupported cursor_mode {}, fallback to {}", mode, PSESSION->cursorMode);
+            } else {
+                PSESSION->cursorMode = mode;
+                Debug::log(LOG, "[screencopy] option cursor_mode to {}", PSESSION->cursorMode);
+            }
         } else if (key == "restore_data") {
             // suv
             // v -> r(susbt) -> v2
@@ -155,7 +167,6 @@ dbUasv CScreencopyPortal::onSelectSources(sdbus::ObjectPath requestHandle, sdbus
                 Debug::log(LOG, "[screencopy] Restore token v3 {} with data: {} {} {} {} {}", restoreData.token, restoreData.windowHandle, restoreData.windowClass,
                            restoreData.output, restoreData.withCursor, restoreData.timeIssued);
             }
-
         } else if (key == "persist_mode") {
             PSESSION->persistMode = val.get<uint32_t>();
             Debug::log(LOG, "[screencopy] option persist_mode to {}", PSESSION->persistMode);
