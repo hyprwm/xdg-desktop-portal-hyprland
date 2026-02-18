@@ -38,6 +38,7 @@ class CInputCapturePortal {
         uint32_t          capabilities = 0;
         uint32_t          eisFD        = 0;
         bool              dead         = false;
+        std::unordered_map<uint32_t, uint32_t> barrierIdMap;
 
         //
         std::unique_ptr<SDBusRequest>             request;
@@ -50,6 +51,7 @@ class CInputCapturePortal {
     std::unique_ptr<sdbus::IObject> m_pObject;
     uint                            sessionCounter = 0;
     uint                            lastZoneSet    = 0;
+    uint32_t                        barrierIdCounter = 1;
 
     //
     dbUasv        onCreateSession(sdbus::ObjectPath requestHandle, sdbus::ObjectPath sessionHandle, std::string appID, std::string parentWindow,
