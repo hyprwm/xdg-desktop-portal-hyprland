@@ -4,6 +4,7 @@
 #include "../helpers/Log.hpp"
 #include "../shared/Session.hpp"
 #include "hyprland-input-capture-v1.hpp"
+#include <algorithm>
 #include <cstdint>
 #include <hyprutils/memory/UniquePtr.hpp>
 #include <memory>
@@ -15,6 +16,14 @@
 #include <unordered_map>
 #include <wayland-client-core.h>
 #include <wayland-util.h>
+
+namespace {
+int32_t logicalSize(uint32_t size, int32_t scale) {
+    if (scale <= 1)
+        return static_cast<int32_t>(size);
+    return static_cast<int32_t>(size / static_cast<uint32_t>(scale));
+}
+} // namespace
 
 CInputCapturePortal::CInputCapturePortal(SP<CCHyprlandInputCaptureManagerV1> mgr) : m_sState(mgr) {
     Debug::log(LOG, "[input-capture] initializing input capture portal");
@@ -125,8 +134,9 @@ dbUasv CInputCapturePortal::onGetZones(sdbus::ObjectPath requestHandle, sdbus::O
 
     std::vector<sdbus::Struct<uint32_t, uint32_t, int32_t, int32_t>> zones;
     for (auto& o : g_pPortalManager->getAllOutputs()) {
-        Debug::log(LOG, "[input-capture]  | w: {} h: {} x: {} y: {}", o->width, o->height, o->x, o->y);
-        zones.push_back(sdbus::Struct(o->width, o->height, o->x, o->y));
+        const int32_t width  = logicalSize(o->width, o->scale);
+        const int32_t height = logicalSize(o->height, o->scale);
+        zones.push_back(sdbus::Struct(static_cast<uint32_t>(width), static_cast<uint32_t>(height), o->x, o->y));
     }
 
     std::unordered_map<std::string, sdbus::Variant> results;
@@ -142,17 +152,26 @@ enum ValidResult {
     Valid
 };
 
+static bool rangesOverlapInclusive(int a1, int a2, int b1, int b2) {
+    return std::max(a1, b1) <= std::min(a2, b2);
+}
+
 ValidResult isBarrierValidAgainstMonitor(int x1, int y1, int x2, int y2, const std::unique_ptr<SOutput>& monitor) {
-    int mx1 = monitor->x;
-    int my1 = monitor->y;
-    int mx2 = mx1 + monitor->width - 1;
-    int my2 = my1 + monitor->height - 1;
-    if (monitor->width == 0 || monitor->height == 0) //If we have an invalid monitor we refuse all barriers
+    const int32_t width  = logicalSize(monitor->width, monitor->scale);
+    const int32_t height = logicalSize(monitor->height, monitor->scale);
+    int           mx1    = monitor->x;
+    int           my1    = monitor->y;
+    int           mx2    = mx1 + width - 1;
+    int           my2    = my1 + height - 1;
+    if (width <= 0 || height <= 0) //If we have an invalid monitor we refuse all barriers
         return Error;
 
     if (x1 == x2) {                     //If zone is vertical
-        if (x1 != mx1 && x1 != mx2 + 1) //If the zone don't touch the left or right side
+        if (x1 != mx1 && x1 != mx2 + 1) { //If the zone don't touch the left or right side
+            if (mx1 <= x1 && x1 <= mx2 && rangesOverlapInclusive(y1, y2, my1, my2))
+                return Partial;
             return Invalid;
+        }
 
         if (y1 != my1 || y2 != my2) {                                 //If the zone is shorter than the height of the screen
             if ((my1 <= y1 && y1 <= my2) || (my1 <= y2 && y2 <= my2)) //Maybe the segments are overlapping
@@ -160,8 +179,11 @@ ValidResult isBarrierValidAgainstMonitor(int x1, int y1, int x2, int y2, const s
             return Invalid;
         }
     } else {
-        if (y1 != my1 && y1 != my2 + 1) //If the zone don't touch the bottom or top side
+        if (y1 != my1 && y1 != my2 + 1) { //If the zone don't touch the bottom or top side
+            if (my1 <= y1 && y1 <= my2 && rangesOverlapInclusive(x1, x2, mx1, mx2))
+                return Partial;
             return Invalid;
+        }
         if (x1 != mx1 || x2 != mx2) {                                 //If the zone is shorter than the height of the screen
             if ((mx1 <= x1 && x1 <= mx2) || (mx1 <= x2 && x2 <= mx2)) //Maybe the segments are overlapping
                 return Partial;
@@ -217,8 +239,11 @@ dbUasv CInputCapturePortal::onSetPointerBarriers(sdbus::ObjectPath requestHandle
         return {0, {}}; //TODO: We should return failed_barries
     }
 
+    auto& session = sessions[sessionHandle];
     std::vector<uint> failedBarriers;
-    sessions[sessionHandle]->whandle->sendClearBarriers();
+    session->barrierIdMap.clear();
+    session->whandle->sendClearBarriers();
+
     for (const auto& b : barriers) {
         uint                              id = b.at("barrier_id").get<uint>();
         int                               x1, y1, x2, y2;
@@ -229,12 +254,32 @@ dbUasv CInputCapturePortal::onSetPointerBarriers(sdbus::ObjectPath requestHandle
         x2                                  = p.get<2>();
         y2                                  = p.get<3>();
 
-        bool valid = isBarrierValid(x1, y1, x2, y2);
-        Debug::log(LOG, "[input-capture]  | barrier: {}, [{}, {}] [{}, {}] valid: {}", id, x1, y1, x2, y2, valid);
-        if (valid)
-            sessions[sessionHandle]->whandle->sendAddBarrier(zoneSet, id, x1, y1, x2, y2);
-        else
+        const bool valid = isBarrierValid(x1, y1, x2, y2);
+        if (id == 0) {
+            Debug::log(LOG, "[input-capture]  | barrier: 0 invalid (skipping)");
             failedBarriers.push_back(id);
+            continue;
+        }
+
+        if (!valid) {
+            Debug::log(LOG, "[input-capture]  | barrier: {} [{}, {}] [{}, {}] valid: false", id, x1, y1, x2, y2);
+            failedBarriers.push_back(id);
+            continue;
+        }
+
+        // Clients may reuse barrier_id values in one request. Use a unique internal
+        // ID per barrier and map activation callbacks back to the client ID.
+        uint32_t internalId = this->barrierIdCounter++;
+        if (internalId == 0)
+            internalId = this->barrierIdCounter++;
+
+        session->barrierIdMap[internalId] = id;
+
+        const uint32_t ux1 = static_cast<uint32_t>(x1);
+        const uint32_t uy1 = static_cast<uint32_t>(y1);
+        const uint32_t ux2 = static_cast<uint32_t>(x2);
+        const uint32_t uy2 = static_cast<uint32_t>(y2);
+        session->whandle->sendAddBarrier(zoneSet, internalId, ux1, uy1, ux2, uy2);
     }
 
     std::unordered_map<std::string, sdbus::Variant> results;
@@ -335,10 +380,17 @@ void CInputCapturePortal::zonesChanged() {
 
 void CInputCapturePortal::activate(sdbus::ObjectPath sessionHandle, uint32_t activationId, double x, double y, uint32_t borderId) {
     Debug::log(LOG, "[input-capture] activate, activationId {}, barrierId {}, x {}, y {}", activationId, borderId, x, y);
+    if (!sessionValid(sessionHandle))
+        return;
+
+    const auto&  session         = sessions[sessionHandle];
+    const auto   mappedBarrierId = session->barrierIdMap.find(borderId);
+    const uint32_t clientBarrierId = mappedBarrierId != session->barrierIdMap.end() ? mappedBarrierId->second : borderId;
+
     std::unordered_map<std::string, sdbus::Variant> results;
     results["activation_id"]   = sdbus::Variant{activationId};
     results["cursor_position"] = sdbus::Variant{sdbus::Struct<double, double>(x, y)};
-    results["barrier_id"]      = sdbus::Variant{borderId};
+    results["barrier_id"]      = sdbus::Variant{clientBarrierId};
 
     m_pObject->emitSignal("Activated").onInterface(INTERFACE_NAME).withArguments(sessionHandle, results);
 }
