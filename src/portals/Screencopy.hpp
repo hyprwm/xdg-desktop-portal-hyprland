@@ -2,6 +2,7 @@
 
 #include "wlr-screencopy-unstable-v1.hpp"
 #include "hyprland-toplevel-export-v1.hpp"
+#include <cstdint>
 #include <hyprutils/memory/UniquePtr.hpp>
 #include <hyprutils/memory/WeakPtr.hpp>
 #include <sdbus-c++/sdbus-c++.h>
@@ -154,8 +155,10 @@ class CPipewireConnection {
         spa_hook                              streamListener;
         SBuffer*                              currentPWBuffer = nullptr;
         spa_video_info_raw                    pwVideoInfo;
-        uint32_t                              seq   = 0;
-        bool                                  isDMA = false;
+        uint32_t                              seq           = 0;
+        bool                                  isDMA         = false;
+        uint32_t                              dmaBufRetries = 0;
+        bool                                  dmaBufFailed  = false;
 
         std::vector<std::unique_ptr<SBuffer>> buffers;
     };
