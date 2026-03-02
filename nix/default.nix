@@ -61,10 +61,7 @@ stdenv.mkDerivation {
     wayland-scanner
   ];
 
-  cmakeBuildType =
-    if debug
-    then "Debug"
-    else "RelWithDebInfo";
+  cmakeBuildType = if debug then "Debug" else "RelWithDebInfo";
 
   dontStrip = true;
 
@@ -73,10 +70,15 @@ stdenv.mkDerivation {
   postInstall = ''
     wrapProgramShell $out/bin/hyprland-share-picker \
       "''${qtWrapperArgs[@]}" \
-      --prefix PATH ":" ${lib.makeBinPath [slurp hyprland]}
+      --prefix PATH ":" ${
+        lib.makeBinPath [
+          slurp
+          hyprland
+        ]
+      }
 
     wrapProgramShell $out/libexec/xdg-desktop-portal-hyprland \
-      --prefix PATH ":" ${lib.makeBinPath [(placeholder "out")]}
+      --prefix PATH ":" ${lib.makeBinPath [ (placeholder "out") ]}
   '';
 
   meta = with lib; {
@@ -84,7 +86,7 @@ stdenv.mkDerivation {
     homepage = "https://github.com/hyprwm/xdg-desktop-portal-hyprland";
     description = "xdg-desktop-portal backend for Hyprland";
     license = licenses.bsd3;
-    maintainers = with maintainers; [fufexan];
+    maintainers = with maintainers; [ fufexan ];
     platforms = platforms.linux;
   };
 }
