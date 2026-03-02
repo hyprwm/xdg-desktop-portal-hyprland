@@ -4,7 +4,6 @@
   cmake,
   makeWrapper,
   pkg-config,
-  wrapQtAppsHook,
   hyprland,
   hyprland-protocols,
   hyprlang,
@@ -13,9 +12,7 @@
   libdrm,
   libgbm,
   pipewire,
-  qtbase,
-  qttools,
-  qtwayland,
+  qt6,
   sdbus-cpp_2,
   slurp,
   systemd,
@@ -40,7 +37,7 @@ stdenv.mkDerivation {
     cmake
     makeWrapper
     pkg-config
-    wrapQtAppsHook
+    qt6.wrapQtAppsHook
     hyprwayland-scanner
   ];
 
@@ -51,9 +48,9 @@ stdenv.mkDerivation {
     libdrm
     libgbm
     pipewire
-    qtbase
-    qttools
-    qtwayland
+    qt6.qtbase
+    qt6.qttools
+    qt6.qtwayland
     sdbus-cpp_2
     systemd
     wayland

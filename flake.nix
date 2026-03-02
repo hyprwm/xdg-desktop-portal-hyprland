@@ -47,7 +47,7 @@
         system:
         import nixpkgs {
           localSystem = system;
-          overlays = [ self.overlays.default ];
+          overlays = [ self.overlays.xdg-desktop-portal-hyprland-with-deps ];
         }
       );
     in

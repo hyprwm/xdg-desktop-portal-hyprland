@@ -19,25 +19,21 @@ let
 in
 {
   # List dependencies in ascending order with respect to usage (`foldr`).
-  default = lib.composeManyExtensions [
-    self.overlays.xdg-desktop-portal-hyprland
-    self.overlays.sdbus-cpp_2
+  default = self.overlays.xdg-desktop-portal-hyprland;
+
+  xdg-desktop-portal-hyprland-with-deps = lib.composeManyExtensions [
     inputs.hyprland-protocols.overlays.default
     inputs.hyprwayland-scanner.overlays.default
     inputs.hyprlang.overlays.default
     inputs.hyprutils.overlays.default
+    self.overlays.sdbus-cpp_2
+    self.overlays.xdg-desktop-portal-hyprland
   ];
 
   xdg-desktop-portal-hyprland = lib.composeManyExtensions [
     (final: prev: {
       xdg-desktop-portal-hyprland = final.callPackage ./default.nix {
         stdenv = prev.gcc15Stdenv;
-        inherit (final.qt6)
-          qtbase
-          qttools
-          wrapQtAppsHook
-          qtwayland
-          ;
         inherit version;
         src = self;
       };
