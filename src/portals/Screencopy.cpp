@@ -8,7 +8,8 @@
 #include "linux-dmabuf-v1.hpp"
 #include <unistd.h>
 
-constexpr static int MAX_RETRIES = 10;
+constexpr static int MAX_RETRIES        = 10;
+constexpr static int MAX_DMABUF_RETRIES = 2;
 
 //
 static sdbus::Struct<std::string, uint32_t, sdbus::Variant> getFullRestoreStruct(const SSelectionData& data, uint32_t cursor) {
@@ -749,6 +750,17 @@ static void pwStreamParamChanged(void* data, uint32_t id, const spa_pod* param) 
 
         if ((prop_modifier->flags & SPA_POD_PROP_FLAG_DONT_FIXATE) > 0) {
             Debug::log(TRACE, "[pw] don't fixate");
+
+            if (++PSTREAM->dmaBufRetries > MAX_DMABUF_RETRIES) {
+                Debug::log(ERR, "[pw] DMA-BUF fixation failed after {} attempts, falling back to SHM", PSTREAM->dmaBufRetries - 1);
+                PSTREAM->dmaBufFailed = true;
+                g_pPortalManager->m_sPortals.screencopy->m_pPipewire->updateStreamParam(PSTREAM);
+                spa_pod_dynamic_builder_clean(&dynBuilder[0]);
+                spa_pod_dynamic_builder_clean(&dynBuilder[1]);
+                spa_pod_dynamic_builder_clean(&dynBuilder[2]);
+                return;
+            }
+
             const spa_pod* pod_modifier = &prop_modifier->value;
 
             uint32_t       n_modifiers = SPA_POD_CHOICE_N_VALUES(pod_modifier) - 1;
@@ -788,6 +800,11 @@ static void pwStreamParamChanged(void* data, uint32_t id, const spa_pod* param) 
             }
 
             Debug::log(ERR, "[pw] failed to alloc dma");
+            PSTREAM->dmaBufFailed = true;
+            g_pPortalManager->m_sPortals.screencopy->m_pPipewire->updateStreamParam(PSTREAM);
+            spa_pod_dynamic_builder_clean(&dynBuilder[0]);
+            spa_pod_dynamic_builder_clean(&dynBuilder[1]);
+            spa_pod_dynamic_builder_clean(&dynBuilder[2]);
             return;
 
         fixate_format:
@@ -1038,11 +1055,14 @@ static bool build_modifierlist(CPipewireConnection::SPWStream* stream, uint32_t 
 }
 
 uint32_t CPipewireConnection::buildFormatsFor(spa_pod_builder* b[2], const spa_pod* params[2], CPipewireConnection::SPWStream* stream) {
-    uint32_t  paramCount = 0;
-    uint32_t  modCount   = 0;
-    uint64_t* modifiers  = nullptr;
+    uint32_t            paramCount = 0;
+    uint32_t            modCount   = 0;
+    uint64_t*           modifiers  = nullptr;
 
-    if (build_modifierlist(stream, stream->pSession->sharingData.frameInfoDMA.fmt, &modifiers, &modCount) && modCount > 0) {
+    static auto* const* PFORCESHM = (Hyprlang::INT* const*)g_pPortalManager->m_sConfig.config->getConfigValuePtr("screencopy:force_shm")->getDataStaticPtr();
+    const bool          forceSHM  = **PFORCESHM || stream->dmaBufFailed;
+
+    if (!forceSHM && build_modifierlist(stream, stream->pSession->sharingData.frameInfoDMA.fmt, &modifiers, &modCount) && modCount > 0) {
         Debug::log(LOG, "[pw] Building modifiers for dma");
 
         paramCount = 2;
@@ -1053,7 +1073,12 @@ uint32_t CPipewireConnection::buildFormatsFor(spa_pod_builder* b[2], const spa_p
                                  stream->pSession->sharingData.frameInfoSHM.h, stream->pSession->sharingData.framerate, NULL, 0);
         assert(params[1] != NULL);
     } else {
-        Debug::log(LOG, "[pw] Building modifiers for shm");
+        if (stream->dmaBufFailed)
+            Debug::log(WARN, "[pw] DMA-BUF allocation failed, falling back to SHM");
+        else if (forceSHM)
+            Debug::log(LOG, "[pw] DMA-BUF disabled (force_shm), using SHM only");
+        else
+            Debug::log(LOG, "[pw] Building modifiers for shm");
 
         paramCount = 1;
         params[0]  = build_format(b[0], pwFromDrmFourcc(stream->pSession->sharingData.frameInfoSHM.fmt), stream->pSession->sharingData.frameInfoSHM.w,
