@@ -8,6 +8,7 @@
 #include "../portals/Screencopy.hpp"
 #include "../portals/Screenshot.hpp"
 #include "../portals/GlobalShortcuts.hpp"
+#include "../portals/Settings.hpp"
 #include "../helpers/Timer.hpp"
 #include "../shared/ToplevelManager.hpp"
 #include "../shared/ToplevelMappingManager.hpp"
@@ -61,6 +62,7 @@ class CPortalManager {
         std::unique_ptr<CScreencopyPortal>      screencopy;
         std::unique_ptr<CScreenshotPortal>      screenshot;
         std::unique_ptr<CGlobalShortcutsPortal> globalShortcuts;
+        std::unique_ptr<CSettingsPortal>        settings;
     } m_sPortals;
 
     struct {
