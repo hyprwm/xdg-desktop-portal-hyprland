@@ -17,6 +17,9 @@ static sdbus::Struct<std::string, uint32_t, sdbus::Variant> getFullRestoreStruct
 
     switch (data.type) {
         case TYPE_GEOMETRY:
+            mapData["output"]   = sdbus::Variant{data.output};
+            mapData["geometry"] = sdbus::Variant{sdbus::Struct<uint32_t, uint32_t, uint32_t, uint32_t>{data.x, data.y, data.w, data.h}};
+            break;
         case TYPE_OUTPUT: mapData["output"] = sdbus::Variant{data.output}; break;
         case TYPE_WINDOW:
             mapData["windowHandle"] = sdbus::Variant{(uint64_t)data.windowHandle->resource()};
@@ -86,6 +89,12 @@ dbUasv CScreencopyPortal::onSelectSources(sdbus::ObjectPath requestHandle, sdbus
         bool        withCursor;
         uint64_t    timeIssued;
         std::string windowClass;
+        struct {
+            uint32_t x = 0;
+            uint32_t y = 0;
+            uint32_t w = 0;
+            uint32_t h = 0;
+        } geometry;
     } restoreData;
 
     for (auto& [key, val] : options) {
@@ -149,7 +158,13 @@ dbUasv CScreencopyPortal::onSelectSources(sdbus::ObjectPath requestHandle, sdbus
                         restoreData.timeIssued = tkval.get<uint64_t>();
                     else if (tkkey == "token")
                         restoreData.token = tkval.get<std::string>();
-                    else
+                    else if (tkkey == "geometry") {
+                        auto geo               = tkval.get<sdbus::Struct<uint32_t, uint32_t, uint32_t, uint32_t>>();
+                        restoreData.geometry.x = geo.get<0>();
+                        restoreData.geometry.y = geo.get<1>();
+                        restoreData.geometry.w = geo.get<2>();
+                        restoreData.geometry.h = geo.get<3>();
+                    } else
                         Debug::log(LOG, "[screencopy] restore token v3, unknown prop {}", tkkey);
                 }
 
@@ -178,14 +193,22 @@ dbUasv CScreencopyPortal::onSelectSources(sdbus::ObjectPath requestHandle, sdbus
         Debug::log(LOG, "[screencopy] restore data valid, not prompting");
 
         const bool WINDOW      = !restoreData.windowClass.empty();
+        const bool GEOMETRY    = restoreData.geometry.w > 0 && restoreData.geometry.h > 0;
         const auto HANDLEMATCH = WINDOW && restoreData.windowHandle != 0 ? g_pPortalManager->m_sHelpers.toplevel->handleFromHandleFull(restoreData.windowHandle) : nullptr;
 
         SHAREDATA.output       = restoreData.output;
-        SHAREDATA.type         = WINDOW ? TYPE_WINDOW : TYPE_OUTPUT;
+        SHAREDATA.type         = WINDOW ? TYPE_WINDOW : (GEOMETRY ? TYPE_GEOMETRY : TYPE_OUTPUT);
         SHAREDATA.windowHandle = WINDOW ? (HANDLEMATCH ? HANDLEMATCH->handle : g_pPortalManager->m_sHelpers.toplevel->handleFromClass(restoreData.windowClass)->handle) : nullptr;
         SHAREDATA.windowClass  = restoreData.windowClass;
         SHAREDATA.allowToken   = true; // user allowed token before
         PSESSION->cursorMode   = restoreData.withCursor ? EMBEDDED : HIDDEN;
+
+        if (GEOMETRY) {
+            SHAREDATA.x = restoreData.geometry.x;
+            SHAREDATA.y = restoreData.geometry.y;
+            SHAREDATA.w = restoreData.geometry.w;
+            SHAREDATA.h = restoreData.geometry.h;
+        }
     } else {
         Debug::log(LOG, "[screencopy] restore data invalid / missing, prompting");
 
