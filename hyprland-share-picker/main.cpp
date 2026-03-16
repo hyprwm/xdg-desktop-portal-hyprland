@@ -163,7 +163,6 @@ int main(int argc, char* argv[]) {
 
         ElidedButton* button = new ElidedButton(text);
         button->setIcon(QIcon::fromTheme(QString::fromStdString(window.clazz)));
-        button->setIconSize(QSize(BUTTON_HEIGHT - 9, BUTTON_HEIGHT - 9));
         button->setMinimumSize(0, BUTTON_HEIGHT);
         WINDOWS_SCROLL_AREA_CONTENTS_LAYOUT->addWidget(button);
 

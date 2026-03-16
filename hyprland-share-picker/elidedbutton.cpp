@@ -22,11 +22,6 @@ void ElidedButton::setIcon(const QIcon& icon) {
     updateText();
 }
 
-void ElidedButton::setIconSize(const QSize& size) {
-    QPushButton::setIconSize(size);
-    updateText();
-}
-
 void ElidedButton::resizeEvent(QResizeEvent *event)
 {
     QPushButton::resizeEvent(event);

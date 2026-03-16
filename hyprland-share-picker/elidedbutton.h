@@ -12,7 +12,6 @@ public:
     explicit ElidedButton(const QString &text, QWidget *parent = nullptr);
     void setText(QString);
     void setIcon(const QIcon &icon);
-    void setIconSize(const QSize &size);
 
 protected:
     void resizeEvent(QResizeEvent *);
