@@ -1,8 +1,10 @@
 #include <QApplication>
 #include <QEvent>
+#include <QIcon>
 #include <QObject>
 #include <QPushButton>
 #include <QScreen>
+#include <QSize>
 #include <QTabWidget>
 #include <QWidget>
 #include <QtDebug>
@@ -63,7 +65,7 @@ std::vector<SWindowEntry> getWindows(const char* env) {
 
         // window address
         const auto WINDOWSEPPOS = rolling.find("[HA>]");
-        const auto WINDOWADDR = rolling.substr(TITLESEPPOS + 5, WINDOWSEPPOS - 5 - TITLESEPPOS);
+        const auto WINDOWADDR   = rolling.substr(TITLESEPPOS + 5, WINDOWSEPPOS - 5 - TITLESEPPOS);
 
         try {
             result.push_back({TITLESTR, CLASSSTR, std::stoull(IDSTR)});
@@ -160,6 +162,8 @@ int main(int argc, char* argv[]) {
         QString       text = QString::fromStdString(window.clazz + ": " + window.name);
 
         ElidedButton* button = new ElidedButton(text);
+        button->setIcon(QIcon::fromTheme(QString::fromStdString(window.clazz), QIcon::fromTheme("application-x-executable")));
+        button->setIconSize(QSize(BUTTON_HEIGHT - 9, BUTTON_HEIGHT - 9));
         button->setMinimumSize(0, BUTTON_HEIGHT);
         WINDOWS_SCROLL_AREA_CONTENTS_LAYOUT->addWidget(button);
 
