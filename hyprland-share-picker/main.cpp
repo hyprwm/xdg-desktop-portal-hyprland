@@ -162,7 +162,7 @@ int main(int argc, char* argv[]) {
         QString       text = QString::fromStdString(window.clazz + ": " + window.name);
 
         ElidedButton* button = new ElidedButton(text);
-        button->setIcon(QIcon::fromTheme(QString::fromStdString(window.clazz), QIcon::fromTheme("application-x-executable")));
+        button->setIcon(QIcon::fromTheme(QString::fromStdString(window.clazz)));
         button->setIconSize(QSize(BUTTON_HEIGHT - 9, BUTTON_HEIGHT - 9));
         button->setMinimumSize(0, BUTTON_HEIGHT);
         WINDOWS_SCROLL_AREA_CONTENTS_LAYOUT->addWidget(button);
