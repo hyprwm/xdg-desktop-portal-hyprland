@@ -142,6 +142,7 @@ dbUasv CInputCapturePortal::onGetZones(sdbus::ObjectPath requestHandle, sdbus::O
     std::unordered_map<std::string, sdbus::Variant> results;
     results["zones"]    = sdbus::Variant{zones};
     results["zone_set"] = sdbus::Variant{++lastZoneSet};
+    Debug::log(LOG, "[input-capture]  | zoneSet: {}", lastZoneSet);
     return {0, results};
 }
 
