@@ -887,9 +887,13 @@ static void pwStreamAddBuffer(void* data, pw_buffer* buffer) {
 
     spa_data*     spaData = buffer->buffer->datas;
     spa_data_type type;
+    uint32_t      flags = SPA_DATA_FLAG_READABLE;
 
     if ((spaData[0].type & (1u << SPA_DATA_MemFd)) > 0) {
         type = SPA_DATA_MemFd;
+#ifdef SPA_DATA_FLAG_MAPPABLE
+        flags = flags | SPA_DATA_FLAG_MAPPABLE;
+#endif
         Debug::log(WARN, "[pipewire] Asked for a wl_shm buffer which is legacy.");
     } else if ((spaData[0].type & (1u << SPA_DATA_DmaBuf)) > 0) {
         type = SPA_DATA_DmaBuf;
@@ -912,7 +916,7 @@ static void pwStreamAddBuffer(void* data, pw_buffer* buffer) {
         spaData[plane].chunk->size   = PBUFFER->size[plane];
         spaData[plane].chunk->stride = PBUFFER->stride[plane];
         spaData[plane].chunk->offset = PBUFFER->offset[plane];
-        spaData[plane].flags         = 0;
+        spaData[plane].flags         = flags;
         spaData[plane].fd            = PBUFFER->fd[plane];
         spaData[plane].data          = NULL;
         // clients have implemented to check chunk->size if the buffer is valid instead
