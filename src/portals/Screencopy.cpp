@@ -268,10 +268,10 @@ dbUasv CScreencopyPortal::onStart(sdbus::ObjectPath requestHandle, sdbus::Object
 
     uint32_t type = 0;
     switch (PSESSION->selection.type) {
-        case TYPE_OUTPUT: type = 1 << MONITOR; break;
-        case TYPE_WINDOW: type = 1 << WINDOW; break;
+        case TYPE_OUTPUT: type = MONITOR; break;
+        case TYPE_WINDOW: type = WINDOW; break;
         case TYPE_GEOMETRY:
-        case TYPE_WORKSPACE: type = 1 << VIRTUAL; break;
+        case TYPE_WORKSPACE: type = VIRTUAL; break;
         default: type = 0; break;
     }
     options["source_type"] = sdbus::Variant{type};
