@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <hyprutils/memory/UniquePtr.hpp>
 #include <memory>
+#include <sdbus-c++/Error.h>
 #include <sdbus-c++/Types.h>
 #include <sdbus-c++/VTableItems.h>
 #include <string>
@@ -78,7 +79,15 @@ dbUasv CInputCapturePortal::onCreateSession(sdbus::ObjectPath requestHandle, sdb
                                             std::unordered_map<std::string, sdbus::Variant> options) {
     Debug::log(LOG, "[input-capture] New session:");
 
-    uint32_t capabilities = options["capabilities"].get<uint32_t>();
+    uint32_t capabilities = 0;
+    if (options.contains("capabilities")) {
+        try {
+            capabilities = options["capabilities"].get<uint32_t>();
+        } catch (std::exception& e) {
+            Debug::log(WARN, "[input-capture] Invalid capabilities option: {}", e.what());
+            return {1, {}};
+        }
+    }
 
     Debug::log(LOG, "[input-capture]  | {}", requestHandle.c_str());
     Debug::log(LOG, "[input-capture]  | {}", sessionHandle.c_str());
@@ -246,14 +255,27 @@ dbUasv CInputCapturePortal::onSetPointerBarriers(sdbus::ObjectPath requestHandle
     session->whandle->sendClearBarriers();
 
     for (const auto& b : barriers) {
-        uint                              id = b.at("barrier_id").get<uint>();
-        int                               x1, y1, x2, y2;
+        if (!b.contains("barrier_id") || !b.contains("position")) {
+            Debug::log(WARN, "[input-capture] barrier missing barrier_id or position");
+            continue;
+        }
 
-        sdbus::Struct<int, int, int, int> p = b.at("position").get<sdbus::Struct<int, int, int, int>>();
-        x1                                  = p.get<0>();
-        y1                                  = p.get<1>();
-        x2                                  = p.get<2>();
-        y2                                  = p.get<3>();
+        uint id = 0;
+        int  x1, y1, x2, y2;
+
+        try {
+            id = b.at("barrier_id").get<uint>();
+
+            sdbus::Struct<int, int, int, int> p = b.at("position").get<sdbus::Struct<int, int, int, int>>();
+            x1                                  = p.get<0>();
+            y1                                  = p.get<1>();
+            x2                                  = p.get<2>();
+            y2                                  = p.get<3>();
+        } catch (std::exception& e) {
+            Debug::log(WARN, "[input-capture] invalid barrier payload: {}", e.what());
+            failedBarriers.push_back(id);
+            continue;
+        }
 
         const bool valid = isBarrierValid(x1, y1, x2, y2);
         if (id == 0) {
@@ -322,16 +344,29 @@ dbUasv CInputCapturePortal::onRelease(sdbus::ObjectPath sessionHandle, std::stri
     if (!sessionValid(sessionHandle))
         return {1, {}};
 
-    uint32_t activationId = opts["activation_id"].get<uint32_t>();
+    if (!opts.contains("activation_id")) {
+        Debug::log(WARN, "[input-capture] Release missing activation_id");
+        return {1, {}};
+    }
+
+    uint32_t activationId = 0;
+    try {
+        activationId = opts["activation_id"].get<uint32_t>();
+    } catch (std::exception& e) {
+        Debug::log(WARN, "[input-capture] invalid activation_id: {}", e.what());
+        return {1, {}};
+    }
     Debug::log(LOG, "[input-capture]  | activationId: {}", activationId);
 
     double x = -1;
     double y = -1;
     if (opts.contains("cursor_position")) {
-        auto [px, py] = opts["cursor_position"].get<sdbus::Struct<double, double>>();
-        Debug::log(LOG, "[input-capture]  | cursorPosition: {} {}", px, py);
-        x = px;
-        y = py;
+        try {
+            auto [px, py] = opts["cursor_position"].get<sdbus::Struct<double, double>>();
+            Debug::log(LOG, "[input-capture]  | cursorPosition: {} {}", px, py);
+            x = px;
+            y = py;
+        } catch (std::exception& e) { Debug::log(WARN, "[input-capture] invalid cursor_position: {}", e.what()); }
     }
     sessions[sessionHandle]->whandle->sendRelease(activationId, x, y); //TODO: send pointer position for warping
 
@@ -344,7 +379,15 @@ sdbus::UnixFd CInputCapturePortal::onConnectToEIS(sdbus::ObjectPath sessionHandl
     Debug::log(LOG, "[input-capture]  | appid: {}", appID);
 
     if (!sessionValid(sessionHandle))
-        return (sdbus::UnixFd)0;
+        throw sdbus::Error{sdbus::Error::Name{"org.freedesktop.portal.Error.Failed"}, "No input-capture session found"};
+
+    for (size_t i = 0; i < 3 && sessions[sessionHandle]->eisFD < 0; ++i) {
+        if (wl_display_roundtrip(g_pPortalManager->m_sWaylandConnection.display) < 0)
+            break;
+    }
+
+    if (sessions[sessionHandle]->eisFD < 0)
+        throw sdbus::Error{sdbus::Error::Name{"org.freedesktop.portal.Error.Failed"}, "EIS fd is not ready"};
 
     return (sdbus::UnixFd)sessions[sessionHandle]->eisFD;
 }

@@ -36,7 +36,7 @@ class CInputCapturePortal {
         sdbus::ObjectPath requestHandle, sessionHandle;
         std::string       sessionId;
         uint32_t          capabilities = 0;
-        uint32_t          eisFD        = 0;
+        int32_t           eisFD        = -1;
         bool              dead         = false;
         std::unordered_map<uint32_t, uint32_t> barrierIdMap;
 
