@@ -87,6 +87,7 @@ class CScreencopyPortal {
             uint32_t                              tvNsec              = 0;
             uint64_t                              tvTimestampNs       = 0;
             uint32_t                              nodeID              = 0;
+            uint64_t                              serial              = 0;
             uint32_t                              framerate           = 60;
             wl_output_transform                   transform           = WL_OUTPUT_TRANSFORM_NORMAL;
             std::chrono::system_clock::time_point begunFrame          = std::chrono::system_clock::now();
