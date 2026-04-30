@@ -18,9 +18,10 @@ SToplevelHandle::SToplevelHandle(SP<CCZwlrForeignToplevelHandleV1> handle_) : ha
     handle->setClosed([this](CCZwlrForeignToplevelHandleV1* r) {
         Debug::log(TRACE, "[toplevel] toplevel at {} closed", (void*)this);
 
-        std::erase_if(g_pPortalManager->m_sHelpers.toplevel->m_vToplevels, [&](const auto& e) { return e.get() == this; });
         if (g_pPortalManager->m_sHelpers.toplevelMapping)
             g_pPortalManager->m_sHelpers.toplevelMapping->m_muAddresses.erase(this->handle);
+        // frees `this`
+        std::erase_if(g_pPortalManager->m_sHelpers.toplevel->m_vToplevels, [&](const auto& e) { return e.get() == this; });
     });
 }
 
