@@ -3,6 +3,8 @@
 #include "../helpers/Log.hpp"
 #include "../helpers/MiscFunctions.hpp"
 
+#include <cerrno>
+#include <cstdlib>
 #include <libdrm/drm_fourcc.h>
 #include <pipewire/pipewire.h>
 #include "linux-dmabuf-v1.hpp"
@@ -282,6 +284,13 @@ dbUasv CScreencopyPortal::onStart(sdbus::ObjectPath requestHandle, sdbus::Object
     streamData["position"]    = sdbus::Variant{sdbus::Struct<int32_t, int32_t>{0, 0}};
     streamData["size"]        = sdbus::Variant{sdbus::Struct<int32_t, int32_t>{PSESSION->sharingData.frameInfoSHM.w, PSESSION->sharingData.frameInfoSHM.h}};
     streamData["source_type"] = sdbus::Variant{uint32_t{type}};
+
+    if (PSESSION->selection.type == TYPE_OUTPUT && !PSESSION->selection.output.empty())
+        streamData["mapping_id"] = sdbus::Variant{PSESSION->selection.output};
+
+    if (PSESSION->sharingData.pipewireSerial != 0)
+        streamData["pipewire-serial"] = sdbus::Variant{PSESSION->sharingData.pipewireSerial};
+
     streams.emplace_back(sdbus::Struct<uint32_t, std::unordered_map<std::string, sdbus::Variant>>{PSESSION->sharingData.nodeID, streamData});
 
     options["streams"] = sdbus::Variant{streams};
@@ -650,7 +659,7 @@ CScreencopyPortal::CScreencopyPortal(SP<CCZwlrScreencopyManagerV1> mgr) {
                                                                         std::unordered_map<std::string, sdbus::Variant> m1) { return onStart(o1, o2, s1, s2, m1); }),
                     sdbus::registerProperty("AvailableSourceTypes").withGetter([]() { return uint32_t{VIRTUAL | MONITOR | WINDOW}; }),
                     sdbus::registerProperty("AvailableCursorModes").withGetter([]() { return uint32_t{HIDDEN | EMBEDDED}; }),
-                    sdbus::registerProperty("version").withGetter([]() { return uint32_t{3}; }))
+                    sdbus::registerProperty("version").withGetter([]() { return uint32_t{6}; }))
         .forInterface(INTERFACE_NAME);
 
     m_sState.screencopy = mgr;
@@ -708,13 +717,29 @@ CPipewireConnection::~CPipewireConnection() {
 
 // --------------- Pipewire Stream Handlers --------------- //
 
+static uint64_t readObjectSerial(pw_stream* stream) {
+    const pw_properties* props = pw_stream_get_properties(stream);
+    if (!props)
+        return 0;
+    const char* serial_str = pw_properties_get(props, PW_KEY_OBJECT_SERIAL);
+    if (!serial_str)
+        return 0;
+    char*    end = nullptr;
+    errno        = 0;
+    uint64_t s   = std::strtoull(serial_str, &end, 10);
+    if (errno != 0 || end == serial_str)
+        return 0;
+    return s;
+}
+
 static void pwStreamStateChange(void* data, pw_stream_state old, pw_stream_state state, const char* error) {
     const auto PSTREAM = (CPipewireConnection::SPWStream*)data;
 
-    PSTREAM->pSession->sharingData.nodeID = pw_stream_get_node_id(PSTREAM->stream);
+    PSTREAM->pSession->sharingData.nodeID         = pw_stream_get_node_id(PSTREAM->stream);
+    PSTREAM->pSession->sharingData.pipewireSerial = readObjectSerial(PSTREAM->stream);
 
-    Debug::log(TRACE, "[pw] pwStreamStateChange on {} from {} to {}, node id {}", (void*)PSTREAM, pw_stream_state_as_string(old), pw_stream_state_as_string(state),
-               PSTREAM->pSession->sharingData.nodeID);
+    Debug::log(TRACE, "[pw] pwStreamStateChange on {} from {} to {}, node id {} serial {}", (void*)PSTREAM, pw_stream_state_as_string(old), pw_stream_state_as_string(state),
+               PSTREAM->pSession->sharingData.nodeID, PSTREAM->pSession->sharingData.pipewireSerial);
 
     switch (state) {
         case PW_STREAM_STATE_STREAMING:
@@ -999,9 +1024,10 @@ void CPipewireConnection::createStream(CScreencopyPortal::SSession* pSession) {
 
     pw_stream_connect(PSTREAM->stream, PW_DIRECTION_OUTPUT, PW_ID_ANY, (pw_stream_flags)(PW_STREAM_FLAG_DRIVER | PW_STREAM_FLAG_ALLOC_BUFFERS), params, PARAMCOUNT);
 
-    pSession->sharingData.nodeID = pw_stream_get_node_id(PSTREAM->stream);
+    pSession->sharingData.nodeID         = pw_stream_get_node_id(PSTREAM->stream);
+    pSession->sharingData.pipewireSerial = readObjectSerial(PSTREAM->stream);
 
-    Debug::log(TRACE, "[pw] Stream got nodeid {}", pSession->sharingData.nodeID);
+    Debug::log(TRACE, "[pw] Stream got nodeid {} serial {}", pSession->sharingData.nodeID, pSession->sharingData.pipewireSerial);
 }
 
 void CPipewireConnection::destroyStream(CScreencopyPortal::SSession* pSession) {
