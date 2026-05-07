@@ -29,10 +29,14 @@
 
 struct pw_loop;
 
+class CCZxdgOutputManagerV1;
+class CCZxdgOutputV1;
+
 struct SOutput {
     SOutput(SP<CCWlOutput>);
     std::string         name;
     SP<CCWlOutput>      output      = nullptr;
+    SP<CCZxdgOutputV1>  xdgOutput   = nullptr;
     uint32_t            id          = 0;
     float               refreshRate = 60.0;
     wl_output_transform transform   = WL_OUTPUT_TRANSFORM_NORMAL;
@@ -40,7 +44,13 @@ struct SOutput {
     uint32_t            height      = 0;
     int32_t             x           = 0;
     int32_t             y           = 0;
-    int32_t             scale       = 1;
+    double              scale       = 1.0;
+    int32_t             logicalX    = 0;
+    int32_t             logicalY    = 0;
+    int32_t             logicalWidth  = 0;
+    int32_t             logicalHeight = 0;
+    bool                logicalPositionValid = false;
+    bool                logicalSizeValid     = false;
 };
 
 struct SDMABUFModifier {
@@ -83,6 +93,7 @@ class CPortalManager {
         SP<CCHyprlandToplevelExportManagerV1> hyprlandToplevelMgr;
         SP<CCZwpLinuxDmabufV1>                linuxDmabuf;
         SP<CCZwpLinuxDmabufFeedbackV1>        linuxDmabufFeedback;
+        SP<CCZxdgOutputManagerV1>             xdgOutputManager;
         SP<CCWlShm>                           shm;
         gbm_bo*                               gbm       = nullptr;
         gbm_device*                           gbmDevice = nullptr;
@@ -112,6 +123,7 @@ class CPortalManager {
 
   private:
     void  startEventLoop();
+    void  setupXDGOutput(SOutput* output);
 
     bool  m_bTerminate = false;
     pid_t m_iPID       = 0;

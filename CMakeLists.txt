@@ -136,6 +136,7 @@ protocolnew("${HYPRLAND_PROTOCOLS}/protocols" "hyprland-toplevel-mapping-v1"
 protocolnew("${HYPRLAND_PROTOCOLS}/protocols" "hyprland-input-capture-v1"
             true)
 protocolnew("stable/linux-dmabuf" "linux-dmabuf-v1" false)
+protocolnew("unstable/xdg-output" "xdg-output-unstable-v1" false)
 protocolnew("staging/ext-foreign-toplevel-list" "ext-foreign-toplevel-list-v1" false)
 
 # Installation

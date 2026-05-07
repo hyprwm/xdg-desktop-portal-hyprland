@@ -1,6 +1,7 @@
 #include "PortalManager.hpp"
 #include "../helpers/Log.hpp"
 #include "../helpers/MiscFunctions.hpp"
+#include "xdg-output-unstable-v1.hpp"
 
 #include <pipewire/pipewire.h>
 #include <sys/mman.h>
@@ -31,6 +32,28 @@ SOutput::SOutput(SP<CCWlOutput> output_) : output(output_) {
         });
     output->setScale([this](CCWlOutput* r, uint32_t factor_) { scale = factor_; });
     output->setDone([](CCWlOutput* r) {
+        if (g_pPortalManager->m_sPortals.inputCapture != nullptr)
+            g_pPortalManager->m_sPortals.inputCapture->zonesChanged();
+    });
+}
+
+void CPortalManager::setupXDGOutput(SOutput* output) {
+    if (!m_sWaylandConnection.xdgOutputManager || !output || output->xdgOutput)
+        return;
+
+    output->xdgOutput = makeShared<CCZxdgOutputV1>(m_sWaylandConnection.xdgOutputManager->sendGetXdgOutput(output->output->resource()));
+
+    output->xdgOutput->setLogicalPosition([output](CCZxdgOutputV1* r, int32_t x, int32_t y) {
+        output->logicalX             = x;
+        output->logicalY             = y;
+        output->logicalPositionValid = true;
+    });
+    output->xdgOutput->setLogicalSize([output](CCZxdgOutputV1* r, int32_t width, int32_t height) {
+        output->logicalWidth         = width;
+        output->logicalHeight        = height;
+        output->logicalSizeValid     = true;
+    });
+    output->xdgOutput->setDone([](CCZxdgOutputV1* r) {
         if (g_pPortalManager->m_sPortals.inputCapture != nullptr)
             g_pPortalManager->m_sPortals.inputCapture->zonesChanged();
     });
@@ -75,6 +98,13 @@ void CPortalManager::onGlobal(uint32_t name, const char* interface, uint32_t ver
     if (INTERFACE == hyprland_input_capture_manager_v1_interface.name)
         m_sPortals.inputCapture = std::make_unique<CInputCapturePortal>(makeShared<CCHyprlandInputCaptureManagerV1>(
             (wl_proxy*)wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &hyprland_input_capture_manager_v1_interface, version)));
+    else if (INTERFACE == zxdg_output_manager_v1_interface.name) {
+        m_sWaylandConnection.xdgOutputManager = makeShared<CCZxdgOutputManagerV1>(
+            (wl_proxy*)wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &zxdg_output_manager_v1_interface, std::min(version, 3u)));
+
+        for (auto& output : m_vOutputs)
+            setupXDGOutput(output.get());
+    }
     else if (INTERFACE == hyprland_toplevel_export_manager_v1_interface.name) {
         m_sWaylandConnection.hyprlandToplevelMgr = makeShared<CCHyprlandToplevelExportManagerV1>(
             (wl_proxy*)wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &hyprland_toplevel_export_manager_v1_interface, version));
@@ -86,6 +116,7 @@ void CPortalManager::onGlobal(uint32_t name, const char* interface, uint32_t ver
                                      (wl_proxy*)wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &wl_output_interface, version))))
                                  .get();
         POUTPUT->id = name;
+        setupXDGOutput(POUTPUT);
     }
 
     else if (INTERFACE == zwp_linux_dmabuf_v1_interface.name) {
@@ -277,6 +308,9 @@ void CPortalManager::init() {
 
     Debug::log(LOG, "Gathering exported interfaces");
 
+    wl_display_roundtrip(m_sWaylandConnection.display);
+    // A second roundtrip lets per-output protocol objects created from registry
+    // globals, such as xdg_output, receive their initial state.
     wl_display_roundtrip(m_sWaylandConnection.display);
 
     if (!m_sPortals.screencopy)

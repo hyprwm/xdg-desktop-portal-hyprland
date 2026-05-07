@@ -5,24 +5,192 @@
 #include "../shared/Session.hpp"
 #include "hyprland-input-capture-v1.hpp"
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <hyprutils/memory/UniquePtr.hpp>
 #include <memory>
 #include <sdbus-c++/Error.h>
+#include <set>
 #include <sdbus-c++/Types.h>
 #include <sdbus-c++/VTableItems.h>
 #include <string>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unordered_map>
+#include <vector>
 #include <wayland-client-core.h>
 #include <wayland-util.h>
 
 namespace {
-int32_t logicalSize(uint32_t size, int32_t scale) {
-    if (scale <= 1)
+int32_t logicalSize(uint32_t size, double scale) {
+    if (scale <= 0.0)
         return static_cast<int32_t>(size);
-    return static_cast<int32_t>(size / static_cast<uint32_t>(scale));
+    return std::max(1, static_cast<int32_t>(std::lround(static_cast<double>(size) / scale)));
+}
+
+struct SLogicalOutputGeometry {
+    std::string name;
+    int32_t     x      = 0;
+    int32_t     y      = 0;
+    int32_t     width  = 0;
+    int32_t     height = 0;
+    double      scale  = 1.0;
+    bool        fromXDGOutput = false;
+};
+
+SLogicalOutputGeometry getLogicalGeometry(const std::unique_ptr<SOutput>& output) {
+    if (output->logicalPositionValid && output->logicalSizeValid) {
+        return {
+            .name          = output->name,
+            .x             = output->logicalX,
+            .y             = output->logicalY,
+            .width         = output->logicalWidth,
+            .height        = output->logicalHeight,
+            .scale         = output->scale,
+            .fromXDGOutput = true,
+        };
+    }
+
+    return {
+        .name          = output->name,
+        .x             = output->x,
+        .y             = output->y,
+        .width         = logicalSize(output->width, output->scale),
+        .height        = logicalSize(output->height, output->scale),
+        .scale         = output->scale,
+        .fromXDGOutput = false,
+    };
+}
+
+bool rangeContains(int start, int end, int value) {
+    return start <= value && value <= end;
+}
+
+bool intervalOverlapsInclusive(int a1, int a2, int b1, int b2) {
+    return std::max(a1, b1) <= std::min(a2, b2);
+}
+
+bool isVerticalBarrierOnExteriorBoundary(int x, int y1, int y2) {
+    std::set<int> breakpoints = {y1, y2 + 1};
+
+    for (const auto& output : g_pPortalManager->getAllOutputs()) {
+        const auto logical = getLogicalGeometry(output);
+        if (logical.width <= 0 || logical.height <= 0)
+            return false;
+
+        const int top    = logical.y;
+        const int bottom = logical.y + logical.height - 1;
+        if (!intervalOverlapsInclusive(y1, y2, top, bottom))
+            continue;
+
+        if (x == logical.x || x == logical.x + logical.width) {
+            breakpoints.insert(std::max(y1, top));
+            breakpoints.insert(std::min(y2, bottom) + 1);
+        }
+    }
+
+    const std::vector<int> points{breakpoints.begin(), breakpoints.end()};
+    for (size_t i = 0; i + 1 < points.size(); ++i) {
+        const int segmentStart = points[i];
+        const int segmentEnd   = points[i + 1] - 1;
+        if (segmentStart > segmentEnd)
+            continue;
+
+        bool hasLeftMonitor  = false;
+        bool hasRightMonitor = false;
+        for (const auto& output : g_pPortalManager->getAllOutputs()) {
+            const auto logical = getLogicalGeometry(output);
+            if (logical.width <= 0 || logical.height <= 0)
+                return false;
+
+            const int top    = logical.y;
+            const int bottom = logical.y + logical.height - 1;
+            if (!intervalOverlapsInclusive(segmentStart, segmentEnd, top, bottom))
+                continue;
+
+            if (x == logical.x + logical.width && rangeContains(top, bottom, segmentStart))
+                hasLeftMonitor = true;
+
+            if (x == logical.x && rangeContains(top, bottom, segmentStart))
+                hasRightMonitor = true;
+        }
+
+        if (hasLeftMonitor == hasRightMonitor)
+            return false;
+    }
+
+    return true;
+}
+
+bool isHorizontalBarrierOnExteriorBoundary(int y, int x1, int x2) {
+    std::set<int> breakpoints = {x1, x2 + 1};
+
+    for (const auto& output : g_pPortalManager->getAllOutputs()) {
+        const auto logical = getLogicalGeometry(output);
+        if (logical.width <= 0 || logical.height <= 0)
+            return false;
+
+        const int left  = logical.x;
+        const int right = logical.x + logical.width - 1;
+        if (!intervalOverlapsInclusive(x1, x2, left, right))
+            continue;
+
+        if (y == logical.y || y == logical.y + logical.height) {
+            breakpoints.insert(std::max(x1, left));
+            breakpoints.insert(std::min(x2, right) + 1);
+        }
+    }
+
+    const std::vector<int> points{breakpoints.begin(), breakpoints.end()};
+    for (size_t i = 0; i + 1 < points.size(); ++i) {
+        const int segmentStart = points[i];
+        const int segmentEnd   = points[i + 1] - 1;
+        if (segmentStart > segmentEnd)
+            continue;
+
+        bool hasTopMonitor    = false;
+        bool hasBottomMonitor = false;
+        for (const auto& output : g_pPortalManager->getAllOutputs()) {
+            const auto logical = getLogicalGeometry(output);
+            if (logical.width <= 0 || logical.height <= 0)
+                return false;
+
+            const int left  = logical.x;
+            const int right = logical.x + logical.width - 1;
+            if (!intervalOverlapsInclusive(segmentStart, segmentEnd, left, right))
+                continue;
+
+            if (y == logical.y + logical.height && rangeContains(left, right, segmentStart))
+                hasTopMonitor = true;
+
+            if (y == logical.y && rangeContains(left, right, segmentStart))
+                hasBottomMonitor = true;
+        }
+
+        if (hasTopMonitor == hasBottomMonitor)
+            return false;
+    }
+
+    return true;
+}
+
+bool isBarrierValid(int x1, int y1, int x2, int y2) {
+    if (x1 != x2 && y1 != y2) //At least one axis should be aligned
+        return false;
+
+    if (x1 == x2 && y1 == y2) //The barrier should have non-null area
+        return false;
+
+    if (x1 > x2)
+        std::swap(x1, x2);
+
+    if (y1 > y2)
+        std::swap(y1, y2);
+
+    if (x1 == x2)
+        return isVerticalBarrierOnExteriorBoundary(x1, y1, y2);
+
+    return isHorizontalBarrierOnExteriorBoundary(y1, x1, x2);
 }
 } // namespace
 
@@ -142,10 +310,12 @@ dbUasv CInputCapturePortal::onGetZones(sdbus::ObjectPath requestHandle, sdbus::O
         return {1, {}};
 
     std::vector<sdbus::Struct<uint32_t, uint32_t, int32_t, int32_t>> zones;
+    uint32_t zoneId = 0;
     for (auto& o : g_pPortalManager->getAllOutputs()) {
-        const int32_t width  = logicalSize(o->width, o->scale);
-        const int32_t height = logicalSize(o->height, o->scale);
-        zones.push_back(sdbus::Struct(static_cast<uint32_t>(width), static_cast<uint32_t>(height), o->x, o->y));
+        const auto logical = getLogicalGeometry(o);
+        zones.push_back(sdbus::Struct(static_cast<uint32_t>(logical.width), static_cast<uint32_t>(logical.height), logical.x, logical.y));
+        Debug::log(LOG, "[input-capture]  | zone {} output {} pos {}x{} size {}x{} scale {} source {}", zoneId++, logical.name, logical.x, logical.y, logical.width,
+                   logical.height, logical.scale, logical.fromXDGOutput ? "xdg-output" : "wl_output-fallback");
     }
 
     std::unordered_map<std::string, sdbus::Variant> results;
@@ -153,81 +323,6 @@ dbUasv CInputCapturePortal::onGetZones(sdbus::ObjectPath requestHandle, sdbus::O
     results["zone_set"] = sdbus::Variant{++lastZoneSet};
     Debug::log(LOG, "[input-capture]  | zoneSet: {}", lastZoneSet);
     return {0, results};
-}
-
-enum ValidResult {
-    Error,
-    Invalid,
-    Partial,
-    Valid
-};
-
-static bool rangesOverlapInclusive(int a1, int a2, int b1, int b2) {
-    return std::max(a1, b1) <= std::min(a2, b2);
-}
-
-ValidResult isBarrierValidAgainstMonitor(int x1, int y1, int x2, int y2, const std::unique_ptr<SOutput>& monitor) {
-    const int32_t width  = logicalSize(monitor->width, monitor->scale);
-    const int32_t height = logicalSize(monitor->height, monitor->scale);
-    int           mx1    = monitor->x;
-    int           my1    = monitor->y;
-    int           mx2    = mx1 + width - 1;
-    int           my2    = my1 + height - 1;
-    if (width <= 0 || height <= 0) //If we have an invalid monitor we refuse all barriers
-        return Error;
-
-    if (x1 == x2) {                     //If zone is vertical
-        if (x1 != mx1 && x1 != mx2 + 1) { //If the zone don't touch the left or right side
-            if (mx1 <= x1 && x1 <= mx2 && rangesOverlapInclusive(y1, y2, my1, my2))
-                return Partial;
-            return Invalid;
-        }
-
-        if (y1 != my1 || y2 != my2) {                                 //If the zone is shorter than the height of the screen
-            if ((my1 <= y1 && y1 <= my2) || (my1 <= y2 && y2 <= my2)) //Maybe the segments are overlapping
-                return Partial;
-            return Invalid;
-        }
-    } else {
-        if (y1 != my1 && y1 != my2 + 1) { //If the zone don't touch the bottom or top side
-            if (my1 <= y1 && y1 <= my2 && rangesOverlapInclusive(x1, x2, mx1, mx2))
-                return Partial;
-            return Invalid;
-        }
-        if (x1 != mx1 || x2 != mx2) {                                 //If the zone is shorter than the height of the screen
-            if ((mx1 <= x1 && x1 <= mx2) || (mx1 <= x2 && x2 <= mx2)) //Maybe the segments are overlapping
-                return Partial;
-            return Invalid;
-        }
-    }
-
-    return Valid;
-}
-
-bool isBarrierValid(int x1, int y1, int x2, int y2) {
-    if (x1 != x2 && y1 != y2) //At least one axis should be aligned
-        return false;
-
-    if (x1 == x2 && y1 == y2) //The barrier should have non-null area
-        return false;
-
-    if (x1 > x2)
-        std::swap(x1, x2);
-
-    if (y1 > y2)
-        std::swap(y1, y2);
-
-    int valid   = 0;
-    int partial = 0; //Used to detect if a barrier is placed on the side of two monitors
-    for (auto& o : g_pPortalManager->getAllOutputs())
-        switch (isBarrierValidAgainstMonitor(x1, y1, x2, y2, o)) {
-            case Valid: valid++; break;
-            case Partial: partial++; break;
-            case Invalid: break;
-            case Error: return false;
-        }
-
-    return valid == 1 && partial == 0;
 }
 
 dbUasv CInputCapturePortal::onSetPointerBarriers(sdbus::ObjectPath requestHandle, sdbus::ObjectPath sessionHandle, std::string appID,
@@ -277,6 +372,7 @@ dbUasv CInputCapturePortal::onSetPointerBarriers(sdbus::ObjectPath requestHandle
             continue;
         }
 
+        Debug::log(LOG, "[input-capture]  | barrier request {} [{}, {}] [{}, {}] zoneSet {}", id, x1, y1, x2, y2, zoneSet);
         const bool valid = isBarrierValid(x1, y1, x2, y2);
         if (id == 0) {
             Debug::log(LOG, "[input-capture]  | barrier: 0 invalid (skipping)");
@@ -302,6 +398,7 @@ dbUasv CInputCapturePortal::onSetPointerBarriers(sdbus::ObjectPath requestHandle
         const uint32_t uy1 = static_cast<uint32_t>(y1);
         const uint32_t ux2 = static_cast<uint32_t>(x2);
         const uint32_t uy2 = static_cast<uint32_t>(y2);
+        Debug::log(LOG, "[input-capture]  | forwarding barrier {} as logical coords [{}, {}] [{}, {}] internal {}", id, ux1, uy1, ux2, uy2, internalId);
         session->whandle->sendAddBarrier(zoneSet, internalId, ux1, uy1, ux2, uy2);
     }
 
@@ -430,6 +527,9 @@ void CInputCapturePortal::activate(sdbus::ObjectPath sessionHandle, uint32_t act
     const auto&  session         = sessions[sessionHandle];
     const auto   mappedBarrierId = session->barrierIdMap.find(borderId);
     const uint32_t clientBarrierId = mappedBarrierId != session->barrierIdMap.end() ? mappedBarrierId->second : borderId;
+
+    Debug::log(LOG, "[input-capture]  | activation mapping: internal barrier {} -> client barrier {}, mapped: {}, activationId {}, x {}, y {}", borderId, clientBarrierId,
+               mappedBarrierId != session->barrierIdMap.end(), activationId, x, y);
 
     std::unordered_map<std::string, sdbus::Variant> results;
     results["activation_id"]   = sdbus::Variant{activationId};
