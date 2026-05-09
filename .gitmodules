@@ -1,6 +1,7 @@
 [submodule "hyprland-protocols"]
 	path = subprojects/hyprland-protocols
-	url = https://github.com/hyprwm/hyprland-protocols
+	url = https://github.com/3l0w/hyprland-protocols
+	branch = feat/input-capture-impl
 [submodule "subprojects/sdbus-cpp"]
 	path = subprojects/sdbus-cpp
 	url = https://github.com/Kistler-Group/sdbus-cpp
