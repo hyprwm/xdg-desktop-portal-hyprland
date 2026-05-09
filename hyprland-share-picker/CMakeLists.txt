@@ -25,7 +25,7 @@ pkg_check_modules(
   hyprutils>=0.2.6)
 
 set(PROJECT_SOURCES main.cpp mainpicker.cpp mainpicker.h mainpicker.ui
-                    elidedbutton.h elidedbutton.cpp)
+                    elidedbutton.h elidedbutton.cpp screenview.h screenview.cpp)
 
 if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
   qt_add_executable(hyprland-share-picker MANUAL_FINALIZATION

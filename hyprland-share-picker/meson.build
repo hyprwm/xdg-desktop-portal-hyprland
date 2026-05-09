@@ -12,6 +12,8 @@ sources = files([
   'mainpicker.h',
   'elidedbutton.h',
   'elidedbutton.cpp',
+  'screenview.h',
+  'screenview.cpp',
 ])
 
 executable('hyprland-share-picker',
