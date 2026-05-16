@@ -50,7 +50,7 @@ class CInputCapturePortal {
     //
     std::unique_ptr<sdbus::IObject> m_pObject;
     uint                            sessionCounter = 0;
-    uint                            lastZoneSet    = 0;
+    uint                            lastZoneSet    = 1;
     uint32_t                        barrierIdCounter = 1;
 
     //
