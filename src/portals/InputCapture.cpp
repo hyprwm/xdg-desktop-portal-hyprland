@@ -339,13 +339,25 @@ dbUasv CInputCapturePortal::onSetPointerBarriers(sdbus::ObjectPath requestHandle
 
     Debug::log(LOG, "[input-capture]  | zoneSet: {}", zoneSet);
 
+    std::vector<uint> failedBarriers;
     if (zoneSet != lastZoneSet) {
-        Debug::log(WARN, "[input-capture] Invalid zone set, discarding barriers");
-        return {0, {}}; //TODO: We should return failed_barries
+        for (const auto& b : barriers) {
+            if (!b.contains("barrier_id"))
+                continue;
+
+            try {
+                failedBarriers.push_back(b.at("barrier_id").get<uint>());
+            } catch (std::exception& e) { Debug::log(WARN, "[input-capture] invalid barrier_id in stale zone set request: {}", e.what()); }
+        }
+
+        Debug::log(WARN, "[input-capture] Invalid zone set {}, current {}, discarding {} barriers", zoneSet, lastZoneSet, failedBarriers.size());
+
+        std::unordered_map<std::string, sdbus::Variant> results;
+        results["failed_barriers"] = sdbus::Variant{failedBarriers};
+        return {0, results};
     }
 
     auto& session = sessions[sessionHandle];
-    std::vector<uint> failedBarriers;
     session->barrierIdMap.clear();
     session->whandle->sendClearBarriers();
 
