@@ -21,6 +21,7 @@ public:
     void onMonitorButtonClicked(QObject* target, QEvent* event);
 
     std::unordered_map<void*, int> windowIDs; // button -> id
+    std::unordered_map<void*, int> workspaceIDS; // button -> id
 
 private:
     Ui::MainPicker *ui;
