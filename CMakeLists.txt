@@ -76,12 +76,13 @@ if(NOT SDBUS_FOUND)
 endif()
 
 # same for hyprland-protocols
-pkg_check_modules(HYPRLAND_PROTOS IMPORTED_TARGET hyprland-protocols)
-if(HYPRLAND_PROTOS_FOUND)
-  set(HYPRLAND_PROTOCOLS "${HYPRLAND_PROTOS_PREFIX}/share/hyprland-protocols")
-else()
-  set(HYPRLAND_PROTOCOLS "${CMAKE_SOURCE_DIR}/subprojects/hyprland-protocols")
-endif()
+set(HYPRLAND_PROTOCOLS "${CMAKE_SOURCE_DIR}/subprojects/hyprland-protocols")
+# pkg_check_modules(HYPRLAND_PROTOS IMPORTED_TARGET hyprland-protocols)
+# if(HYPRLAND_PROTOS_FOUND)
+#   set(HYPRLAND_PROTOCOLS "${HYPRLAND_PROTOS_PREFIX}/share/hyprland-protocols")
+# else()
+#   set(HYPRLAND_PROTOCOLS "${CMAKE_SOURCE_DIR}/subprojects/hyprland-protocols")
+# endif()
 
 file(GLOB_RECURSE SRCFILES CONFIGURE_DEPENDS "src/*.cpp")
 add_executable(xdg-desktop-portal-hyprland ${SRCFILES})
@@ -132,6 +133,8 @@ protocolnew("${HYPRLAND_PROTOCOLS}/protocols" "hyprland-toplevel-export-v1"
             true)
 protocolnew("${HYPRLAND_PROTOCOLS}/protocols" "hyprland-toplevel-mapping-v1"
         true)
+protocolnew("${HYPRLAND_PROTOCOLS}/protocols" "hyprland-workspace-export-v1"
+            true)
 protocolnew("stable/linux-dmabuf" "linux-dmabuf-v1" false)
 protocolnew("staging/ext-foreign-toplevel-list" "ext-foreign-toplevel-list-v1" false)
 

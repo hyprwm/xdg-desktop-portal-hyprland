@@ -66,6 +66,8 @@ result-man
 
 # Code editors
 .vscode/
+compile_commands.json
+
 
 # MISCELLANEOUS
 .cache
