@@ -4,6 +4,8 @@
 #include <sdbus-c++/sdbus-c++.h>
 #include <hyprlang.hpp>
 
+#include "hyprland-workspace-export-v1.hpp"
+#include "hyprland-toplevel-export-v1.hpp"
 #include "wayland.hpp"
 #include "../portals/Screencopy.hpp"
 #include "../portals/Screenshot.hpp"
@@ -14,7 +16,6 @@
 #include <gbm.h>
 #include <xf86drm.h>
 
-#include "hyprland-toplevel-export-v1.hpp"
 #include "hyprland-global-shortcuts-v1.hpp"
 #include "linux-dmabuf-v1.hpp"
 #include "wlr-foreign-toplevel-management-unstable-v1.hpp"
@@ -71,7 +72,8 @@ class CPortalManager {
     struct {
         wl_display*                           display = nullptr;
         SP<CCWlRegistry>                      registry;
-        SP<CCHyprlandToplevelExportManagerV1> hyprlandToplevelMgr;
+        SP<CCHyprlandToplevelExportManagerV1>  hyprlandToplevelMgr;
+        SP<CCHyprlandWorkspaceExportManagerV1> hyprlandWorkspaceMgr;
         SP<CCZwpLinuxDmabufV1>                linuxDmabuf;
         SP<CCZwpLinuxDmabufFeedbackV1>        linuxDmabufFeedback;
         SP<CCWlShm>                           shm;

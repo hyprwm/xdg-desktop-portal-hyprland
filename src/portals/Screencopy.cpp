@@ -1,14 +1,16 @@
 #include "Screencopy.hpp"
 #include "../core/PortalManager.hpp"
 #include "../helpers/Log.hpp"
-#include "../helpers/MiscFunctions.hpp"
-
 #include <cerrno>
 #include <cstdlib>
+#include <hyprutils/memory/SharedPtr.hpp>
 #include <libdrm/drm_fourcc.h>
 #include <pipewire/pipewire.h>
+#include "hyprland-workspace-export-v1.hpp"
 #include "linux-dmabuf-v1.hpp"
+#include "src/shared/ScreencopyShared.hpp"
 #include <unistd.h>
+#include <wayland-client-protocol.h>
 
 constexpr static int MAX_RETRIES        = 10;
 constexpr static int MAX_DMABUF_RETRIES = 2;
@@ -222,7 +224,13 @@ dbUasv CScreencopyPortal::onSelectSources(sdbus::ObjectPath requestHandle, sdbus
     if (SHAREDATA.type == TYPE_WINDOW && !m_sState.toplevel) {
         Debug::log(ERR, "[screencopy] Requested type window for no toplevel export protocol!");
         SHAREDATA.type = TYPE_INVALID;
-    } else if (SHAREDATA.type == TYPE_OUTPUT || SHAREDATA.type == TYPE_GEOMETRY) {
+    } 
+    if (SHAREDATA.type == TYPE_WORKSPACE && !m_sState.workspace) {
+        Debug::log(ERR, "[screencopy] WALAO");
+        SHAREDATA.type = TYPE_INVALID;
+        //Debug::log(LOG, "=====SELECTED WORKSPACE IS {} =====", m_sState.workspace);
+    }
+    else if (SHAREDATA.type == TYPE_OUTPUT || SHAREDATA.type == TYPE_GEOMETRY) {
         const auto POUTPUT = g_pPortalManager->getOutputFromName(SHAREDATA.output);
 
         if (POUTPUT) {
@@ -270,10 +278,10 @@ dbUasv CScreencopyPortal::onStart(sdbus::ObjectPath requestHandle, sdbus::Object
 
     uint32_t type = 0;
     switch (PSESSION->selection.type) {
-        case TYPE_OUTPUT: type = MONITOR; break;
-        case TYPE_WINDOW: type = WINDOW; break;
-        case TYPE_GEOMETRY:
+        case TYPE_OUTPUT:    type = MONITOR;   break;
+        case TYPE_WINDOW:    type = WINDOW;    break;
         case TYPE_WORKSPACE: type = VIRTUAL; break;
+        case TYPE_GEOMETRY:
         default: type = 0; break;
     }
     options["source_type"] = sdbus::Variant{type};
@@ -369,7 +377,16 @@ void CScreencopyPortal::SSession::startCopy() {
         sharingData.windowFrameCallback = makeShared<CCHyprlandToplevelExportFrameV1>(
             g_pPortalManager->m_sPortals.screencopy->m_sState.toplevel->sendCaptureToplevelWithWlrToplevelHandle(OVERLAYCURSOR, selection.windowHandle->resource()));
         sharingData.transform = WL_OUTPUT_TRANSFORM_NORMAL;
-    } else {
+    } else if (selection.type == TYPE_WORKSPACE) {
+        if(selection.workspaceName.empty()) {
+            Debug::log(ERR, "[screencopy] selected invalid workspace?");
+            return;
+        }
+        sharingData.workspaceFrameCallback = makeShared<CCHyprlandWorkspaceExportFrameV1>(g_pPortalManager->m_sPortals.screencopy->
+                m_sState.workspace->sendCaptureWorkspace(OVERLAYCURSOR, selection.workspaceName.c_str()));
+        sharingData.transform = WL_OUTPUT_TRANSFORM_NORMAL;
+    } 
+    else {
         Debug::log(ERR, "[screencopy] Unsupported selection {}", (int)selection.type);
         return;
     }
@@ -495,7 +512,8 @@ void CScreencopyPortal::SSession::initCallbacks() {
 
             Debug::log(TRACE, "[sc] wlr frame copied");
         });
-    } else if (sharingData.windowFrameCallback) {
+    } 
+    else if (sharingData.windowFrameCallback) {
         sharingData.windowFrameCallback->setBuffer([this, self = self](CCHyprlandToplevelExportFrameV1* r, uint32_t format, uint32_t width, uint32_t height, uint32_t stride) {
             Debug::log(TRACE, "[sc] hlOnBuffer for {}", (void*)self.get());
             if (!self)
@@ -611,6 +629,123 @@ void CScreencopyPortal::SSession::initCallbacks() {
             Debug::log(TRACE, "[sc] hl frame copied");
         });
     }
+    else if (sharingData.workspaceFrameCallback) {
+        sharingData.workspaceFrameCallback->setBuffer([this, self = self](CCHyprlandWorkspaceExportFrameV1* r, uint32_t format, uint32_t width, uint32_t height, uint32_t stride) {
+            Debug::log(TRACE, "[sc] hlOnBuffer for {}", (void*)self.get());
+            if (!self)
+                return;
+
+            sharingData.frameInfoSHM.w      = width;
+            sharingData.frameInfoSHM.h      = height;
+            sharingData.frameInfoSHM.fmt    = drmFourccFromSHM((wl_shm_format)format);
+            sharingData.frameInfoSHM.size   = stride * height;
+            sharingData.frameInfoSHM.stride = stride;
+
+            // todo: done if ver < 3
+        });
+        sharingData.workspaceFrameCallback->setReady([this, self = self](CCHyprlandWorkspaceExportFrameV1* r, uint32_t tv_sec_hi, uint32_t tv_sec_lo, uint32_t tv_nsec) {
+            Debug::log(TRACE, "[sc] hlOnReady for {}", (void*)self.get());
+            if (!self)
+                return;
+
+            sharingData.status = FRAME_READY;
+
+            sharingData.tvSec         = ((((uint64_t)tv_sec_hi) << 32) + (uint64_t)tv_sec_lo);
+            sharingData.tvNsec        = tv_nsec;
+            sharingData.tvTimestampNs = sharingData.tvSec * SPA_NSEC_PER_SEC + sharingData.tvNsec;
+
+            Debug::log(TRACE, "[sc] frame timestamp sec: {} nsec: {} combined: {}ns", sharingData.tvSec, sharingData.tvNsec, sharingData.tvTimestampNs);
+
+            g_pPortalManager->m_sPortals.screencopy->m_pPipewire->enqueue(this);
+
+            if (g_pPortalManager->m_sPortals.screencopy->m_pPipewire->streamFromSession(this))
+                g_pPortalManager->m_sPortals.screencopy->queueNextShareFrame(this);
+
+            sharingData.workspaceFrameCallback.reset();
+        });
+        sharingData.workspaceFrameCallback->setFailed([this, self = self](CCHyprlandWorkspaceExportFrameV1* r) {
+            Debug::log(TRACE, "[sc] hlOnFailed for {}", (void*)self.get());
+            if (!self)
+                return;
+            sharingData.status = FRAME_FAILED;
+        });
+        sharingData.workspaceFrameCallback->setDamage([this, self = self](CCHyprlandWorkspaceExportFrameV1* r, uint32_t x, uint32_t y, uint32_t width, uint32_t height) {
+            Debug::log(TRACE, "[sc] hlOnDamage for {}", (void*)self.get());
+            if (!self)
+                return;
+
+            if (sharingData.damageCount > 3) {
+                sharingData.damage[0] = {0, 0, sharingData.frameInfoDMA.w, sharingData.frameInfoDMA.h};
+                return;
+            }
+
+            sharingData.damage[sharingData.damageCount++] = {x, y, width, height};
+
+            Debug::log(TRACE, "[sc] hl damage: {} {} {} {}", x, y, width, height);
+        });
+        sharingData.workspaceFrameCallback->setLinuxDmabuf([this, self = self](CCHyprlandWorkspaceExportFrameV1* r, uint32_t format, uint32_t width, uint32_t height) {
+            Debug::log(TRACE, "[sc] hlOnDmabuf for {}", (void*)self.get());
+            if (!self)
+                return;
+
+            sharingData.frameInfoDMA.w   = width;
+            sharingData.frameInfoDMA.h   = height;
+            sharingData.frameInfoDMA.fmt = format;
+        });
+        sharingData.workspaceFrameCallback->setBufferDone([this, self = self](CCHyprlandWorkspaceExportFrameV1* r) {
+            Debug::log(TRACE, "[sc] hlOnBufferDone for {}", (void*)self.get());
+            if (!self)
+                return;
+
+            const auto PSTREAM = g_pPortalManager->m_sPortals.screencopy->m_pPipewire->streamFromSession(this);
+
+            if (!PSTREAM) {
+                Debug::log(TRACE, "[sc] hlOnBufferDone: no stream");
+                sharingData.status = FRAME_NONE;
+                sharingData.workspaceFrameCallback.reset();
+                return;
+            }
+
+            Debug::log(TRACE, "[sc] pw format {} size {}x{}", (int)PSTREAM->pwVideoInfo.format, PSTREAM->pwVideoInfo.size.width, PSTREAM->pwVideoInfo.size.height);
+            Debug::log(TRACE, "[sc] hl format {} size {}x{}", (int)sharingData.frameInfoSHM.fmt, sharingData.frameInfoSHM.w, sharingData.frameInfoSHM.h);
+            Debug::log(TRACE, "[sc] hl format dma {} size {}x{}", (int)sharingData.frameInfoDMA.fmt, sharingData.frameInfoDMA.w, sharingData.frameInfoDMA.h);
+
+            const auto FMT = PSTREAM->isDMA ? sharingData.frameInfoDMA.fmt : sharingData.frameInfoSHM.fmt;
+            if ((PSTREAM->pwVideoInfo.format != pwFromDrmFourcc(FMT) && PSTREAM->pwVideoInfo.format != pwStripAlpha(pwFromDrmFourcc(FMT))) ||
+                (PSTREAM->pwVideoInfo.size.width != sharingData.frameInfoDMA.w || PSTREAM->pwVideoInfo.size.height != sharingData.frameInfoDMA.h)) {
+                Debug::log(LOG, "[sc] Incompatible formats, renegotiate stream");
+                sharingData.status = FRAME_RENEG;
+                g_pPortalManager->m_sPortals.screencopy->m_pPipewire->updateStreamParam(PSTREAM);
+                g_pPortalManager->m_sPortals.screencopy->queueNextShareFrame(this);
+                sharingData.status = FRAME_NONE;
+                sharingData.workspaceFrameCallback.reset();
+                return;
+            }
+
+            if (!PSTREAM->currentPWBuffer) {
+                Debug::log(TRACE, "[sc] hlOnBufferDone: dequeue, no current buffer");
+                g_pPortalManager->m_sPortals.screencopy->m_pPipewire->dequeue(this);
+            }
+
+            if (!PSTREAM->currentPWBuffer) {
+                Debug::log(LOG, "[screencopy/pipewire] Out of buffers");
+                sharingData.status = FRAME_NONE;
+                if (sharingData.copyRetries++ < MAX_RETRIES) {
+                    Debug::log(LOG, "[sc] Retrying screencopy ({}/{})", sharingData.copyRetries, MAX_RETRIES);
+                    g_pPortalManager->m_sPortals.screencopy->m_pPipewire->updateStreamParam(PSTREAM);
+                    g_pPortalManager->m_sPortals.screencopy->queueNextShareFrame(this);
+                }
+                sharingData.workspaceFrameCallback.reset();
+                return;
+            }
+
+            sharingData.workspaceFrameCallback->sendCopy(PSTREAM->currentPWBuffer->wlBuffer->resource(), false);
+            sharingData.copyRetries = 0;
+
+            Debug::log(TRACE, "[sc] hl frame copied");
+        });
+    }
+
 }
 
 void CScreencopyPortal::queueNextShareFrame(CScreencopyPortal::SSession* pSession) {
@@ -630,8 +765,13 @@ void CScreencopyPortal::queueNextShareFrame(CScreencopyPortal::SSession* pSessio
     g_pPortalManager->addTimer(
         {std::clamp(MSTILNEXTREFRESH - 1.0 /* safezone */, 6.0, 1000.0), [pSession]() { g_pPortalManager->m_sPortals.screencopy->startFrameCopy(pSession); }});
 }
+
 bool CScreencopyPortal::hasToplevelCapabilities() {
     return m_sState.toplevel;
+}
+
+bool CScreencopyPortal::hasWorkspaceCapabilities() {
+    return m_sState.workspace;
 }
 
 CScreencopyPortal::SSession* CScreencopyPortal::getSession(sdbus::ObjectPath& path) {
@@ -657,7 +797,7 @@ CScreencopyPortal::CScreencopyPortal(SP<CCZwlrScreencopyManagerV1> mgr) {
                         }),
                     sdbus::registerMethod("Start").implementedAs([this](sdbus::ObjectPath o1, sdbus::ObjectPath o2, std::string s1, std::string s2,
                                                                         std::unordered_map<std::string, sdbus::Variant> m1) { return onStart(o1, o2, s1, s2, m1); }),
-                    sdbus::registerProperty("AvailableSourceTypes").withGetter([]() { return uint32_t{VIRTUAL | MONITOR | WINDOW}; }),
+                    sdbus::registerProperty("AvailableSourceTypes").withGetter([]() { return uint32_t{VIRTUAL | MONITOR | WINDOW }; }),
                     sdbus::registerProperty("AvailableCursorModes").withGetter([]() { return uint32_t{HIDDEN | EMBEDDED}; }),
                     sdbus::registerProperty("version").withGetter([]() { return uint32_t{6}; }))
         .forInterface(INTERFACE_NAME);
@@ -672,6 +812,12 @@ void CScreencopyPortal::appendToplevelExport(SP<CCHyprlandToplevelExportManagerV
     m_sState.toplevel = proto;
 
     Debug::log(LOG, "[screencopy] Registered for toplevel export");
+}
+
+void CScreencopyPortal::appendWorkspaceExport(SP<CCHyprlandWorkspaceExportManagerV1> proto) {
+    m_sState.workspace = proto;
+
+    Debug::log(LOG, "[screencopy] Registered for workspace export");
 }
 
 bool CPipewireConnection::good() {
@@ -1229,13 +1375,13 @@ void CPipewireConnection::enqueue(CScreencopyPortal::SSession* pSession) {
     for (uint32_t plane = 0; plane < spaBuf->n_datas; plane++) {
         datas[plane].chunk->flags = CORRUPT ? SPA_CHUNK_FLAG_CORRUPTED : SPA_CHUNK_FLAG_NONE;
 
-        Debug::log(TRACE, "[pw]  | plane {}", plane);
-        Debug::log(TRACE, "[pw]     | fd {}", datas[plane].fd);
-        Debug::log(TRACE, "[pw]     | maxsize {}", datas[plane].maxsize);
-        Debug::log(TRACE, "[pw]     | size {}", datas[plane].chunk->size);
-        Debug::log(TRACE, "[pw]     | stride {}", datas[plane].chunk->stride);
-        Debug::log(TRACE, "[pw]     | offset {}", datas[plane].chunk->offset);
-        Debug::log(TRACE, "[pw]     | flags {}", datas[plane].chunk->flags);
+        Debug::log(TRACE, "[pw] | plane {}", plane);
+        Debug::log(TRACE, "[pw] | fd {}", datas[plane].fd);
+        Debug::log(TRACE, "[pw] | maxsize {}", datas[plane].maxsize);
+        Debug::log(TRACE, "[pw] | size {}", datas[plane].chunk->size);
+        Debug::log(TRACE, "[pw] | stride {}", datas[plane].chunk->stride);
+        Debug::log(TRACE, "[pw] | offset {}", datas[plane].chunk->offset);
+        Debug::log(TRACE, "[pw] | flags {}", datas[plane].chunk->flags);
     }
 
     Debug::log(TRACE, "[pw] --------------------------------- End enqueue");

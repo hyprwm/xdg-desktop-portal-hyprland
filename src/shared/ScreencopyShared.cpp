@@ -1,5 +1,6 @@
 #include "ScreencopyShared.hpp"
 #include "../helpers/MiscFunctions.hpp"
+#include <format>
 #include <wayland-client.h>
 #include "../helpers/Log.hpp"
 #include <libdrm/drm_fourcc.h>
@@ -31,11 +32,27 @@ std::string buildWindowList() {
         return result;
 
     for (auto& e : g_pPortalManager->m_sHelpers.toplevel->m_vToplevels) {
-        result += std::format("{}[HC>]{}[HT>]{}[HE>]{}[HA>]", (uint32_t)(((uint64_t)e->handle->resource()) & 0xFFFFFFFF), sanitizeNameForWindowList(e->windowClass),
+        result += std::format("{}[HC>]{}[HT>]{}[HE>]{}[HA>]", 
+                             (uint32_t)(((uint64_t)e->handle->resource()) & 0xFFFFFFFF), 
+                             sanitizeNameForWindowList(e->windowClass),
                               sanitizeNameForWindowList(e->windowTitle),
                               g_pPortalManager->m_sHelpers.toplevelMapping ? g_pPortalManager->m_sHelpers.toplevelMapping->getWindowForToplevel(e->handle) : 0);
     }
 
+    return result;
+}
+
+std::string buildWorkspaceList() {
+    std::string result = "";
+    //if (!g_pPortalManager->m_sPortals.screencopy->hasWorkspaceCapabilities())
+    //    return result;
+
+    result += "1[WI>]1[WN>]";
+    result += "2[WI>]2[WN>]";
+    result += "3[WI>]3[WN>]";
+    result += "4[WI>]4[WN>]";
+    result += "5[WI>]5[WN>]";
+    result += "6[WI>]6[WN>]";
     return result;
 }
 
@@ -48,7 +65,7 @@ SSelectionData promptForScreencopySelection() {
 
     static auto* const* PALLOWTOKENBYDEFAULT =
         (Hyprlang::INT* const*)g_pPortalManager->m_sConfig.config->getConfigValuePtr("screencopy:allow_token_by_default")->getDataStaticPtr();
-    static auto* const*      PCUSTOMPICKER = (Hyprlang::STRING* const)g_pPortalManager->m_sConfig.config->getConfigValuePtr("screencopy:custom_picker_binary")->getDataStaticPtr();
+    static auto* const* PCUSTOMPICKER = (Hyprlang::STRING* const)g_pPortalManager->m_sConfig.config->getConfigValuePtr("screencopy:custom_picker_binary")->getDataStaticPtr();
 
     std::vector<std::string> args;
     if (**PALLOWTOKENBYDEFAULT)
@@ -60,6 +77,7 @@ SSelectionData promptForScreencopySelection() {
     proc.addEnv("XCURSOR_SIZE", XCURSOR_SIZE ? XCURSOR_SIZE : "24");
     proc.addEnv("HYPRLAND_INSTANCE_SIGNATURE", HYPRLAND_INSTANCE_SIGNATURE ? HYPRLAND_INSTANCE_SIGNATURE : "0");
     proc.addEnv("XDPH_WINDOW_SHARING_LIST", buildWindowList()); // buildWindowList will sanitize any shell stuff in case the picker (qt) does something funky? It shouldn't.
+    proc.addEnv("XDPH_WORKSPACE_SHARING_LIST", buildWorkspaceList()); //TODO: THKINH ADD WORKSPACE GET ALL
 
     if (!proc.runSync())
         return data;
@@ -108,6 +126,10 @@ SSelectionData promptForScreencopySelection() {
             data.windowHandle = HANDLE->handle;
             data.windowClass  = HANDLE->windowClass;
         }
+    } else if (SEL.find("workspace:") == 0) {
+        data.type         = TYPE_WORKSPACE;
+        data.workspaceName= "2"; //Test capturing workspace '2'
+        data.allowToken = false;
     } else if (SEL.find("region:") == 0) {
         std::string running = SEL;
         running             = running.substr(7);
