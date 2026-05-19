@@ -2,6 +2,7 @@
 
 #include "wlr-screencopy-unstable-v1.hpp"
 #include "hyprland-toplevel-export-v1.hpp"
+#include "hyprland-workspace-export-v1.hpp"
 #include <cstdint>
 #include <hyprutils/memory/UniquePtr.hpp>
 #include <hyprutils/memory/WeakPtr.hpp>
@@ -58,6 +59,7 @@ class CScreencopyPortal {
     CScreencopyPortal(SP<CCZwlrScreencopyManagerV1>);
 
     void   appendToplevelExport(SP<CCHyprlandToplevelExportManagerV1>);
+    void   appendWorkspaceExport(SP<CCHyprlandWorkspaceExportManagerV1>);
 
     dbUasv onCreateSession(sdbus::ObjectPath requestHandle, sdbus::ObjectPath sessionHandle, std::string appID, std::unordered_map<std::string, sdbus::Variant> opts);
     dbUasv onSelectSources(sdbus::ObjectPath requestHandle, sdbus::ObjectPath sessionHandle, std::string appID, std::unordered_map<std::string, sdbus::Variant> opts);
@@ -79,18 +81,19 @@ class CScreencopyPortal {
         void                                      initCallbacks();
 
         struct {
-            bool                                  active              = false;
-            SP<CCZwlrScreencopyFrameV1>           frameCallback       = nullptr;
-            SP<CCHyprlandToplevelExportFrameV1>   windowFrameCallback = nullptr;
-            frameStatus                           status              = FRAME_NONE;
-            uint64_t                              tvSec               = 0;
-            uint32_t                              tvNsec              = 0;
-            uint64_t                              tvTimestampNs       = 0;
-            uint32_t                              nodeID              = 0;
-            uint32_t                              framerate           = 60;
-            wl_output_transform                   transform           = WL_OUTPUT_TRANSFORM_NORMAL;
-            std::chrono::system_clock::time_point begunFrame          = std::chrono::system_clock::now();
-            uint32_t                              copyRetries         = 0;
+            bool                                  active                  = false;
+            SP<CCZwlrScreencopyFrameV1>           frameCallback           = nullptr;
+            SP<CCHyprlandToplevelExportFrameV1>   windowFrameCallback     = nullptr;
+            SP<CCHyprlandWorkspaceExportFrameV1>  workspaceFrameCallback  = nullptr;
+            frameStatus                           status                  = FRAME_NONE;
+            uint64_t                              tvSec                   = 0;
+            uint32_t                              tvNsec                  = 0;
+            uint64_t                              tvTimestampNs           = 0;
+            uint32_t                              nodeID                  = 0;
+            uint32_t                              framerate               = 60;
+            wl_output_transform                   transform               = WL_OUTPUT_TRANSFORM_NORMAL;
+            std::chrono::system_clock::time_point begunFrame              = std::chrono::system_clock::now();
+            uint32_t                              copyRetries             = 0;
 
             struct {
                 uint32_t w = 0, h = 0, size = 0, stride = 0, fmt = 0;
@@ -113,6 +116,7 @@ class CScreencopyPortal {
     void                                 startFrameCopy(SSession* pSession);
     void                                 queueNextShareFrame(SSession* pSession);
     bool                                 hasToplevelCapabilities();
+    bool                                 hasWorkspaceCapabilities();
 
     std::unique_ptr<CPipewireConnection> m_pPipewire;
 
@@ -127,6 +131,7 @@ class CScreencopyPortal {
     struct {
         SP<CCZwlrScreencopyManagerV1>         screencopy = nullptr;
         SP<CCHyprlandToplevelExportManagerV1> toplevel   = nullptr;
+        SP<CCHyprlandWorkspaceExportManagerV1> workspace  = nullptr;
     } m_sState;
 
     const sdbus::InterfaceName INTERFACE_NAME = sdbus::InterfaceName{"org.freedesktop.impl.portal.ScreenCast"};
