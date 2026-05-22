@@ -5,6 +5,7 @@
 #include <hyprtoolkit/types/FontTypes.hpp>
 #include <hyprtoolkit/types/SizeType.hpp>
 #include <hyprtoolkit/core/LogTypes.hpp>
+#include <hyprtoolkit/core/Output.hpp>
 #include <pixman-1/pixman.h>
 #include <hyprtoolkit/core/CoreMacros.hpp>
 #include <hyprtoolkit/window/Window.hpp>
@@ -18,12 +19,17 @@
 #include <hyprtoolkit/element/Image.hpp>
 #include <hyprtoolkit/element/Text.hpp>
 #include <hyprtoolkit/element/Null.hpp>
+#include <hyprutils/os/Process.hpp>
+#include <regex>
+#include <sstream>
 #include <string>
 #include <string_view>
+#include <vector>
 
 
 using namespace Hyprutils::Memory;
 using namespace Hyprutils::Math;
+using namespace Hyprutils::OS;
 using namespace Hyprtoolkit;
 
 #define SP CSharedPointer
@@ -31,14 +37,23 @@ using namespace Hyprtoolkit;
 #define UP CUniquePointer
 
 static SP<IBackend> backend;
-static SP<CColumnLayoutElement> sourcesLayout;
 Hyprutils::CLI::CLogger g_logger;
+
+std::string execAndGet(const char* cmd) {
+    std::string command = cmd + std::string{" 2>&1"};
+    CProcess proc("/bin/sh", {"-c", cmd});
+
+    if (!proc.runSync())
+        return "error";
+
+    return proc.stdOut();
+}
 
 enum ESourceGroups {
     MONITOR = 0,
     WINDOW,
-    REGION,
     WORKSPACE,
+    REGION,
     UNKNOWN,
 };
 
@@ -65,16 +80,104 @@ struct SWorkspaceEntry {
 
 struct SMonitorEntry {
     std::string name;
+    int64_t id;
+    int64_t x;
+    int64_t y;
     int64_t width;
     int64_t height;
 };
 
 struct SRegion {
+    std::string monitor;
     int64_t x;
     int64_t y;
-    int64_t size_x;
-    int64_t size_y;
+    int64_t w;
+    int64_t h;
 };
+
+//globals
+static SP<CColumnLayoutElement> sourcesLayout;
+ESourceGroups currentTabEnum = MONITOR;
+std::vector<SMonitorEntry>   monitors;
+std::vector<SWindowEntry>    windows;
+std::vector<SWorkspaceEntry> workspaces;
+
+static std::vector<SMonitorEntry> getMonitors(std::string MONITORLISTSTR) {
+    std::vector<SMonitorEntry> result;
+
+    std::stringstream stream(MONITORLISTSTR);
+    std::string line;
+
+    while(std::getline(stream, line)) {
+        if(line.starts_with("Monitor ")) {
+            SMonitorEntry newEntry;
+
+            const auto NAME_START = std::string("Monitor ").length();
+            const auto NAME_END   = line.find(" (");
+            newEntry.name = line.substr(NAME_START, NAME_END - NAME_START);
+
+
+            const auto ID_BEGIN = line.find("(ID ");
+            const auto ID_END   = line.find("):");
+            newEntry.id = std::stoll(line.substr(ID_BEGIN + 4, ID_END - (ID_BEGIN + 4) ));
+
+            //Next line for width + height
+            std::getline(stream, line);
+            static const std::regex pattern( R"(\s*(\d+)x(\d+)@([\d.]+)\s+at\s+(-?\d+)x(-?\d+))");
+            std::smatch match;
+
+            if (!std::regex_match(line, match, pattern)) {
+                return result;
+            }
+
+            newEntry.width = std::stoll(match[1]);
+            newEntry.height = std::stoll(match[2]);
+            newEntry.x = std::stoll(match[4]);
+            newEntry.y = std::stoll(match[5]);
+
+            result.push_back(newEntry);
+        }
+    }
+
+    return result;
+}
+
+SRegion getRegion(std::string& REGIONSTR) {
+
+    SRegion result;
+
+    REGIONSTR.erase( std::remove(REGIONSTR.begin(), REGIONSTR.end(), '\n'), REGIONSTR.end());
+
+    std::stringstream stream(REGIONSTR);
+    std::string screenName;
+
+    int64_t globalX = 0;
+    int64_t globalY = 0;
+    stream >> screenName >> globalX >> globalY >> result.w >> result.h;
+
+    if(screenName.empty()) {
+        g_logger.log( Hyprutils::CLI::LOG_ERR, "Failed parsing slurp output");
+        return result;
+    }
+
+    auto monitor = std::find_if( monitors.begin(), monitors.end(), [&](const auto& m) { return m.name == screenName; });
+
+    if(monitor == monitors.end()) {
+        g_logger.log( Hyprutils::CLI::LOG_ERR, std::format( "Monitor {} not found", screenName));
+        return result;
+    }
+
+    // Convert global coords -> monitor-local coords
+    result.x = globalX - monitor->x;
+    result.y = globalY - monitor->y;
+
+    result.monitor = screenName;
+
+    g_logger.log( Hyprutils::CLI::LOG_CRIT, std::format( "getRegion return region:{}@{},{},{},{}", result.monitor, result.x, result.y, result.w, result.h));
+
+    return result;
+}
+
 
 std::vector<SWorkspaceEntry> getWorkspaces(const char* env) {
     std::vector<SWorkspaceEntry> result;
@@ -139,23 +242,52 @@ std::vector<SWindowEntry> getWindows(const char* env) {
     return result;
 }
 
-ESourceGroups currentTabEnum = WINDOW;
-std::vector<SMonitorEntry>   monitors;
-std::vector<SWindowEntry>    windows;
-std::vector<SWorkspaceEntry> workspaces;
-
 static void changeTab(ESourceGroups sourceGroup, bool forceRefresh = false)  {
     if(sourceGroup == UNKNOWN || !sourcesLayout)
         return;
 
     currentTabEnum = sourceGroup;
     switch(currentTabEnum) {
-        case MONITOR:
-            if(!monitors.empty())
+        case MONITOR: {
+            if(!monitors.empty() && !forceRefresh)
                 return;
 
-            //get list of monitors and commence sourcesTab
+            sourcesLayout->clearChildren();
+
+            std::string MONITORLISTSTR = execAndGet("hyprctl monitors");
+
+            if(MONITORLISTSTR.empty()) {
+                g_logger.log(Hyprutils::CLI::LOG_WARN, "NO MONITOR FOUND");
+                return;
+            }
+
+            //we can use the backend->getOutputs() but IOutput does not expose size,..
+            monitors = getMonitors(MONITORLISTSTR);
+            
+            for(auto& m : monitors) {
+                auto entry = CButtonBuilder::begin()
+                    ->label(std::format( "{} (ID {}): {}x{}", m.name, m.id, m.width, m.height))
+                    ->onMainClick([](SP<CButtonElement> el){ /**TODO: onSelecSource**/ })
+                    ->size({ CDynamicSize::HT_SIZE_PERCENT, CDynamicSize::HT_SIZE_ABSOLUTE, {0.99f, 60.f} })
+                    ->fontSize(CFontSize::HT_FONT_SMALL)
+                    ->commence();
+
+                sourcesLayout->addChild(entry);
+            }
             return;
+        }
+
+        case REGION: {
+            auto REGIONSTR = execAndGet("slurp -f \"%o %x %y %w %h\"");
+
+            if(REGIONSTR.empty())
+                return;
+            
+            SRegion region = getRegion(REGIONSTR);
+
+            return;
+        }    
+
 
         case WINDOW: {
             if(!windows.empty() && !forceRefresh)
@@ -199,7 +331,6 @@ static void changeTab(ESourceGroups sourceGroup, bool forceRefresh = false)  {
 
             workspaces = getWorkspaces(WORKSPACELISTSTR);
             for(auto& w : workspaces) {
-                g_logger.log(Hyprutils::CLI::LOG_ERR, std::string_view(w.name));
                 auto entry = CButtonBuilder::begin()
                     ->label(std::string(w.name))
                     ->onMainClick([](SP<CButtonElement> el){ /**TODO: onSelecSource**/ })
@@ -211,7 +342,6 @@ static void changeTab(ESourceGroups sourceGroup, bool forceRefresh = false)  {
             }
             return;
         }
-
         default: 
             return;
     }
@@ -283,7 +413,7 @@ SP<IWindow> windowLayout() {
     for (int sourceGroup = ESourceGroups::MONITOR; sourceGroup != ESourceGroups::UNKNOWN; sourceGroup++) {
         auto tabButton = CButtonBuilder::begin()
             ->label(enumToString(static_cast<ESourceGroups>(sourceGroup)))
-            ->onMainClick([sourceGroup](SP<CButtonElement> el){ changeTab(static_cast<ESourceGroups>(sourceGroup)); })
+            ->onMainClick([sourceGroup](SP<CButtonElement> el){ changeTab(static_cast<ESourceGroups>(sourceGroup), true); })
             ->size({ CDynamicSize::HT_SIZE_PERCENT, CDynamicSize::HT_SIZE_PERCENT, {0.18f, 0.85f} })
             ->fontSize(CFontSize::HT_FONT_SMALL)
             ->commence();
