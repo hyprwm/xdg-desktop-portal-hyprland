@@ -1,8 +1,10 @@
 #include "Element.hpp"
+#include "cli/Logger.hpp"
 #include <cstdint>
 #include <functional>
 #include <hyprtoolkit/types/FontTypes.hpp>
 #include <hyprtoolkit/types/SizeType.hpp>
+#include <hyprtoolkit/core/LogTypes.hpp>
 #include <pixman-1/pixman.h>
 #include <hyprtoolkit/core/CoreMacros.hpp>
 #include <hyprtoolkit/window/Window.hpp>
@@ -17,6 +19,7 @@
 #include <hyprtoolkit/element/Text.hpp>
 #include <hyprtoolkit/element/Null.hpp>
 #include <string>
+#include <string_view>
 
 
 using namespace Hyprutils::Memory;
@@ -28,13 +31,26 @@ using namespace Hyprtoolkit;
 #define UP CUniquePointer
 
 static SP<IBackend> backend;
+static SP<CColumnLayoutElement> sourcesLayout;
+Hyprutils::CLI::CLogger g_logger;
 
-static const std::vector<std::string> sourceGroups = {
-    "Monitor", 
-    "Window", 
-    "Workspace", 
-    "Region"
+enum ESourceGroups {
+    MONITOR = 0,
+    WINDOW,
+    REGION,
+    WORKSPACE,
+    UNKNOWN,
 };
+
+std::string enumToString(ESourceGroups g) {
+    switch (g) {
+        case ESourceGroups::MONITOR   : return "Monitor";
+        case ESourceGroups::WINDOW    : return "Window";
+        case ESourceGroups::REGION    : return "Region";
+        case ESourceGroups::WORKSPACE : return "Workspace";
+        default                       : return "Unknown";
+    }
+}
 
 struct SWindowEntry {
     std::string        name;
@@ -123,6 +139,106 @@ std::vector<SWindowEntry> getWindows(const char* env) {
     return result;
 }
 
+ESourceGroups currentTabEnum = WINDOW;
+std::vector<SMonitorEntry>   monitors;
+std::vector<SWindowEntry>    windows;
+std::vector<SWorkspaceEntry> workspaces;
+
+static void changeTab(ESourceGroups sourceGroup, bool forceRefresh = false)  {
+    if(sourceGroup == UNKNOWN || !sourcesLayout)
+        return;
+
+    currentTabEnum = sourceGroup;
+    switch(currentTabEnum) {
+        case MONITOR:
+            if(!monitors.empty())
+                return;
+
+            //get list of monitors and commence sourcesTab
+            return;
+
+        case WINDOW: {
+            if(!windows.empty() && !forceRefresh)
+                return;
+
+            sourcesLayout->clearChildren();
+
+            const char*  WINDOWLISTSTR = getenv("XDPH_WINDOW_SHARING_LIST");
+            if(!WINDOWLISTSTR) {
+                g_logger.log(Hyprutils::CLI::LOG_ERR, "No Windows");
+                return;
+            }
+
+
+            windows = getWindows(WINDOWLISTSTR);
+
+            for(auto& w : windows) {
+                auto entry = CButtonBuilder::begin()
+                    ->label(std::string(w.name))
+                    ->onMainClick([](SP<CButtonElement> el){ /**TODO: onSelecSource**/ })
+                    ->size({ CDynamicSize::HT_SIZE_PERCENT, CDynamicSize::HT_SIZE_ABSOLUTE, {0.99f, 60.f} })
+                    ->fontSize(CFontSize::HT_FONT_SMALL)
+                    ->commence();
+
+                sourcesLayout->addChild(entry);
+            }
+            return;
+        }
+
+        case WORKSPACE: {
+            if(!workspaces.empty() && !forceRefresh)
+                return;
+
+            sourcesLayout->clearChildren();
+
+            const char*  WORKSPACELISTSTR = getenv("XDPH_WORKSPACE_SHARING_LIST");
+            if(!WORKSPACELISTSTR) {
+                g_logger.log(Hyprutils::CLI::LOG_ERR, "No Windows");
+                return;
+            }
+
+            workspaces = getWorkspaces(WORKSPACELISTSTR);
+            for(auto& w : workspaces) {
+                g_logger.log(Hyprutils::CLI::LOG_ERR, std::string_view(w.name));
+                auto entry = CButtonBuilder::begin()
+                    ->label(std::string(w.name))
+                    ->onMainClick([](SP<CButtonElement> el){ /**TODO: onSelecSource**/ })
+                    ->size({ CDynamicSize::HT_SIZE_PERCENT, CDynamicSize::HT_SIZE_ABSOLUTE, {0.99f, 60.f} })
+                    ->fontSize(CFontSize::HT_FONT_SMALL)
+                    ->commence();
+
+                sourcesLayout->addChild(entry);
+            }
+            return;
+        }
+
+        default: 
+            return;
+    }
+}
+
+static void refreshTabs() {
+    switch(currentTabEnum) {
+        case MONITOR:
+            monitors.clear();
+            break;
+        case WINDOW:
+            windows.clear();
+            break;
+        case REGION:
+            break; 
+        case WORKSPACE:
+            workspaces.clear();
+            break;
+        default:
+            break;
+    }
+    changeTab(currentTabEnum, true);
+}
+
+static void onSelectSource(std::string sourceString) {
+}
+
 
 SP<IWindow> windowLayout() {
     auto window = CWindowBuilder::begin() ->preferredSize({720, 650})
@@ -164,10 +280,10 @@ SP<IWindow> windowLayout() {
     tabButtons->setPositionFlag(IElement::HT_POSITION_FLAG_VCENTER, true);
     tabButtons->setMargin(5.f);
 
-    for (auto& sourceGroup : sourceGroups) {
+    for (int sourceGroup = ESourceGroups::MONITOR; sourceGroup != ESourceGroups::UNKNOWN; sourceGroup++) {
         auto tabButton = CButtonBuilder::begin()
-            ->label(std::string(sourceGroup))
-            ->onMainClick([&sourceGroup](SP<CButtonElement> el){ el->rebuild() ->label(std::format("Clicked {}", sourceGroup)) ->commence(); })
+            ->label(enumToString(static_cast<ESourceGroups>(sourceGroup)))
+            ->onMainClick([sourceGroup](SP<CButtonElement> el){ changeTab(static_cast<ESourceGroups>(sourceGroup)); })
             ->size({ CDynamicSize::HT_SIZE_PERCENT, CDynamicSize::HT_SIZE_PERCENT, {0.18f, 0.85f} })
             ->fontSize(CFontSize::HT_FONT_SMALL)
             ->commence();
@@ -181,17 +297,7 @@ SP<IWindow> windowLayout() {
         ->size({ CDynamicSize::HT_SIZE_PERCENT, CDynamicSize::HT_SIZE_AUTO, {1.f, 0.f} })
         ->commence();
     sourceButtons->setMargin(5.f);
-
-    for (auto& source : sourceGroups) {
-        auto sourceButton = CButtonBuilder::begin()
-            ->label(std::string("Source: ") + std::string(source))
-            ->onMainClick([&source](SP<CButtonElement> el) { el->rebuild() ->label(std::format("Source {}", source)) ->commence(); })
-            ->size({ CDynamicSize::HT_SIZE_PERCENT, CDynamicSize::HT_SIZE_ABSOLUTE, {0.995f, 60.f} })
-            ->alignText(Hyprtoolkit::HT_FONT_ALIGN_CENTER)
-            ->commence();
-        sourceButtons->addChild(sourceButton);
-    }
-
+    sourcesLayout = sourceButtons;
 
     window->m_rootElement->addChild(mainLayout);
 
@@ -205,16 +311,11 @@ SP<IWindow> windowLayout() {
     return window;
 }
 
-static void changeTab(const std::string& sourceGroup, SP<CScrollAreaElement> tab)  {
-}
-
-static void onSelectSource(std::string sourceString) {
-}
-
 int main(int argc, char** argv, char** envp) {
     backend = IBackend::create();
 
     auto window = windowLayout();
+    refreshTabs();
 
     window->open();
 
