@@ -438,6 +438,9 @@ SP<IWindow> windowLayout() {
     tabButtons->setMargin(5.f);
 
     for (int sourceGroup = ESourceGroups::MONITOR; sourceGroup != ESourceGroups::UNKNOWN; sourceGroup++) {
+        if(sourceGroup == WORKSPACE) 
+            continue; //the portal has not support workspace sharing yet
+        
         auto tabButton = CButtonBuilder::begin()
             ->label(enumToString(static_cast<ESourceGroups>(sourceGroup)))
             ->onMainClick([sourceGroup](SP<CButtonElement> el){ changeTab(static_cast<ESourceGroups>(sourceGroup), true); })
