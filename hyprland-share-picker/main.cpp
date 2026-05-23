@@ -1,11 +1,14 @@
 #include "Element.hpp"
 #include "cli/Logger.hpp"
 #include <cstdint>
+#include <cstdlib>
+#include <format>
 #include <functional>
 #include <hyprtoolkit/types/FontTypes.hpp>
 #include <hyprtoolkit/types/SizeType.hpp>
 #include <hyprtoolkit/core/LogTypes.hpp>
 #include <hyprtoolkit/core/Output.hpp>
+#include <iostream>
 #include <pixman-1/pixman.h>
 #include <hyprtoolkit/core/CoreMacros.hpp>
 #include <hyprtoolkit/window/Window.hpp>
@@ -23,7 +26,6 @@
 #include <regex>
 #include <sstream>
 #include <string>
-#include <string_view>
 #include <vector>
 
 
@@ -59,11 +61,11 @@ enum ESourceGroups {
 
 std::string enumToString(ESourceGroups g) {
     switch (g) {
-        case ESourceGroups::MONITOR   : return "Monitor";
-        case ESourceGroups::WINDOW    : return "Window";
-        case ESourceGroups::REGION    : return "Region";
-        case ESourceGroups::WORKSPACE : return "Workspace";
-        default                       : return "Unknown";
+        case ESourceGroups::MONITOR   : return "monitor";
+        case ESourceGroups::WINDOW    : return "window";
+        case ESourceGroups::REGION    : return "region";
+        case ESourceGroups::WORKSPACE : return "workspace";
+        default                       : return "unknown";
     }
 }
 
@@ -102,7 +104,7 @@ std::vector<SMonitorEntry>   monitors;
 std::vector<SWindowEntry>    windows;
 std::vector<SWorkspaceEntry> workspaces;
 
-static std::vector<SMonitorEntry> getMonitors(std::string MONITORLISTSTR) {
+static std::vector<SMonitorEntry> getMonitors(const std::string& MONITORLISTSTR) {
     std::vector<SMonitorEntry> result;
 
     std::stringstream stream(MONITORLISTSTR);
@@ -142,9 +144,10 @@ static std::vector<SMonitorEntry> getMonitors(std::string MONITORLISTSTR) {
     return result;
 }
 
-SRegion getRegion(std::string& REGIONSTR) {
+std::string getRegionDetail(std::string& REGIONSTR) {
 
-    SRegion result;
+    SRegion region;
+    std::string result; 
 
     REGIONSTR.erase( std::remove(REGIONSTR.begin(), REGIONSTR.end(), '\n'), REGIONSTR.end());
 
@@ -153,7 +156,7 @@ SRegion getRegion(std::string& REGIONSTR) {
 
     int64_t globalX = 0;
     int64_t globalY = 0;
-    stream >> screenName >> globalX >> globalY >> result.w >> result.h;
+    stream >> screenName >> globalX >> globalY >> region.w >> region.h;
 
     if(screenName.empty()) {
         g_logger.log( Hyprutils::CLI::LOG_ERR, "Failed parsing slurp output");
@@ -168,13 +171,14 @@ SRegion getRegion(std::string& REGIONSTR) {
     }
 
     // Convert global coords -> monitor-local coords
-    result.x = globalX - monitor->x;
-    result.y = globalY - monitor->y;
+    region.x = globalX - monitor->x;
+    region.y = globalY - monitor->y;
 
-    result.monitor = screenName;
+    region.monitor = screenName;
 
-    g_logger.log( Hyprutils::CLI::LOG_CRIT, std::format( "getRegion return region:{}@{},{},{},{}", result.monitor, result.x, result.y, result.w, result.h));
+    g_logger.log( Hyprutils::CLI::LOG_CRIT, std::format( "getRegion return region:{}@{},{},{},{}", region.monitor, region.x, region.y, region.w, region.h));
 
+    result = std::format( "{}@{},{},{},{}", region.monitor, region.x, region.y, region.w, region.h);
     return result;
 }
 
@@ -242,6 +246,12 @@ std::vector<SWindowEntry> getWindows(const char* env) {
     return result;
 }
 
+static void onSelectSource(std::string detail) {
+    char restoreToken = 'r';
+    std::string selection = std::format("[SELECTION]{}/{}:{}\n", restoreToken, enumToString(currentTabEnum), detail);
+    std::cout << selection;
+}
+
 static void changeTab(ESourceGroups sourceGroup, bool forceRefresh = false)  {
     if(sourceGroup == UNKNOWN || !sourcesLayout)
         return;
@@ -265,9 +275,10 @@ static void changeTab(ESourceGroups sourceGroup, bool forceRefresh = false)  {
             monitors = getMonitors(MONITORLISTSTR);
             
             for(auto& m : monitors) {
+                auto detail = m.name;
                 auto entry = CButtonBuilder::begin()
                     ->label(std::format( "{} (ID {}): {}x{}", m.name, m.id, m.width, m.height))
-                    ->onMainClick([](SP<CButtonElement> el){ /**TODO: onSelecSource**/ })
+                    ->onMainClick([detail](SP<CButtonElement> el){ onSelectSource(detail); })
                     ->size({ CDynamicSize::HT_SIZE_PERCENT, CDynamicSize::HT_SIZE_ABSOLUTE, {0.99f, 60.f} })
                     ->fontSize(CFontSize::HT_FONT_SMALL)
                     ->commence();
@@ -278,16 +289,26 @@ static void changeTab(ESourceGroups sourceGroup, bool forceRefresh = false)  {
         }
 
         case REGION: {
-            auto REGIONSTR = execAndGet("slurp -f \"%o %x %y %w %h\"");
+            sourcesLayout->clearChildren();
+            auto entry = CButtonBuilder::begin()
+                    ->label("Select Region")
+                    ->onMainClick([](SP<CButtonElement> el){
+                        auto REGIONSTR = execAndGet("slurp -f \"%o %x %y %w %h\"");
+                        std::string regionDetail = getRegionDetail(REGIONSTR);
 
-            if(REGIONSTR.empty())
-                return;
-            
-            SRegion region = getRegion(REGIONSTR);
+                        if(REGIONSTR.empty())
+                            return;
+
+                        onSelectSource(regionDetail); 
+                    })
+                    ->size({ CDynamicSize::HT_SIZE_PERCENT, CDynamicSize::HT_SIZE_ABSOLUTE, {0.99f, 60.f} })
+                    ->fontSize(CFontSize::HT_FONT_SMALL)
+                    ->commence();
+
+                sourcesLayout->addChild(entry);
 
             return;
         }    
-
 
         case WINDOW: {
             if(!windows.empty() && !forceRefresh)
@@ -301,13 +322,13 @@ static void changeTab(ESourceGroups sourceGroup, bool forceRefresh = false)  {
                 return;
             }
 
-
             windows = getWindows(WINDOWLISTSTR);
 
             for(auto& w : windows) {
+                auto detail = std::to_string(w.id);
                 auto entry = CButtonBuilder::begin()
                     ->label(std::string(w.name))
-                    ->onMainClick([](SP<CButtonElement> el){ /**TODO: onSelecSource**/ })
+                    ->onMainClick([detail](SP<CButtonElement> el){ onSelectSource(detail); })
                     ->size({ CDynamicSize::HT_SIZE_PERCENT, CDynamicSize::HT_SIZE_ABSOLUTE, {0.99f, 60.f} })
                     ->fontSize(CFontSize::HT_FONT_SMALL)
                     ->commence();
@@ -331,9 +352,10 @@ static void changeTab(ESourceGroups sourceGroup, bool forceRefresh = false)  {
 
             workspaces = getWorkspaces(WORKSPACELISTSTR);
             for(auto& w : workspaces) {
+                auto detail = w.name;
                 auto entry = CButtonBuilder::begin()
                     ->label(std::string(w.name))
-                    ->onMainClick([](SP<CButtonElement> el){ /**TODO: onSelecSource**/ })
+                    ->onMainClick([detail](SP<CButtonElement> el){ onSelectSource(detail); })
                     ->size({ CDynamicSize::HT_SIZE_PERCENT, CDynamicSize::HT_SIZE_ABSOLUTE, {0.99f, 60.f} })
                     ->fontSize(CFontSize::HT_FONT_SMALL)
                     ->commence();
@@ -366,9 +388,6 @@ static void refreshTabs() {
     changeTab(currentTabEnum, true);
 }
 
-static void onSelectSource(std::string sourceString) {
-}
-
 
 SP<IWindow> windowLayout() {
     auto window = CWindowBuilder::begin() ->preferredSize({720, 650})
@@ -378,20 +397,20 @@ SP<IWindow> windowLayout() {
         ->commence();
 
     auto rect1 = CRectangleBuilder::begin()
-        ->color([] { return CHyprColor{0x547A95FF}; })
+        ->color([] { return CHyprColor{0xFF1f898c}; })
         ->size({ CDynamicSize::HT_SIZE_PERCENT, CDynamicSize::HT_SIZE_PERCENT, Vector2D{1.f, 0.08f} })
         ->rounding(5)
         ->commence();
 
     auto rect2 = CRectangleBuilder::begin()
-        ->color([] { return CHyprColor{0x547A95FF}; })
+        ->color([] { return CHyprColor{0xFF1f898c}; })
         ->size({ CDynamicSize::HT_SIZE_PERCENT, CDynamicSize::HT_SIZE_PERCENT, Vector2D{1.f, 0.5f} })
         ->rounding(5)
         ->commence();
     rect2->setGrow(true);
 
     // background
-    window->m_rootElement->addChild( CRectangleBuilder::begin() ->color([] { return CHyprColor{0xE8EDF2FF}; }) ->commence());
+    window->m_rootElement->addChild( CRectangleBuilder::begin() ->color([] { return CHyprColor{0xFFd3edee}; }) ->commence());
 
     // main layout
     auto mainLayout = CColumnLayoutBuilder::begin()
@@ -444,12 +463,13 @@ SP<IWindow> windowLayout() {
 int main(int argc, char** argv, char** envp) {
     backend = IBackend::create();
 
-    auto window = windowLayout();
+    auto picker = windowLayout();
     refreshTabs();
 
-    window->open();
+    picker->m_events.closeRequest.listenStatic([p = WP<IWindow>{picker}] { p->close(); backend->destroy(); });
 
+    picker->open();
     backend->enterLoop();
 
-    window->close();
+    return 0;
 }
