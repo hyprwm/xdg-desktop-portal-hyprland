@@ -15,6 +15,7 @@
 #include <hyprtoolkit/core/Backend.hpp>
 #include <hyprutils/math/Vector2D.hpp>
 #include <hyprtoolkit/element/ColumnLayout.hpp>
+#include <hyprtoolkit/element/Checkbox.hpp>
 #include <hyprtoolkit/element/Rectangle.hpp>
 #include <hyprtoolkit/element/RowLayout.hpp>
 #include <hyprtoolkit/element/ScrollArea.hpp>
@@ -39,6 +40,8 @@ using namespace Hyprtoolkit;
 #define UP CUniquePointer
 
 static SP<IBackend> backend;
+static SP<IWindow> picker;
+
 Hyprutils::CLI::CLogger g_logger;
 
 std::string execAndGet(const char* cmd) {
@@ -61,7 +64,7 @@ enum ESourceGroups {
 
 std::string enumToString(ESourceGroups g) {
     switch (g) {
-        case ESourceGroups::MONITOR   : return "monitor";
+        case ESourceGroups::MONITOR   : return "screen"; 
         case ESourceGroups::WINDOW    : return "window";
         case ESourceGroups::REGION    : return "region";
         case ESourceGroups::WORKSPACE : return "workspace";
@@ -99,6 +102,8 @@ struct SRegion {
 
 //globals
 static SP<CColumnLayoutElement> sourcesLayout;
+//static SP<CCheckboxElement> restoreToken;
+bool restoreToken = false;
 ESourceGroups currentTabEnum = MONITOR;
 std::vector<SMonitorEntry>   monitors;
 std::vector<SWindowEntry>    windows;
@@ -176,7 +181,7 @@ std::string getRegionDetail(std::string& REGIONSTR) {
 
     region.monitor = screenName;
 
-    g_logger.log( Hyprutils::CLI::LOG_CRIT, std::format( "getRegion return region:{}@{},{},{},{}", region.monitor, region.x, region.y, region.w, region.h));
+    g_logger.log( Hyprutils::CLI::LOG_DEBUG, std::format( "getRegion return region:{}@{},{},{},{}", region.monitor, region.x, region.y, region.w, region.h));
 
     result = std::format( "{}@{},{},{},{}", region.monitor, region.x, region.y, region.w, region.h);
     return result;
@@ -246,10 +251,14 @@ std::vector<SWindowEntry> getWindows(const char* env) {
     return result;
 }
 
-static void onSelectSource(std::string detail) {
-    char restoreToken = 'r';
-    std::string selection = std::format("[SELECTION]{}/{}:{}\n", restoreToken, enumToString(currentTabEnum), detail);
+static void onSelectSource(const std::string& detail) {
+    //The libhyprtoolkit.so has not expose the CCheckboxElement::state() yet
+    //const std::string restoreSession = restoreToken->state() ? "r" : "";
+    const std::string restoreSession = restoreToken ? "r" : "";
+    const std::string selection = std::format("[SELECTION]{}/{}:{}\n", restoreSession, enumToString(currentTabEnum), detail);
     std::cout << selection;
+    picker->close();
+    backend->destroy();
 }
 
 static void changeTab(ESourceGroups sourceGroup, bool forceRefresh = false)  {
@@ -388,7 +397,6 @@ static void refreshTabs() {
     changeTab(currentTabEnum, true);
 }
 
-
 SP<IWindow> windowLayout() {
     auto window = CWindowBuilder::begin() ->preferredSize({720, 650})
         ->minSize({650, 600})
@@ -448,14 +456,37 @@ SP<IWindow> windowLayout() {
     sourceButtons->setMargin(5.f);
     sourcesLayout = sourceButtons;
 
+    auto checkBoxesLayout = CRowLayoutBuilder::begin()
+        ->gap(5)
+        ->size({ CDynamicSize::HT_SIZE_PERCENT, CDynamicSize::HT_SIZE_ABSOLUTE, {1.f, 20.f} })
+        ->commence();
+
+    auto restoreTokenCheckBox = CCheckboxBuilder::begin()
+        ->onToggled([](SP<CCheckboxElement> el, bool state){ restoreToken = state;})
+        ->size({ CDynamicSize::HT_SIZE_AUTO, CDynamicSize::HT_SIZE_PERCENT, {1.f, 1.f} })
+        ->toggled(false)->commence();
+
+    auto restoreTokenText = CTextBuilder::begin()
+        ->text("Allow restore session")
+        ->size({ CDynamicSize::HT_SIZE_PERCENT, CDynamicSize::HT_SIZE_PERCENT, {1.f, 1.f} })
+        ->fontSize(CFontSize::HT_FONT_SMALL)
+        ->color([] { return CHyprColor{0xFF1f898c}; })
+        ->commence();
+
     window->m_rootElement->addChild(mainLayout);
 
     mainLayout->setMargin(10.f);
     mainLayout->addChild(rect1);
     mainLayout->addChild(rect2);
+    mainLayout->addChild(checkBoxesLayout);
+
     rect1->addChild(tabButtons);
+
     rect2->addChild(scroll);
     scroll->addChild(sourceButtons);
+
+    checkBoxesLayout->addChild(restoreTokenCheckBox);
+    checkBoxesLayout->addChild(restoreTokenText);
 
     return window;
 }
@@ -463,7 +494,7 @@ SP<IWindow> windowLayout() {
 int main(int argc, char** argv, char** envp) {
     backend = IBackend::create();
 
-    auto picker = windowLayout();
+    picker = windowLayout();
     refreshTabs();
 
     picker->m_events.closeRequest.listenStatic([p = WP<IWindow>{picker}] { p->close(); backend->destroy(); });
