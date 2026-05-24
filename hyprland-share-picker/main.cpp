@@ -1,10 +1,9 @@
-#include "Element.hpp"
-#include "cli/Logger.hpp"
 #include <cstdint>
 #include <cstdlib>
 #include <format>
 #include <functional>
 #include <hyprtoolkit/types/FontTypes.hpp>
+#include <hyprtoolkit/element/Element.hpp>
 #include <hyprtoolkit/types/SizeType.hpp>
 #include <hyprtoolkit/core/LogTypes.hpp>
 #include <hyprtoolkit/core/Output.hpp>
@@ -24,6 +23,7 @@
 #include <hyprtoolkit/element/Text.hpp>
 #include <hyprtoolkit/element/Null.hpp>
 #include <hyprutils/os/Process.hpp>
+#include <hyprutils/cli/Logger.hpp>
 #include <regex>
 #include <sstream>
 #include <string>
@@ -62,7 +62,7 @@ enum ESourceGroups {
     UNKNOWN,
 };
 
-std::string enumToString(ESourceGroups g) {
+constexpr std::string enumToString(ESourceGroups g) {
     switch (g) {
         case ESourceGroups::MONITOR   : return "screen"; 
         case ESourceGroups::WINDOW    : return "window";
@@ -90,14 +90,6 @@ struct SMonitorEntry {
     int64_t y;
     int64_t width;
     int64_t height;
-};
-
-struct SRegion {
-    std::string monitor;
-    int64_t x;
-    int64_t y;
-    int64_t w;
-    int64_t h;
 };
 
 //globals
@@ -150,42 +142,42 @@ static std::vector<SMonitorEntry> getMonitors(const std::string& MONITORLISTSTR)
 }
 
 std::string getRegionDetail(std::string& REGIONSTR) {
-
-    SRegion region;
-    std::string result; 
-
-    REGIONSTR.erase( std::remove(REGIONSTR.begin(), REGIONSTR.end(), '\n'), REGIONSTR.end());
+    REGIONSTR.erase(std::remove(REGIONSTR.begin(), REGIONSTR.end(), '\n'), REGIONSTR.end());
 
     std::stringstream stream(REGIONSTR);
-    std::string screenName;
 
+    std::string screenName;
     int64_t globalX = 0;
     int64_t globalY = 0;
-    stream >> screenName >> globalX >> globalY >> region.w >> region.h;
+    int64_t width   = 0;
+    int64_t height  = 0;
 
-    if(screenName.empty()) {
-        g_logger.log( Hyprutils::CLI::LOG_ERR, "Failed parsing slurp output");
-        return result;
+    stream >> screenName >> globalX >> globalY >> width >> height;
+
+    if (screenName.empty()) {
+        g_logger.log(Hyprutils::CLI::LOG_ERR, "Failed parsing slurp output");
+        return "";
     }
 
-    auto monitor = std::find_if( monitors.begin(), monitors.end(), [&](const auto& m) { return m.name == screenName; });
+    auto monitor = std::find_if(monitors.begin(), monitors.end(),
+        [&](const auto& m) { return m.name == screenName; });
 
-    if(monitor == monitors.end()) {
-        g_logger.log( Hyprutils::CLI::LOG_ERR, std::format( "Monitor {} not found", screenName));
-        return result;
+    if (monitor == monitors.end()) {
+        g_logger.log(Hyprutils::CLI::LOG_ERR, std::format("Monitor {} not found", screenName));
+        return "";
     }
 
     // Convert global coords -> monitor-local coords
-    region.x = globalX - monitor->x;
-    region.y = globalY - monitor->y;
+    const auto localX = globalX - monitor->x;
+    const auto localY = globalY - monitor->y;
 
-    region.monitor = screenName;
+    const auto result = std::format( "{}@{},{},{},{}", screenName, localX, localY, width, height);
 
-    g_logger.log( Hyprutils::CLI::LOG_DEBUG, std::format( "getRegion return region:{}@{},{},{},{}", region.monitor, region.x, region.y, region.w, region.h));
+    g_logger.log(Hyprutils::CLI::LOG_DEBUG, std::format("getRegion return region:{}", result));
 
-    result = std::format( "{}@{},{},{},{}", region.monitor, region.x, region.y, region.w, region.h);
     return result;
 }
+
 
 
 std::vector<SWorkspaceEntry> getWorkspaces(const char* env) {
@@ -277,6 +269,8 @@ static void changeTab(ESourceGroups sourceGroup, bool forceRefresh = false)  {
 
             if(MONITORLISTSTR.empty()) {
                 g_logger.log(Hyprutils::CLI::LOG_WARN, "NO MONITOR FOUND");
+                auto null = CNullBuilder::begin()->commence();
+                sourcesLayout->addChild(null);
                 return;
             }
 
@@ -328,6 +322,8 @@ static void changeTab(ESourceGroups sourceGroup, bool forceRefresh = false)  {
             const char*  WINDOWLISTSTR = getenv("XDPH_WINDOW_SHARING_LIST");
             if(!WINDOWLISTSTR) {
                 g_logger.log(Hyprutils::CLI::LOG_ERR, "No Windows");
+                auto null = CNullBuilder::begin()->commence();
+                sourcesLayout->addChild(null);
                 return;
             }
 
@@ -355,7 +351,9 @@ static void changeTab(ESourceGroups sourceGroup, bool forceRefresh = false)  {
 
             const char*  WORKSPACELISTSTR = getenv("XDPH_WORKSPACE_SHARING_LIST");
             if(!WORKSPACELISTSTR) {
-                g_logger.log(Hyprutils::CLI::LOG_ERR, "No Windows");
+                g_logger.log(Hyprutils::CLI::LOG_ERR, "No Workspaces");
+                auto null = CNullBuilder::begin()->commence();
+                sourcesLayout->addChild(null);
                 return;
             }
 
