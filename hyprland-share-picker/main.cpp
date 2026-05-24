@@ -91,6 +91,7 @@ struct SSourceEntry {
 static SP<CColumnLayoutElement> sourcesLayout;
 bool restoreToken = false;
 ESourceType currentTabEnum = MONITOR;
+std::vector<SSourceEntry> cachedSources;
 std::vector<SSourceEntry> monitors;
 
 static std::vector<SSourceEntry> getMonitors(const std::string& MONITORLISTSTR) {
@@ -279,7 +280,10 @@ static void onSelectSource(const std::string& detail) {
 }
 
 static void changeTab(ESourceType sourceGroup)  {
-    if(sourceGroup == UNKNOWN || sourceGroup == currentTabEnum || !sourcesLayout)
+    if(sourceGroup == UNKNOWN  || !sourcesLayout)
+        return;
+
+    if(sourceGroup == currentTabEnum && !cachedSources.empty())
         return;
 
     currentTabEnum = sourceGroup;
@@ -347,8 +351,9 @@ static void changeTab(ESourceType sourceGroup)  {
 
     //Because region depends on the monitor, we have to update the monitors
     monitors = currentTabEnum == MONITOR ? sources : monitors;
+    cachedSources = std::move(sources);
 
-    for(auto& s : sources) {
+    for(auto& s : cachedSources) {
         auto detail = getDetail(currentTabEnum, s);
         auto entry = CButtonBuilder::begin()
             ->label(getLabel(currentTabEnum, s))
