@@ -1,23 +1,22 @@
-# select either qt6 or qt5
-qtdep = dependency('qt6', 'qt5', modules: ['Widgets'])
-qtver = qtdep.version()
-qt = import('qt' + qtver[0])
+project('hyprland-share-picker', 'cpp',
+  default_options: ['cpp_std=c++23'],
+)
 
-ui_files = qt.compile_ui(sources: 'mainpicker.ui')
-moc = qt.compile_moc(headers: 'mainpicker.h')
+deps = [
+  dependency('hyprutils'),
+  dependency('hyprtoolkit'),
+  dependency('aquamarine'),
+  dependency('pixman-1'),
+  dependency('libdrm'),
+]
 
-sources = files([
+sources = files(
   'main.cpp',
-  'mainpicker.cpp',
-  'mainpicker.h',
-  'elidedbutton.h',
-  'elidedbutton.cpp',
-])
+)
 
-executable('hyprland-share-picker',
+executable(
+  'hyprland-share-picker',
   sources,
-  ui_files,
-  moc,
-  dependencies: qtdep,
-  install: true
+  dependencies: deps,
+  install: true,
 )
