@@ -54,7 +54,7 @@ std::string execAndGet(const char* cmd) {
     return proc.stdOut();
 }
 
-enum ESourceGroups {
+enum ESourceType {
     MONITOR = 0,
     WINDOW,
     WORKSPACE,
@@ -62,54 +62,46 @@ enum ESourceGroups {
     UNKNOWN,
 };
 
-constexpr std::string enumToString(ESourceGroups g) {
+constexpr std::string enumToString(ESourceType g) {
     switch (g) {
-        case ESourceGroups::MONITOR   : return "screen"; 
-        case ESourceGroups::WINDOW    : return "window";
-        case ESourceGroups::REGION    : return "region";
-        case ESourceGroups::WORKSPACE : return "workspace";
-        default                       : return "unknown";
+        case ESourceType::MONITOR   : return "screen"; 
+        case ESourceType::WINDOW    : return "window";
+        case ESourceType::REGION    : return "region";
+        case ESourceType::WORKSPACE : return "workspace";
+        default                     : return "unknown";
     }
 }
 
-struct SWindowEntry {
-    std::string        name;
+struct SSourceEntry {
+    ESourceType type;
+    std::string name;
+
+    //for window and workspace
     std::string        clazz;
     unsigned long long id = 0;
+
+    //for monitor
+    int64_t x = 0;
+    int64_t y = 0;
+    int64_t width = 0;
+    int64_t height = 0;
 };
 
-struct SWorkspaceEntry {
-    std::string name;
-    int64_t id;
-};
-
-struct SMonitorEntry {
-    std::string name;
-    int64_t id;
-    int64_t x;
-    int64_t y;
-    int64_t width;
-    int64_t height;
-};
-
-//globals
+//global states
 static SP<CColumnLayoutElement> sourcesLayout;
-//static SP<CCheckboxElement> restoreToken;
 bool restoreToken = false;
-ESourceGroups currentTabEnum = MONITOR;
-std::vector<SMonitorEntry>   monitors;
-std::vector<SWindowEntry>    windows;
-std::vector<SWorkspaceEntry> workspaces;
+ESourceType currentTabEnum = MONITOR;
+std::vector<SSourceEntry> monitors;
 
-static std::vector<SMonitorEntry> getMonitors(const std::string& MONITORLISTSTR) {
-    std::vector<SMonitorEntry> result;
+static std::vector<SSourceEntry> getMonitors(const std::string& MONITORLISTSTR) {
+    std::vector<SSourceEntry> result;
 
     std::stringstream stream(MONITORLISTSTR);
     std::string line;
 
     while(std::getline(stream, line)) {
         if(line.starts_with("Monitor ")) {
-            SMonitorEntry newEntry;
+            SSourceEntry newEntry;
 
             const auto NAME_START = std::string("Monitor ").length();
             const auto NAME_END   = line.find(" (");
@@ -178,12 +170,10 @@ std::string getRegionDetail(std::string& REGIONSTR) {
     return result;
 }
 
+std::vector<SSourceEntry> getWorkspaces(const std::string& env) {
+    std::vector<SSourceEntry> result;
 
-
-std::vector<SWorkspaceEntry> getWorkspaces(const char* env) {
-    std::vector<SWorkspaceEntry> result;
-
-    if (!env)
+    if (env.empty())
         return result;
 
     std::string rolling = env;
@@ -195,7 +185,10 @@ std::vector<SWorkspaceEntry> getWorkspaces(const char* env) {
         const auto NAMESTR    = rolling.substr(IDSEPPOS + 5, NAMESEPPOS - IDSEPPOS - 5);
 
         try {
-            result.push_back({NAMESTR, std::stoll(IDSTR)});
+            SSourceEntry workspaceEntry;
+            workspaceEntry.name = NAMESTR;
+            workspaceEntry.id = std::stoll(IDSTR);
+            result.push_back(workspaceEntry);
         } catch (std::exception& e) {
             // silent err
         }
@@ -206,10 +199,10 @@ std::vector<SWorkspaceEntry> getWorkspaces(const char* env) {
     return result;
 }
 
-std::vector<SWindowEntry> getWindows(const char* env) {
-    std::vector<SWindowEntry> result;
+std::vector<SSourceEntry> getWindows(const std::string& env) {
+    std::vector<SSourceEntry> result;
 
-    if (!env)
+    if (env.empty())
         return result;
 
     std::string rolling = env;
@@ -232,7 +225,11 @@ std::vector<SWindowEntry> getWindows(const char* env) {
         const auto WINDOWADDR = rolling.substr(TITLESEPPOS + 5, WINDOWSEPPOS - 5 - TITLESEPPOS);
 
         try {
-            result.push_back({TITLESTR, CLASSSTR, std::stoull(IDSTR)});
+            SSourceEntry windowEntry;
+            windowEntry.name = TITLESTR;
+            windowEntry.clazz = CLASSSTR;
+            windowEntry.id = std::stoll(IDSTR);
+            result.push_back(windowEntry);
         } catch (std::exception& e) {
             // silent err
         }
@@ -241,6 +238,34 @@ std::vector<SWindowEntry> getWindows(const char* env) {
     }
 
     return result;
+}
+
+std::string getLabel(ESourceType type, SSourceEntry entry) {
+    switch (type) {
+        case ESourceType::MONITOR:   return std::format( "{} (ID {}): {}x{}", entry.name, entry.id, entry.width, entry.height);
+        case ESourceType::WINDOW:    return std::format("{}: {}", entry.clazz, entry.name);
+        case ESourceType::WORKSPACE: return std::format("{}: {}", entry.id, entry.name); 
+        default: return {};
+    }
+}
+
+std::string getDetail(ESourceType type, SSourceEntry entry) {
+    switch (type) {
+        case ESourceType::MONITOR:   return entry.name;
+        case ESourceType::WINDOW:    return std::to_string(entry.id);
+        case ESourceType::WORKSPACE: return entry.name; 
+        default: return {};
+    }
+}
+
+using GETSOURCES_FUNC = std::vector<SSourceEntry>(*)(const std::string&);
+GETSOURCES_FUNC getSourceFunction(ESourceType type) {
+    switch (type) {
+        case ESourceType::MONITOR:   return getMonitors;
+        case ESourceType::WORKSPACE: return getWorkspaces;
+        case ESourceType::WINDOW:    return getWindows;
+        default: return nullptr;
+    }
 }
 
 static void onSelectSource(const std::string& detail) {
@@ -253,46 +278,17 @@ static void onSelectSource(const std::string& detail) {
     backend->destroy();
 }
 
-static void changeTab(ESourceGroups sourceGroup, bool forceRefresh = false)  {
-    if(sourceGroup == UNKNOWN || !sourcesLayout)
+static void changeTab(ESourceType sourceGroup)  {
+    if(sourceGroup == UNKNOWN || sourceGroup == currentTabEnum || !sourcesLayout)
         return;
 
     currentTabEnum = sourceGroup;
+
+    std::string SOURCELISTSTR = {};
+    sourcesLayout->clearChildren();
+
     switch(currentTabEnum) {
-        case MONITOR: {
-            if(!monitors.empty() && !forceRefresh)
-                return;
-
-            sourcesLayout->clearChildren();
-
-            std::string MONITORLISTSTR = execAndGet("hyprctl monitors");
-
-            if(MONITORLISTSTR.empty()) {
-                g_logger.log(Hyprutils::CLI::LOG_WARN, "NO MONITOR FOUND");
-                auto null = CNullBuilder::begin()->commence();
-                sourcesLayout->addChild(null);
-                return;
-            }
-
-            //we can use the backend->getOutputs() but IOutput does not expose size,..
-            monitors = getMonitors(MONITORLISTSTR);
-            
-            for(auto& m : monitors) {
-                auto detail = m.name;
-                auto entry = CButtonBuilder::begin()
-                    ->label(std::format( "{} (ID {}): {}x{}", m.name, m.id, m.width, m.height))
-                    ->onMainClick([detail](SP<CButtonElement> el){ onSelectSource(detail); })
-                    ->size({ CDynamicSize::HT_SIZE_PERCENT, CDynamicSize::HT_SIZE_ABSOLUTE, {0.99f, 60.f} })
-                    ->fontSize(CFontSize::HT_FONT_SMALL)
-                    ->commence();
-
-                sourcesLayout->addChild(entry);
-            }
-            return;
-        }
-
         case REGION: {
-            sourcesLayout->clearChildren();
             auto entry = CButtonBuilder::begin()
                     ->label("Select Region")
                     ->onMainClick([](SP<CButtonElement> el){
@@ -313,88 +309,61 @@ static void changeTab(ESourceGroups sourceGroup, bool forceRefresh = false)  {
             return;
         }    
 
+        case MONITOR: {
+            SOURCELISTSTR = execAndGet("hyprctl monitors");
+            break;
+        }
+
         case WINDOW: {
-            if(!windows.empty() && !forceRefresh)
-                return;
+            const char* WINDOWLISTSTR = getenv("XDPH_WINDOW_SHARING_LIST");
+            if(!WINDOWLISTSTR) 
+                break;
 
-            sourcesLayout->clearChildren();
-
-            const char*  WINDOWLISTSTR = getenv("XDPH_WINDOW_SHARING_LIST");
-            if(!WINDOWLISTSTR) {
-                g_logger.log(Hyprutils::CLI::LOG_ERR, "No Windows");
-                auto null = CNullBuilder::begin()->commence();
-                sourcesLayout->addChild(null);
-                return;
-            }
-
-            windows = getWindows(WINDOWLISTSTR);
-
-            for(auto& w : windows) {
-                auto detail = std::to_string(w.id);
-                auto entry = CButtonBuilder::begin()
-                    ->label(std::string(w.name))
-                    ->onMainClick([detail](SP<CButtonElement> el){ onSelectSource(detail); })
-                    ->size({ CDynamicSize::HT_SIZE_PERCENT, CDynamicSize::HT_SIZE_ABSOLUTE, {0.99f, 60.f} })
-                    ->fontSize(CFontSize::HT_FONT_SMALL)
-                    ->commence();
-
-                sourcesLayout->addChild(entry);
-            }
-            return;
+            SOURCELISTSTR = WINDOWLISTSTR;
+            break;
         }
 
         case WORKSPACE: {
-            if(!workspaces.empty() && !forceRefresh)
-                return;
+            const char* WORKSPACELISTSTR = getenv("XDPH_WORKSPACE_SHARING_LIST");
+            if(!WORKSPACELISTSTR) 
+                break;
 
-            sourcesLayout->clearChildren();
-
-            const char*  WORKSPACELISTSTR = getenv("XDPH_WORKSPACE_SHARING_LIST");
-            if(!WORKSPACELISTSTR) {
-                g_logger.log(Hyprutils::CLI::LOG_ERR, "No Workspaces");
-                auto null = CNullBuilder::begin()->commence();
-                sourcesLayout->addChild(null);
-                return;
-            }
-
-            workspaces = getWorkspaces(WORKSPACELISTSTR);
-            for(auto& w : workspaces) {
-                auto detail = w.name;
-                auto entry = CButtonBuilder::begin()
-                    ->label(std::string(w.name))
-                    ->onMainClick([detail](SP<CButtonElement> el){ onSelectSource(detail); })
-                    ->size({ CDynamicSize::HT_SIZE_PERCENT, CDynamicSize::HT_SIZE_ABSOLUTE, {0.99f, 60.f} })
-                    ->fontSize(CFontSize::HT_FONT_SMALL)
-                    ->commence();
-
-                sourcesLayout->addChild(entry);
-            }
-            return;
+            SOURCELISTSTR = WORKSPACELISTSTR;
+            break;
         }
         default: 
             return;
     }
-}
 
-static void refreshTabs() {
-    switch(currentTabEnum) {
-        case MONITOR:
-            monitors.clear();
-            break;
-        case WINDOW:
-            windows.clear();
-            break;
-        case REGION:
-            break; 
-        case WORKSPACE:
-            workspaces.clear();
-            break;
-        default:
-            break;
+    if(SOURCELISTSTR.empty()) {
+        g_logger.log(Hyprutils::CLI::LOG_WARN, std::format("No {}", enumToString(currentTabEnum)));
+        auto null = CNullBuilder::begin()->commence();
+        sourcesLayout->addChild(null);
+        return;
     }
-    changeTab(currentTabEnum, true);
+
+    auto getSourcesFn = getSourceFunction(currentTabEnum);
+    auto sources = getSourcesFn(SOURCELISTSTR);
+
+    //Because region depends on the monitor, we have to update the monitors
+    monitors = currentTabEnum == MONITOR ? sources : monitors;
+
+    for(auto& s : sources) {
+        auto detail = getDetail(currentTabEnum, s);
+        auto entry = CButtonBuilder::begin()
+            ->label(getLabel(currentTabEnum, s))
+            ->onMainClick([detail](SP<CButtonElement> el){ onSelectSource(detail); })
+            ->size({ CDynamicSize::HT_SIZE_PERCENT, CDynamicSize::HT_SIZE_ABSOLUTE, {0.99f, 60.f} })
+            ->fontSize(CFontSize::HT_FONT_SMALL)
+            ->commence();
+
+        sourcesLayout->addChild(entry);
+    }
+    return;
+
 }
 
+//Note: this will change the global sourcesLayout as well
 SP<IWindow> windowLayout() {
     auto window = CWindowBuilder::begin() ->preferredSize({720, 650})
         ->minSize({650, 600})
@@ -435,13 +404,13 @@ SP<IWindow> windowLayout() {
     tabButtons->setPositionFlag(IElement::HT_POSITION_FLAG_VCENTER, true);
     tabButtons->setMargin(5.f);
 
-    for (int sourceGroup = ESourceGroups::MONITOR; sourceGroup != ESourceGroups::UNKNOWN; sourceGroup++) {
-        if(sourceGroup == WORKSPACE) 
+    for (int sourceType = ESourceType::MONITOR; sourceType != ESourceType::UNKNOWN; sourceType++) {
+        if(sourceType == WORKSPACE) 
             continue; //the portal has not support workspace sharing yet
         
         auto tabButton = CButtonBuilder::begin()
-            ->label(enumToString(static_cast<ESourceGroups>(sourceGroup)))
-            ->onMainClick([sourceGroup](SP<CButtonElement> el){ changeTab(static_cast<ESourceGroups>(sourceGroup), true); })
+            ->label(enumToString(static_cast<ESourceType>(sourceType)))
+            ->onMainClick([sourceType](SP<CButtonElement> el){ changeTab(static_cast<ESourceType>(sourceType)); })
             ->size({ CDynamicSize::HT_SIZE_PERCENT, CDynamicSize::HT_SIZE_PERCENT, {0.18f, 0.85f} })
             ->fontSize(CFontSize::HT_FONT_SMALL)
             ->commence();
@@ -496,7 +465,7 @@ int main(int argc, char** argv, char** envp) {
     backend = IBackend::create();
 
     picker = windowLayout();
-    refreshTabs();
+    changeTab(currentTabEnum);
 
     picker->m_events.closeRequest.listenStatic([p = WP<IWindow>{picker}] { p->close(); backend->destroy(); });
 
