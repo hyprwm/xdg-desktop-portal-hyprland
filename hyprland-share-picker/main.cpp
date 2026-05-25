@@ -1,11 +1,8 @@
 #include <cstdint>
-#include <cstdlib>
 #include <format>
-#include <functional>
 #include <hyprtoolkit/types/FontTypes.hpp>
 #include <hyprtoolkit/element/Element.hpp>
 #include <hyprtoolkit/types/SizeType.hpp>
-#include <hyprtoolkit/core/LogTypes.hpp>
 #include <hyprtoolkit/core/Output.hpp>
 #include <iostream>
 #include <pixman-1/pixman.h>
@@ -19,12 +16,10 @@
 #include <hyprtoolkit/element/RowLayout.hpp>
 #include <hyprtoolkit/element/ScrollArea.hpp>
 #include <hyprtoolkit/element/Button.hpp>
-#include <hyprtoolkit/element/Image.hpp>
 #include <hyprtoolkit/element/Text.hpp>
 #include <hyprtoolkit/element/Null.hpp>
 #include <hyprutils/os/Process.hpp>
 #include <hyprutils/cli/Logger.hpp>
-#include <regex>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -115,18 +110,14 @@ static std::vector<SSourceEntry> getMonitors(const std::string& MONITORLISTSTR) 
 
             //Next line for width + height
             std::getline(stream, line);
-            static const std::regex pattern( R"(\s*(\d+)x(\d+)@([\d.]+)\s+at\s+(-?\d+)x(-?\d+))");
-            std::smatch match;
-
-            if (!std::regex_match(line, match, pattern)) {
+            long long width, height, x, y;
+            float hz;
+            if (sscanf(line.c_str(), " %lldx%lld@%f at %lldx%lld", &width, &height, &hz, &x, &y) != 5)
                 return result;
-            }
-
-            newEntry.width = std::stoll(match[1]);
-            newEntry.height = std::stoll(match[2]);
-            newEntry.x = std::stoll(match[4]);
-            newEntry.y = std::stoll(match[5]);
-
+            newEntry.width  = width;
+            newEntry.height = height;
+            newEntry.x      = x;
+            newEntry.y      = y;
             result.push_back(newEntry);
         }
     }
