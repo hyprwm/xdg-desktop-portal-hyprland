@@ -1,5 +1,3 @@
-#include <cstdint>
-#include <format>
 #include <hyprtoolkit/types/FontTypes.hpp>
 #include <hyprtoolkit/element/Element.hpp>
 #include <hyprtoolkit/types/SizeType.hpp>
@@ -147,7 +145,7 @@ std::string getRegionDetail(std::string& REGIONSTR) {
         [&](const auto& m) { return m.name == screenName; });
 
     if (monitor == monitors.end()) {
-        g_logger.log(Hyprutils::CLI::LOG_ERR, std::format("Monitor {} not found", screenName));
+        g_logger.log(Hyprutils::CLI::LOG_ERR, "Monitor " + screenName + " not found");
         return "";
     }
 
@@ -155,9 +153,11 @@ std::string getRegionDetail(std::string& REGIONSTR) {
     const auto localX = globalX - monitor->x;
     const auto localY = globalY - monitor->y;
 
-    const auto result = std::format( "{}@{},{},{},{}", screenName, localX, localY, width, height);
+    const auto result = screenName + "@" 
+        + std::to_string(localX) + "," + std::to_string(localY) 
+        + "," + std::to_string(width)  + "," + std::to_string(height);
 
-    g_logger.log(Hyprutils::CLI::LOG_DEBUG, std::format("getRegion return region:{}", result));
+    g_logger.log(Hyprutils::CLI::LOG_DEBUG, "getRegion return region:{}" + result);
 
     return result;
 }
@@ -234,12 +234,16 @@ std::vector<SSourceEntry> getWindows(const std::string& env) {
 
 std::string getLabel(ESourceType type, SSourceEntry entry) {
     switch (type) {
-        case ESourceType::MONITOR:   return std::format( "{} (ID {}): {}x{}", entry.name, entry.id, entry.width, entry.height);
-        case ESourceType::WINDOW:    return std::format("{}: {}", entry.clazz, entry.name);
-        case ESourceType::WORKSPACE: return std::format("{}: {}", entry.id, entry.name); 
-        default: return {};
+        case ESourceType::MONITOR: return entry.name + " (ID " + std::to_string(entry.id) + "): " 
+                                   + std::to_string(entry.width) + "x" + std::to_string(entry.height);
+
+        case ESourceType::WINDOW: return entry.clazz + ": " + entry.name;
+        case ESourceType::WORKSPACE: return std::to_string(entry.id) + ": " + entry.name;
+        default:
+            return {};
     }
 }
+
 
 std::string getDetail(ESourceType type, SSourceEntry entry) {
     switch (type) {
@@ -264,7 +268,7 @@ static void onSelectSource(const std::string& detail) {
     //The libhyprtoolkit.so has not expose the CCheckboxElement::state() yet
     //const std::string restoreSession = restoreToken->state() ? "r" : "";
     const std::string restoreSession = restoreToken ? "r" : "";
-    const std::string selection = std::format("[SELECTION]{}/{}:{}\n", restoreSession, enumToString(currentTabEnum), detail);
+    const std::string selection = "[SELECTION]" + restoreSession + "/" + enumToString(currentTabEnum) + ":" + detail + "\n";
     std::cout << selection;
     picker->close();
     backend->destroy();
@@ -331,7 +335,7 @@ static void changeTab(ESourceType sourceGroup)  {
     }
 
     if(SOURCELISTSTR.empty()) {
-        g_logger.log(Hyprutils::CLI::LOG_WARN, std::format("No {}", enumToString(currentTabEnum)));
+        g_logger.log( Hyprutils::CLI::LOG_WARN, "No " + enumToString(currentTabEnum));
         auto null = CNullBuilder::begin()->commence();
         sourcesLayout->addChild(null);
         return;
