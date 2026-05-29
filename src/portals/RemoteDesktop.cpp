@@ -92,6 +92,7 @@ dbUasv CRemoteDesktopPortal::onCreateSession(sdbus::ObjectPath requestHandle, sd
 
     std::unordered_map<std::string, sdbus::Variant> results;
     results["session_handle"]  = sdbus::Variant{sessionHandle};
+    Debug::log(LOG, "[remotedesktop] CreateSession returning for appid={}", appID);
     return {0, results};
 }
 
@@ -223,7 +224,7 @@ sdbus::UnixFd CRemoteDesktopPortal::onConnectToEIS(sdbus::ObjectPath sessionHand
     // Get the EIS fd to poll for events
     PSESSION->eisFd = eis_get_fd(PSESSION->eis);
 
-    Debug::log(LOG, "[remotedesktop] ConnectToEIS: client_fd={}, eis_fd={}", clientFd, PSESSION->eisFd);
+    Debug::log(LOG, "[remotedesktop] ConnectToEIS CALLED: client_fd={}, eis_fd={}", clientFd, PSESSION->eisFd);
 
     // Register the EIS fd with PortalManager's poll loop
     g_pPortalManager->addExtraPollFd(PSESSION->eisFd);
@@ -239,6 +240,7 @@ void CRemoteDesktopPortal::onNotifyPointerMotion(sdbus::ObjectPath sessionHandle
     if (!PSESSION || !PSESSION->virtualPointer)
         return;
 
+    Debug::log(TRACE, "[remotedesktop] NotifyPointerMotion: dx={}, dy={}", dx, dy);
     PSESSION->virtualPointer->sendMotion(currentTimeMs(), wl_fixed_from_double(dx), wl_fixed_from_double(dy));
     PSESSION->virtualPointer->sendFrame();
     wl_display_flush(g_pPortalManager->m_sWaylandConnection.display);
@@ -425,7 +427,9 @@ void CRemoteDesktopPortal::processEISEvents() {
                 break;
             }
             case EIS_EVENT_FRAME: {
-                // Flush all pending Wayland events
+                // Commit all pending events with a frame
+                if (s->virtualPointer)
+                    s->virtualPointer->sendFrame();
                 if (s->virtualPointer || s->virtualKeyboard)
                     wl_display_flush(g_pPortalManager->m_sWaylandConnection.display);
                 break;
