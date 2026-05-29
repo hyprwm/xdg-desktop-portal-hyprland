@@ -70,6 +70,21 @@ void CPortalManager::onGlobal(uint32_t name, const char* interface, uint32_t ver
             (wl_proxy*)wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &hyprland_toplevel_export_manager_v1_interface, version));
     }
 
+    else if (INTERFACE == wl_seat_interface.name) {
+        m_sWaylandConnection.seat = makeShared<CCWlSeat>(
+            (wl_proxy*)wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &wl_seat_interface, std::min(version, 7u)));
+    }
+
+    else if (INTERFACE == zwlr_virtual_pointer_manager_v1_interface.name) {
+        m_sWaylandConnection.virtualPointerMgr = makeShared<CCZwlrVirtualPointerManagerV1>(
+            (wl_proxy*)wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &zwlr_virtual_pointer_manager_v1_interface, version));
+    }
+
+    else if (INTERFACE == zwp_virtual_keyboard_manager_v1_interface.name) {
+        m_sWaylandConnection.virtualKeyboardMgr = makeShared<CCZwpVirtualKeyboardManagerV1>(
+            (wl_proxy*)wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &zwp_virtual_keyboard_manager_v1_interface, version));
+    }
+
     else if (INTERFACE == wl_output_interface.name) {
         const auto POUTPUT = m_vOutputs
                                  .emplace_back(std::make_unique<SOutput>(makeShared<CCWlOutput>(
@@ -288,6 +303,12 @@ void CPortalManager::init() {
             Debug::log(INFO, "hyprpicker not found. We suggest to use hyprpicker for color picking to be less meh.");
     }
 
+    // Initialize RemoteDesktop portal if protocols are available
+    if (!m_sWaylandConnection.virtualPointerMgr || !m_sWaylandConnection.virtualKeyboardMgr)
+        Debug::log(WARN, "RemoteDesktop not started: compositor doesn't support virtual pointer/keyboard");
+    else
+        m_sPortals.remoteDesktop = std::make_unique<CRemoteDesktopPortal>(m_sWaylandConnection.virtualPointerMgr, m_sWaylandConnection.virtualKeyboardMgr);
+
     wl_display_roundtrip(m_sWaylandConnection.display);
 
     startEventLoop();
@@ -312,14 +333,45 @@ void CPortalManager::startEventLoop() {
 
     std::thread pollThr([this, &pollfds]() {
         while (1) {
-            int ret = poll(pollfds, 3, 5000 /* 5 seconds, reasonable. It's because we might need to terminate */);
+            // Build combined pollfds: 3 static fds + extra EIS fds
+            const int     MAX_FDS = 16;
+            pollfd        combinedPfds[MAX_FDS];
+            for (int i = 0; i < 3; i++)
+                combinedPfds[i] = pollfds[i];
+
+            int totalNfds = 3;
+            {
+                std::lock_guard<std::mutex> lg(m_mExtraPollMutex);
+                for (int fd : m_vExtraPollFds) {
+                    if (totalNfds < MAX_FDS) {
+                        combinedPfds[totalNfds] = {.fd = fd, .events = POLLIN};
+                        totalNfds++;
+                    } else
+                        Debug::log(ERR, "[core] too many extra poll fds, dropping");
+                }
+            }
+
+            int ret = poll(combinedPfds, totalNfds, 5000);
+
+            // Copy revents for static fds back to the stack array
+            for (int i = 0; i < 3; i++)
+                pollfds[i].revents = combinedPfds[i].revents;
+
+            // Store revents for extra fds
+            {
+                std::lock_guard<std::mutex> lg(m_mExtraPollMutex);
+                m_vExtraPollRevents.clear();
+                for (int i = 3; i < totalNfds; i++)
+                    m_vExtraPollRevents.push_back(combinedPfds[i].revents);
+            }
+
             if (ret < 0) {
                 Debug::log(CRIT, "[core] Polling fds failed with {}", strerror(errno));
                 g_pPortalManager->terminate();
             }
 
-            for (size_t i = 0; i < 3; ++i) {
-                if (pollfds[i].revents & POLLHUP) {
+            for (int i = 0; i < totalNfds; ++i) {
+                if (combinedPfds[i].revents & POLLHUP) {
                     Debug::log(CRIT, "[core] Disconnected from pollfd id {}", i);
                     g_pPortalManager->terminate();
                 }
@@ -414,6 +466,18 @@ void CPortalManager::startEventLoop() {
             }
         }
 
+        // Process EIS events from extra poll fds
+        {
+            std::lock_guard<std::mutex> lg(m_mExtraPollMutex);
+            for (short rev : m_vExtraPollRevents) {
+                if (rev & (POLLIN | POLLHUP | POLLERR)) {
+                    if (m_sPortals.remoteDesktop)
+                        m_sPortals.remoteDesktop->processEISEvents();
+                    break;
+                }
+            }
+        }
+
         std::vector<CTimer*> toRemove;
         for (auto& t : m_sTimersThread.timers) {
             if (t->passed()) {
@@ -453,6 +517,21 @@ void CPortalManager::startEventLoop() {
 
 sdbus::IConnection* CPortalManager::getConnection() {
     return m_pConnection.get();
+}
+
+void CPortalManager::addExtraPollFd(int fd) {
+    if (fd < 0)
+        return;
+    std::lock_guard<std::mutex> lg(m_mExtraPollMutex);
+    if (std::find(m_vExtraPollFds.begin(), m_vExtraPollFds.end(), fd) == m_vExtraPollFds.end())
+        m_vExtraPollFds.push_back(fd);
+}
+
+void CPortalManager::removeExtraPollFd(int fd) {
+    if (fd < 0)
+        return;
+    std::lock_guard<std::mutex> lg(m_mExtraPollMutex);
+    std::erase(m_vExtraPollFds, fd);
 }
 
 SOutput* CPortalManager::getOutputFromName(const std::string& name) {
