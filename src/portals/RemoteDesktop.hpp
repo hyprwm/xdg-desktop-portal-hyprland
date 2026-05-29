@@ -3,6 +3,7 @@
 #include <memory>
 #include <vector>
 #include <sdbus-c++/sdbus-c++.h>
+#include <xkbcommon/xkbcommon.h>
 
 #include "../includes.hpp"
 #include "../dbusDefines.hpp"
@@ -73,6 +74,9 @@ class CRemoteDesktopPortal {
         SP<CCZwlrVirtualPointerV1>      virtualPointer;
         SP<CCZwpVirtualKeyboardV1>      virtualKeyboard;
 
+        // XKB modifier tracking for sendModifiers()
+        uint32_t                        modDepressed = 0;
+
         // EIS/libei state (created by ConnectToEIS)
         struct eis*                     eis          = nullptr;
         int                             eisFd        = -1; // fd to poll for EIS events
@@ -81,6 +85,9 @@ class CRemoteDesktopPortal {
 
     SSession* getSession(const sdbus::ObjectPath& path);
 
+    // Keysym → keycode conversion (via xkbcommon)
+    uint32_t keycodeFromKeysym(uint32_t sym, bool level0Only = false);
+
     std::unique_ptr<sdbus::IObject>           m_pObject;
     std::vector<std::unique_ptr<SSession>>     m_vSessions;
 
@@ -88,6 +95,10 @@ class CRemoteDesktopPortal {
         SP<CCZwlrVirtualPointerManagerV1> pointer;
         SP<CCZwpVirtualKeyboardManagerV1> keyboard;
     } m_sState;
+
+    // XKB state for keysym → keycode conversion
+    struct xkb_context* m_xkbCtx   = nullptr;
+    struct xkb_keymap*  m_xkbKeymap = nullptr;
 
     const sdbus::InterfaceName INTERFACE_NAME = sdbus::InterfaceName{"org.freedesktop.impl.portal.RemoteDesktop"};
     const sdbus::ObjectPath    OBJECT_PATH    = sdbus::ObjectPath{"/org/freedesktop/portal/desktop"};
