@@ -110,6 +110,21 @@ void CPortalManager::onGlobal(uint32_t name, const char* interface, uint32_t ver
             (wl_proxy*)wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &hyprland_toplevel_export_manager_v1_interface, version));
     }
 
+    else if (INTERFACE == wl_seat_interface.name) {
+        m_sWaylandConnection.seat = makeShared<CCWlSeat>(
+            (wl_proxy*)wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &wl_seat_interface, std::min(version, 7u)));
+    }
+
+    else if (INTERFACE == zwlr_virtual_pointer_manager_v1_interface.name) {
+        m_sWaylandConnection.virtualPointerMgr = makeShared<CCZwlrVirtualPointerManagerV1>(
+            (wl_proxy*)wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &zwlr_virtual_pointer_manager_v1_interface, version));
+    }
+
+    else if (INTERFACE == zwp_virtual_keyboard_manager_v1_interface.name) {
+        m_sWaylandConnection.virtualKeyboardMgr = makeShared<CCZwpVirtualKeyboardManagerV1>(
+            (wl_proxy*)wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &zwp_virtual_keyboard_manager_v1_interface, version));
+    }
+
     else if (INTERFACE == wl_output_interface.name) {
         const auto POUTPUT = m_vOutputs
                                  .emplace_back(std::make_unique<SOutput>(makeShared<CCWlOutput>(
@@ -332,6 +347,12 @@ void CPortalManager::init() {
             Debug::log(INFO, "hyprpicker not found. We suggest to use hyprpicker for color picking to be less meh.");
     }
 
+    // Initialize RemoteDesktop portal if protocols are available
+    if (!m_sWaylandConnection.virtualPointerMgr || !m_sWaylandConnection.virtualKeyboardMgr)
+        Debug::log(WARN, "RemoteDesktop not started: compositor doesn't support virtual pointer/keyboard");
+    else
+        m_sPortals.remoteDesktop = std::make_unique<CRemoteDesktopPortal>(m_sWaylandConnection.virtualPointerMgr, m_sWaylandConnection.virtualKeyboardMgr);
+
     wl_display_roundtrip(m_sWaylandConnection.display);
 
     startEventLoop();
@@ -344,7 +365,6 @@ void CPortalManager::startEventLoop() {
 
     std::thread pollThr([this]() {
         while (1) {
-
             int ret = poll(m_sEventLoopInternals.pollFds.data(), m_sEventLoopInternals.pollFds.size(), 5000 /* 5 seconds, reasonable. It's because we might need to terminate */);
             if (ret < 0) {
                 Debug::log(CRIT, "[core] Polling fds failed with {}", strerror(errno));
@@ -485,6 +505,7 @@ void CPortalManager::startEventLoop() {
     m_sPortals.screenshot.reset();
     m_sHelpers.toplevel.reset();
     m_sPortals.inputCapture.reset();
+    m_sPortals.remoteDesktop.reset();
 
     m_pConnection.reset();
     pw_loop_destroy(m_sPipewire.loop);
