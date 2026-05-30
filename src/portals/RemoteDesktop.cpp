@@ -5,6 +5,8 @@
 #include <unistd.h>
 #include <sys/socket.h>
 #include <libeis.h>
+#include <linux/input.h>
+#include <xkbcommon/xkbcommon.h>
 
 // Helper: get current time in ms for Wayland events
 static uint32_t currentTimeMs() {
@@ -16,6 +18,11 @@ static uint32_t currentTimeMs() {
 CRemoteDesktopPortal::CRemoteDesktopPortal(SP<CCZwlrVirtualPointerManagerV1> pointerMgr, SP<CCZwpVirtualKeyboardManagerV1> keyboardMgr) {
     m_sState.pointer  = pointerMgr;
     m_sState.keyboard = keyboardMgr;
+
+    // Initialize xkbcommon for keysym → keycode conversion
+    m_xkbCtx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+    if (m_xkbCtx)
+        m_xkbKeymap = xkb_keymap_new_from_names(m_xkbCtx, nullptr, XKB_KEYMAP_COMPILE_NO_FLAGS);
 
     m_pObject = sdbus::createObject(*g_pPortalManager->getConnection(), OBJECT_PATH);
 
@@ -305,7 +312,26 @@ void CRemoteDesktopPortal::onNotifyKeyboardKeysym(sdbus::ObjectPath sessionHandl
     if (!PSESSION || !PSESSION->virtualKeyboard)
         return;
 
-    PSESSION->virtualKeyboard->sendKey(currentTimeMs(), keysym, state);
+    uint32_t keycode = keycodeFromKeysym(keysym);
+    if (!keycode) {
+        Debug::log(WARN, "[remotedesktop] keysym 0x{:x} not found in keymap", keysym);
+        return;
+    }
+
+    // Determine if shift is needed by checking if the keysym has a lowercase form
+    xkb_keysym_t lower = xkb_keysym_to_lower(static_cast<xkb_keysym_t>(keysym));
+    bool needsShift = (lower != static_cast<xkb_keysym_t>(keysym));
+
+    uint32_t time = currentTimeMs();
+
+    if (state == 1 /* pressed */ && needsShift)
+        PSESSION->virtualKeyboard->sendKey(time, KEY_LEFTSHIFT, 1);
+
+    PSESSION->virtualKeyboard->sendKey(time, keycode, state);
+
+    if (state == 1 /* pressed */ && needsShift)
+        PSESSION->virtualKeyboard->sendKey(time, KEY_LEFTSHIFT, 0);
+
     wl_display_flush(g_pPortalManager->m_sWaylandConnection.display);
 }
 
@@ -331,9 +357,21 @@ void CRemoteDesktopPortal::processEISEvents() {
             case EIS_EVENT_CLIENT_CONNECT: {
                 Debug::log(LOG, "[remotedesktop] EIS client connect");
                 eis_client_connect(client);
-                auto* newSeat = eis_client_new_seat(client, "kdeconnect");
-                if (newSeat)
-                    Debug::log(LOG, "[remotedesktop] EIS seat created");
+
+                // Create a seat with all capabilities we support
+                auto* newSeat = eis_client_new_seat(client, "kdeconnect-virtual-input");
+                if (!newSeat) {
+                    Debug::log(ERR, "[remotedesktop] failed to create EIS seat");
+                    break;
+                }
+                eis_seat_configure_capability(newSeat, EIS_DEVICE_CAP_POINTER);
+                eis_seat_configure_capability(newSeat, EIS_DEVICE_CAP_POINTER_ABSOLUTE);
+                eis_seat_configure_capability(newSeat, EIS_DEVICE_CAP_KEYBOARD);
+                eis_seat_configure_capability(newSeat, EIS_DEVICE_CAP_SCROLL);
+                eis_seat_configure_capability(newSeat, EIS_DEVICE_CAP_BUTTON);
+                eis_seat_configure_capability(newSeat, EIS_DEVICE_CAP_TOUCH);
+                eis_seat_add(newSeat);
+                Debug::log(LOG, "[remotedesktop] EIS seat added with all capabilities");
                 break;
             }
             case EIS_EVENT_CLIENT_DISCONNECT: {
@@ -342,20 +380,31 @@ void CRemoteDesktopPortal::processEISEvents() {
             }
             case EIS_EVENT_SEAT_BIND: {
                 Debug::log(LOG, "[remotedesktop] EIS seat bind");
-                // Create devices for requested capabilities
+                // Create and announce a pointer device if requested
                 if (eis_event_seat_has_capability(event, EIS_DEVICE_CAP_POINTER) ||
                     eis_event_seat_has_capability(event, EIS_DEVICE_CAP_POINTER_ABSOLUTE)) {
                     auto* dev = eis_seat_new_device(seat);
                     if (dev) {
+                        eis_device_configure_type(dev, EIS_DEVICE_TYPE_VIRTUAL);
+                        eis_device_configure_name(dev, "Hyprland virtual pointer");
+                        eis_device_configure_capability(dev, EIS_DEVICE_CAP_POINTER);
+                        eis_device_configure_capability(dev, EIS_DEVICE_CAP_POINTER_ABSOLUTE);
+                        eis_device_configure_capability(dev, EIS_DEVICE_CAP_BUTTON);
+                        eis_device_configure_capability(dev, EIS_DEVICE_CAP_SCROLL);
+                        eis_device_add(dev);
                         eis_device_start_emulating(dev, 0);
-                        Debug::log(LOG, "[remotedesktop] EIS pointer device started");
+                        Debug::log(LOG, "[remotedesktop] EIS pointer device added & emulating");
                     }
                 }
                 if (eis_event_seat_has_capability(event, EIS_DEVICE_CAP_KEYBOARD)) {
                     auto* dev = eis_seat_new_device(seat);
                     if (dev) {
+                        eis_device_configure_type(dev, EIS_DEVICE_TYPE_VIRTUAL);
+                        eis_device_configure_name(dev, "Hyprland virtual keyboard");
+                        eis_device_configure_capability(dev, EIS_DEVICE_CAP_KEYBOARD);
+                        eis_device_add(dev);
                         eis_device_start_emulating(dev, 0);
-                        Debug::log(LOG, "[remotedesktop] EIS keyboard device started");
+                        Debug::log(LOG, "[remotedesktop] EIS keyboard device added & emulating");
                     }
                 }
                 break;
@@ -441,6 +490,29 @@ void CRemoteDesktopPortal::processEISEvents() {
             eis_event_unref(event);
         }
     }
+}
+
+// ─── Keysym → keycode conversion ─────────────────────────────────
+
+uint32_t CRemoteDesktopPortal::keycodeFromKeysym(uint32_t sym) {
+    if (!m_xkbKeymap)
+        return 0;
+
+    xkb_keycode_t min = xkb_keymap_min_keycode(m_xkbKeymap);
+    xkb_keycode_t max = xkb_keymap_max_keycode(m_xkbKeymap);
+
+    // Search all levels (0 = unshifted, 1 = shifted, etc.)
+    for (xkb_keycode_t code = min; code <= max; code++) {
+        for (int level = 0; level < 4; level++) {
+            const xkb_keysym_t* syms;
+            int nsyms = xkb_keymap_key_get_syms_by_level(m_xkbKeymap, code, 0, level, &syms);
+            for (int i = 0; i < nsyms; i++) {
+                if (syms[i] == static_cast<xkb_keysym_t>(sym))
+                    return code - min + 1; // convert to evdev scancode
+            }
+        }
+    }
+    return 0;
 }
 
 // ─── Properties ──────────────────────────────────────────────────
