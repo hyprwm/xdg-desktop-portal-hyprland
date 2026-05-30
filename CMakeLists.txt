@@ -57,11 +57,14 @@ pkg_check_modules(
   deps
   REQUIRED
   IMPORTED_TARGET
+  dbus-1
   wayland-client
   wayland-protocols
   libpipewire-0.3>=1.1.82
   libspa-0.2
   libdrm
+  libeis-1.0
+  uuid
   gbm
   hyprlang>=0.2.0
   hyprutils>=0.2.6
@@ -83,11 +86,12 @@ else()
   set(HYPRLAND_PROTOCOLS "${CMAKE_SOURCE_DIR}/subprojects/hyprland-protocols")
 endif()
 
+pkg_search_module(UUID REQUIRED uuid)
 file(GLOB_RECURSE SRCFILES CONFIGURE_DEPENDS "src/*.cpp")
 add_executable(xdg-desktop-portal-hyprland ${SRCFILES})
 target_link_libraries(
   xdg-desktop-portal-hyprland PRIVATE rt PkgConfig::SDBUS Threads::Threads
-                                      PkgConfig::deps)
+                                      PkgConfig::deps ${UUID_LIBRARIES})
 
 # protocols
 pkg_get_variable(WAYLAND_PROTOCOLS_DIR wayland-protocols pkgdatadir)
@@ -126,12 +130,16 @@ protocolwayland()
 protocolnew("${CMAKE_SOURCE_DIR}/protocols"
             "wlr-foreign-toplevel-management-unstable-v1" true)
 protocolnew("${CMAKE_SOURCE_DIR}/protocols" "wlr-screencopy-unstable-v1" true)
+protocolnew("${CMAKE_SOURCE_DIR}/protocols" "wlr-virtual-pointer-unstable-v1" true)
+protocolnew("${CMAKE_SOURCE_DIR}/protocols" "virtual-keyboard-unstable-v1" true)
 protocolnew("${HYPRLAND_PROTOCOLS}/protocols" "hyprland-global-shortcuts-v1"
             true)
 protocolnew("${HYPRLAND_PROTOCOLS}/protocols" "hyprland-toplevel-export-v1"
             true)
 protocolnew("${HYPRLAND_PROTOCOLS}/protocols" "hyprland-toplevel-mapping-v1"
         true)
+protocolnew("${HYPRLAND_PROTOCOLS}/protocols" "hyprland-input-capture-v1"
+            true)
 protocolnew("stable/linux-dmabuf" "linux-dmabuf-v1" false)
 protocolnew("staging/ext-foreign-toplevel-list" "ext-foreign-toplevel-list-v1" false)
 
