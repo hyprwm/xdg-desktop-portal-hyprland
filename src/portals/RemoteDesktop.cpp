@@ -369,7 +369,6 @@ void CRemoteDesktopPortal::processEISEvents() {
                 eis_seat_configure_capability(newSeat, EIS_DEVICE_CAP_KEYBOARD);
                 eis_seat_configure_capability(newSeat, EIS_DEVICE_CAP_SCROLL);
                 eis_seat_configure_capability(newSeat, EIS_DEVICE_CAP_BUTTON);
-                eis_seat_configure_capability(newSeat, EIS_DEVICE_CAP_TOUCH);
                 eis_seat_add(newSeat);
                 Debug::log(LOG, "[remotedesktop] EIS seat added with all capabilities");
                 break;
@@ -523,7 +522,6 @@ uint32_t CRemoteDesktopPortal::availableDeviceTypes() {
         types |= 1;
     if (m_sState.pointer)
         types |= 2;
-    types |= 4;
     return types;
 }
 
