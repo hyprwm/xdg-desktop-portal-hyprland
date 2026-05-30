@@ -304,6 +304,7 @@ void CPortalManager::init() {
     }
 
     // Initialize RemoteDesktop portal if protocols are available
+    Debug::log(LOG, "[core] init check: vp={}, vk={}, pw={}", !!m_sWaylandConnection.virtualPointerMgr, !!m_sWaylandConnection.virtualKeyboardMgr, !!m_sPipewire.loop);
     if (!m_sWaylandConnection.virtualPointerMgr || !m_sWaylandConnection.virtualKeyboardMgr)
         Debug::log(WARN, "RemoteDesktop not started: compositor doesn't support virtual pointer/keyboard");
     else
