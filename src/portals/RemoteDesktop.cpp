@@ -98,9 +98,10 @@ dbUasv CRemoteDesktopPortal::onCreateSession(sdbus::ObjectPath requestHandle, sd
     PSESSION->request->onDestroy = [PSESSION]() { PSESSION->request.release(); };
 
     std::unordered_map<std::string, sdbus::Variant> results;
-    results["session_handle"]  = sdbus::Variant{sessionHandle};
+    std::unordered_map<std::string, sdbus::Variant> res;
+    res["session_handle"] = sdbus::Variant{sdbus::ObjectPath{sessionHandle}};
     Debug::log(LOG, "[remotedesktop] CreateSession returning for appid={}", appID);
-    return {0, results};
+    return {0, res};
 }
 
 dbUasv CRemoteDesktopPortal::onSelectDevices(sdbus::ObjectPath requestHandle, sdbus::ObjectPath sessionHandle, std::string appID,
