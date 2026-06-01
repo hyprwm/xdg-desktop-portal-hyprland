@@ -226,7 +226,7 @@ int main(int argc, char* argv[]) {
     const auto WORKSPACES_SCROLL_AREA_CONTENTS_LAYOUT = WORKSPACES_SCROLL_AREA_CONTENTS->layout();
 
     for (auto& workspace : WORKSPACELIST) {
-        QString text = QString::number(workspace.id) + ": " + QString::fromStdString(workspace.name);
+        QString text = "Workspace: id=" + QString::number(workspace.id) + ", name=" + QString::fromStdString(workspace.name);
 
         ElidedButton* button = new ElidedButton(text);
         button->setMinimumSize(0, BUTTON_HEIGHT);
