@@ -321,43 +321,43 @@ void CPortalManager::startEventLoop() {
     };
 
     std::thread pollThr([this, &pollfds]() {
-            while (1) {
+        while (1) {
             int ret = poll(pollfds, 3, 5000 /* 5 seconds, reasonable. It's because we might need to terminate */);
             if (ret < 0) {
-            Debug::log(CRIT, "[core] Polling fds failed with {}", strerror(errno));
-            g_pPortalManager->terminate();
+                Debug::log(CRIT, "[core] Polling fds failed with {}", strerror(errno));
+                g_pPortalManager->terminate();
             }
 
             for (size_t i = 0; i < 3; ++i) {
-            if (pollfds[i].revents & POLLHUP) {
-            Debug::log(CRIT, "[core] Disconnected from pollfd id {}", i);
-            g_pPortalManager->terminate();
-            }
+                if (pollfds[i].revents & POLLHUP) {
+                    Debug::log(CRIT, "[core] Disconnected from pollfd id {}", i);
+                    g_pPortalManager->terminate();
+                }
             }
 
             if (m_bTerminate)
-            break;
+                break;
 
             if (ret != 0) {
-            Debug::log(TRACE, "[core] got poll event");
-            std::lock_guard<std::mutex> lg(m_sEventLoopInternals.loopRequestMutex);
-            m_sEventLoopInternals.shouldProcess = true;
-            m_sEventLoopInternals.loopSignal.notify_all();
+                Debug::log(TRACE, "[core] got poll event");
+                std::lock_guard<std::mutex> lg(m_sEventLoopInternals.loopRequestMutex);
+                m_sEventLoopInternals.shouldProcess = true;
+                m_sEventLoopInternals.loopSignal.notify_all();
             }
-            }
+        }
     });
 
     m_sTimersThread.thread = std::make_unique<std::thread>([this] {
-            while (1) {
+        while (1) {
             std::unique_lock lk(m_sTimersThread.loopMutex);
 
             // find nearest timer ms
             m_mEventLock.lock();
             float nearest = 60000; /* reasonable timeout */
             for (auto& t : m_sTimersThread.timers) {
-            float until = t->duration() - t->passedMs();
-            if (until < nearest)
-            nearest = until;
+                float until = t->duration() - t->passedMs();
+                if (until < nearest)
+                    nearest = until;
             }
             m_mEventLock.unlock();
 
@@ -365,7 +365,7 @@ void CPortalManager::startEventLoop() {
             m_sTimersThread.shouldProcess = false;
 
             if (m_bTerminate)
-            break;
+                break;
 
             // awakened. Check if any timers passed
             m_mEventLock.lock();
@@ -384,11 +384,11 @@ void CPortalManager::startEventLoop() {
                 m_sEventLoopInternals.shouldProcess = true;
                 m_sEventLoopInternals.loopSignal.notify_all();
             }
-            }
+        }
     });
 
     while (1) { // dbus events
-                // wait for being awakened
+        // wait for being awakened
         std::unique_lock lk(m_sEventLoopInternals.loopMutex);
         if (m_sEventLoopInternals.shouldProcess == false) // avoid a lock if a thread managed to request something already since we .unlock()ed
             m_sEventLoopInternals.loopSignal.wait_for(lk, std::chrono::seconds(5), [this] { return m_sEventLoopInternals.shouldProcess == true; }); // wait for events
@@ -441,7 +441,7 @@ void CPortalManager::startEventLoop() {
 
         if (!toRemove.empty())
             std::erase_if(m_sTimersThread.timers,
-                    [&](const auto& t) { return std::find_if(toRemove.begin(), toRemove.end(), [&](const auto& other) { return other == t.get(); }) != toRemove.end(); });
+                          [&](const auto& t) { return std::find_if(toRemove.begin(), toRemove.end(), [&](const auto& other) { return other == t.get(); }) != toRemove.end(); });
 
         m_mEventLock.unlock();
     }
