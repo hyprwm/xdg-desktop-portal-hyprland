@@ -148,9 +148,8 @@ SSelectionData promptForScreencopySelection() {
         }
     } else if (SEL.find("workspace:") == 0) {
         data.type         = TYPE_WORKSPACE;
-        data.workspaceName= SEL.substr(9);
+        data.workspaceName= SEL.substr(10);
         data.workspaceName.pop_back();
-                                           
     } else if (SEL.find("region:") == 0) {
         std::string running = SEL;
         running             = running.substr(7);

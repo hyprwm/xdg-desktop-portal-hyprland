@@ -641,7 +641,6 @@ void CScreencopyPortal::SSession::initCallbacks() {
             sharingData.frameInfoSHM.size   = stride * height;
             sharingData.frameInfoSHM.stride = stride;
 
-            // todo: done if ver < 3
         });
         sharingData.workspaceFrameCallback->setReady([this, self = self](CCHyprlandWorkspaceExportFrameV1* r, uint32_t tv_sec_hi, uint32_t tv_sec_lo, uint32_t tv_nsec) {
             Debug::log(TRACE, "[sc] hlOnReady for {}", (void*)self.get());
@@ -847,9 +846,11 @@ void CPipewireConnection::removeSessionFrameCallbacks(CScreencopyPortal::SSessio
 
     pSession->sharingData.frameCallback.reset();
     pSession->sharingData.windowFrameCallback.reset();
+    pSession->sharingData.workspaceFrameCallback.reset();
 
-    pSession->sharingData.windowFrameCallback = nullptr;
-    pSession->sharingData.frameCallback       = nullptr;
+    pSession->sharingData.windowFrameCallback    = nullptr;
+    pSession->sharingData.workspaceFrameCallback = nullptr;
+    pSession->sharingData.frameCallback          = nullptr;
 
     pSession->sharingData.status = FRAME_NONE;
 }
