@@ -9,6 +9,7 @@
 #include <unistd.h>
 
 #include <thread>
+#include <cstdio>
 
 SOutput::SOutput(SP<CCWlOutput> output_) : output(output_) {
     output->setName([this](CCWlOutput* o, const char* name_) {
@@ -241,8 +242,12 @@ void CPortalManager::onGlobalRemoved(uint32_t name) {
 void CPortalManager::init() {
     m_iPID = getpid();
 
+    // Create a D-Bus connection WITHOUT claiming the service name yet.
+    // We need the RemoteDesktop D-Bus object to be registered BEFORE the service
+    // name appears on the bus, otherwise the frontend portal (xdg-desktop-portal)
+    // will introspect us, see no RemoteDesktop interface, and skip us.
     try {
-        m_pConnection = sdbus::createSessionBusConnection(sdbus::ServiceName{"org.freedesktop.impl.portal.desktop.hyprland"});
+        m_pConnection = sdbus::createSessionBusConnection();
     } catch (std::exception& e) {
         Debug::log(CRIT, "Couldn't create the dbus connection ({})", e.what());
         exit(1);
@@ -304,11 +309,25 @@ void CPortalManager::init() {
     }
 
     // Initialize RemoteDesktop portal if protocols are available
+    
     Debug::log(LOG, "[core] init check: vp={}, vk={}, pw={}", !!m_sWaylandConnection.virtualPointerMgr, !!m_sWaylandConnection.virtualKeyboardMgr, !!m_sPipewire.loop);
-    if (!m_sWaylandConnection.virtualPointerMgr || !m_sWaylandConnection.virtualKeyboardMgr)
+    if (!m_sWaylandConnection.virtualPointerMgr || !m_sWaylandConnection.virtualKeyboardMgr) {
+        
         Debug::log(WARN, "RemoteDesktop not started: compositor doesn't support virtual pointer/keyboard");
-    else
+    } else
         m_sPortals.remoteDesktop = std::make_unique<CRemoteDesktopPortal>(m_sWaylandConnection.virtualPointerMgr, m_sWaylandConnection.virtualKeyboardMgr);
+    fflush(stdout);
+
+    // Now that all D-Bus objects are registered, claim our service name.
+    // The frontend portal introspects when it sees our name appear; if we claim
+    // the name too early (before RemoteDesktop object is registered), the
+    // frontend will see an empty interface set and skip us for RemoteDesktop.
+    
+    try {
+        m_pConnection->requestName(sdbus::ServiceName{"org.freedesktop.impl.portal.desktop.hyprland"});
+    } catch (std::exception& e) {
+        Debug::log(ERR, "Couldn't request service name ({})", e.what());
+    }
 
     wl_display_roundtrip(m_sWaylandConnection.display);
 
