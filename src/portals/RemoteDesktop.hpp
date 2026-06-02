@@ -74,6 +74,9 @@ class CRemoteDesktopPortal {
         SP<CCZwlrVirtualPointerV1>      virtualPointer;
         SP<CCZwpVirtualKeyboardV1>      virtualKeyboard;
 
+        // XKB modifier tracking for sendModifiers()
+        uint32_t                        modDepressed = 0;
+
         // EIS/libei state (created by ConnectToEIS)
         struct eis*                     eis          = nullptr;
         int                             eisFd        = -1; // fd to poll for EIS events
@@ -83,7 +86,7 @@ class CRemoteDesktopPortal {
     SSession* getSession(const sdbus::ObjectPath& path);
 
     // Keysym → keycode conversion (via xkbcommon)
-    uint32_t keycodeFromKeysym(uint32_t sym);
+    uint32_t keycodeFromKeysym(uint32_t sym, bool level0Only = false);
 
     std::unique_ptr<sdbus::IObject>           m_pObject;
     std::vector<std::unique_ptr<SSession>>     m_vSessions;

@@ -13,6 +13,23 @@ static uint32_t currentTimeMs() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
 }
 
+// Map linux evdev keycodes to xkb modifier bits.
+// Standard xkb modifier indices: Shift=0, Lock=1, Control=2, Mod1(Alt)=3, Mod4(Super)=6
+static uint32_t xkbModForEvdev(int evdevKeycode) {
+    switch (evdevKeycode) {
+    case 42:  case 54:  return 1 << 0; // KEY_LEFTSHIFT, KEY_RIGHTSHIFT
+    case 29:  case 97:  return 1 << 2; // KEY_LEFTCTRL, KEY_RIGHTCTRL
+    case 56:  case 100: return 1 << 3; // KEY_LEFTALT,  KEY_RIGHTALT
+    case 125: case 126: return 1 << 6; // KEY_LEFTMETA, KEY_RIGHTMETA
+    default: return 0;
+    }
+}
+
+static void updateModifiers(CCZwpVirtualKeyboardV1* vk, uint32_t modDepressed) {
+    if (vk)
+        vk->sendModifiers(modDepressed, 0, 0, 0);
+}
+
 // ─── CRemoteDesktopPortal implementation ─────────────────────────
 
 CRemoteDesktopPortal::CRemoteDesktopPortal(SP<CCZwlrVirtualPointerManagerV1> pointerMgr, SP<CCZwpVirtualKeyboardManagerV1> keyboardMgr) {
@@ -88,7 +105,7 @@ CRemoteDesktopPortal::SSession::~SSession() {
 
 dbUasv CRemoteDesktopPortal::onCreateSession(sdbus::ObjectPath requestHandle, sdbus::ObjectPath sessionHandle, std::string appID,
                                              std::unordered_map<std::string, sdbus::Variant> opts) {
-    Debug::log(LOG, "[remotedesktop] New session: appid={}", appID);
+    Debug::log(LOG, "[remotedesktop] New session: appid={} req={} sess={}", appID, requestHandle, sessionHandle);
 
     const auto PSESSION = m_vSessions.emplace_back(std::make_unique<SSession>(appID, requestHandle, sessionHandle)).get();
 
@@ -99,7 +116,12 @@ dbUasv CRemoteDesktopPortal::onCreateSession(sdbus::ObjectPath requestHandle, sd
 
     std::unordered_map<std::string, sdbus::Variant> results;
     std::unordered_map<std::string, sdbus::Variant> res;
-    res["session_handle"] = sdbus::Variant{sdbus::ObjectPath{sessionHandle}};
+    // session_handle must be serialized as a string, NOT an ObjectPath,
+    // because the GLib-based frontend portal uses g_variant_dict_lookup(,"&s")
+    // to extract it from the response variant dict.
+    res["session_handle"] = sdbus::Variant{std::string{sessionHandle}};
+
+
     Debug::log(LOG, "[remotedesktop] CreateSession returning for appid={}", appID);
     return {0, res};
 }
@@ -176,8 +198,35 @@ dbUasv CRemoteDesktopPortal::onStart(sdbus::ObjectPath requestHandle, sdbus::Obj
             wl_proxy* vkProxy   = m_sState.keyboard->sendCreateVirtualKeyboard(seatProxy);
             if (vkProxy) {
                 PSESSION->virtualKeyboard = makeShared<CCZwpVirtualKeyboardV1>(vkProxy);
+
+                // Send a keymap to the compositor. Required before any key events,
+                // otherwise the compositor sends a protocol error:
+                //   "Key event received before a keymap was set"
+                auto* ctx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+                if (ctx) {
+                    auto* km = xkb_keymap_new_from_names(ctx, nullptr, XKB_KEYMAP_COMPILE_NO_FLAGS);
+                    if (km) {
+                        char* kmStr = xkb_keymap_get_as_string(km, XKB_KEYMAP_FORMAT_TEXT_V1);
+                        if (kmStr) {
+                            char tmpName[] = "/tmp/xdph-kb-XXXXXX";
+                            int kfd = mkstemp(tmpName);
+                            if (kfd >= 0) {
+                                size_t sz = strlen(kmStr);
+                                write(kfd, kmStr, sz);
+                                lseek(kfd, 0, SEEK_SET);
+                                PSESSION->virtualKeyboard->sendKeymap(1 /* WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1 */, kfd, sz);
+                                close(kfd);
+                                unlink(tmpName);
+                            }
+                            free(kmStr);
+                        }
+                        xkb_keymap_unref(km);
+                    }
+                    xkb_context_unref(ctx);
+                }
+
                 wl_display_flush(display);
-                Debug::log(LOG, "[remotedesktop] virtual keyboard created");
+                Debug::log(LOG, "[remotedesktop] virtual keyboard created with keymap");
             }
         }
     }
@@ -185,8 +234,8 @@ dbUasv CRemoteDesktopPortal::onStart(sdbus::ObjectPath requestHandle, sdbus::Obj
     PSESSION->started = true;
 
     std::unordered_map<std::string, sdbus::Variant> results;
-    results["session_handle"] = sdbus::Variant{sessionHandle};
-    results["streams"]        = sdbus::Variant{std::vector<std::tuple<uint32_t, std::unordered_map<std::string, sdbus::Variant>>>{}};
+    // Must be a string, not ObjectPath — frontend expects GVariant string type
+    results["session_handle"] = sdbus::Variant{std::string{sessionHandle}};
     results["devices"]        = sdbus::Variant{PSESSION->deviceTypes};
 
     return {0, results};
@@ -199,7 +248,7 @@ sdbus::UnixFd CRemoteDesktopPortal::onConnectToEIS(sdbus::ObjectPath sessionHand
     const auto PSESSION = getSession(sessionHandle);
 
     if (!PSESSION) {
-        Debug::log(ERR, "[remotedesktop] ConnectToEIS: no session");
+        Debug::log(ERR, "[remotedesktop] ConnectToEIS: no session for {}", std::string(sessionHandle));
         return sdbus::UnixFd{-1};
     }
 
@@ -303,7 +352,18 @@ void CRemoteDesktopPortal::onNotifyKeyboardKeycode(sdbus::ObjectPath sessionHand
     if (!PSESSION || !PSESSION->virtualKeyboard)
         return;
 
+    
+
+    uint32_t modBit = xkbModForEvdev(keycode);
+    if (modBit) {
+        if (state == 1)
+            PSESSION->modDepressed |= modBit;
+        else
+            PSESSION->modDepressed &= ~modBit;
+    }
+
     PSESSION->virtualKeyboard->sendKey(currentTimeMs(), keycode, state);
+    updateModifiers(PSESSION->virtualKeyboard.get(), PSESSION->modDepressed);
     wl_display_flush(g_pPortalManager->m_sWaylandConnection.display);
 }
 
@@ -313,32 +373,26 @@ void CRemoteDesktopPortal::onNotifyKeyboardKeysym(sdbus::ObjectPath sessionHandl
     if (!PSESSION || !PSESSION->virtualKeyboard)
         return;
 
-    uint32_t keycode = keycodeFromKeysym(keysym);
+    // Find the base (unshifted) keycode for this keysym.
+    // Shift state is managed entirely by the KDE Connect handlePacket code
+    // (which sends separate keyboardKeycode(KEY_LEFTSHIFT, ...) calls).
+    // The backend must NOT also send shift, or the double-shift causes
+    // the modifier to be released prematurely.
+    uint32_t keycode = keycodeFromKeysym(keysym, false /* searchLevel0Only */);
     if (!keycode) {
         Debug::log(WARN, "[remotedesktop] keysym 0x{:x} not found in keymap", keysym);
         return;
     }
 
-    // Determine if shift is needed by checking if the keysym has a lowercase form
-    xkb_keysym_t lower = xkb_keysym_to_lower(static_cast<xkb_keysym_t>(keysym));
-    bool needsShift = (lower != static_cast<xkb_keysym_t>(keysym));
-
-    uint32_t time = currentTimeMs();
-
-    if (state == 1 /* pressed */ && needsShift)
-        PSESSION->virtualKeyboard->sendKey(time, KEY_LEFTSHIFT, 1);
-
-    PSESSION->virtualKeyboard->sendKey(time, keycode, state);
-
-    if (state == 1 /* pressed */ && needsShift)
-        PSESSION->virtualKeyboard->sendKey(time, KEY_LEFTSHIFT, 0);
-
+    
+    PSESSION->virtualKeyboard->sendKey(currentTimeMs(), keycode, state);
     wl_display_flush(g_pPortalManager->m_sWaylandConnection.display);
 }
 
 // ─── EIS event processing ───────────────────────────────────────
 
 void CRemoteDesktopPortal::processEISEvents() {
+    
     for (auto& s : m_vSessions) {
         if (!s->eis)
             continue;
@@ -348,8 +402,11 @@ void CRemoteDesktopPortal::processEISEvents() {
 
         // Process events (pull model)
         struct eis_event* event;
+        int evCount = 0;
         while ((event = eis_get_event(s->eis))) {
-            auto     eventType = eis_event_get_type(event);
+            auto eventType = eis_event_get_type(event);
+            
+            evCount++;
             auto*    client    = eis_event_get_client(event);
             auto*    seat      = eis_event_get_seat(event);
             uint32_t time      = currentTimeMs();
@@ -402,6 +459,38 @@ void CRemoteDesktopPortal::processEISEvents() {
                         eis_device_configure_type(dev, EIS_DEVICE_TYPE_VIRTUAL);
                         eis_device_configure_name(dev, "Hyprland virtual keyboard");
                         eis_device_configure_capability(dev, EIS_DEVICE_CAP_KEYBOARD);
+                        // Provide an XKB keymap so the EIS client can process keyboard events.
+                        // Without this, ei_device_keyboard_get_keymap() returns NULL on the client,
+                        // causing a crash.
+                        {
+                            auto* ctx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+                            if (ctx) {
+                                auto* km = xkb_keymap_new_from_names(ctx, nullptr, XKB_KEYMAP_COMPILE_NO_FLAGS);
+                                if (km) {
+                                    char* kmStr = xkb_keymap_get_as_string(km, XKB_KEYMAP_FORMAT_TEXT_V1);
+                                    if (kmStr) {
+                                        char tmpName[] = "/tmp/xdph-kb-XXXXXX";
+                                        int kfd = mkstemp(tmpName);
+                                        if (kfd >= 0) {
+                                            size_t sz = strlen(kmStr);
+                                            write(kfd, kmStr, sz);
+                                            lseek(kfd, 0, SEEK_SET);
+                                            // Use the libeis API: create keymap, add to device, release our ref
+                                            auto* eisKm = eis_device_new_keymap(dev, EIS_KEYMAP_TYPE_XKB, kfd, sz);
+                                            if (eisKm) {
+                                                eis_keymap_add(eisKm);
+                                                eis_keymap_unref(eisKm);
+                                            }
+                                            close(kfd);
+                                            unlink(tmpName);
+                                        }
+                                        free(kmStr);
+                                    }
+                                    xkb_keymap_unref(km);
+                                }
+                                xkb_context_unref(ctx);
+                            }
+                        }
                         eis_device_add(dev);
                         eis_device_start_emulating(dev, 0);
                         Debug::log(LOG, "[remotedesktop] EIS keyboard device added & emulating");
@@ -411,9 +500,12 @@ void CRemoteDesktopPortal::processEISEvents() {
             }
             case EIS_EVENT_POINTER_MOTION: {
                 if (s->virtualPointer) {
+                    double dx = eis_event_pointer_get_dx(event);
+                    double dy = eis_event_pointer_get_dy(event);
+                    
                     s->virtualPointer->sendMotion(time,
-                                                  wl_fixed_from_double(eis_event_pointer_get_dx(event)),
-                                                  wl_fixed_from_double(eis_event_pointer_get_dy(event)));
+                                                  wl_fixed_from_double(dx),
+                                                  wl_fixed_from_double(dy));
                 }
                 break;
             }
@@ -421,6 +513,7 @@ void CRemoteDesktopPortal::processEISEvents() {
                 if (s->virtualPointer) {
                     double x = eis_event_pointer_get_absolute_x(event);
                     double y = eis_event_pointer_get_absolute_y(event);
+                    
                     s->virtualPointer->sendMotionAbsolute(time, (uint32_t)x, (uint32_t)y, 3840, 2160);
                 }
                 break;
@@ -476,6 +569,7 @@ void CRemoteDesktopPortal::processEISEvents() {
                 break;
             }
             case EIS_EVENT_FRAME: {
+                
                 // Commit all pending events with a frame
                 if (s->virtualPointer)
                     s->virtualPointer->sendFrame();
@@ -494,21 +588,26 @@ void CRemoteDesktopPortal::processEISEvents() {
 
 // ─── Keysym → keycode conversion ─────────────────────────────────
 
-uint32_t CRemoteDesktopPortal::keycodeFromKeysym(uint32_t sym) {
+uint32_t CRemoteDesktopPortal::keycodeFromKeysym(uint32_t sym, bool level0Only) {
     if (!m_xkbKeymap)
         return 0;
 
     xkb_keycode_t min = xkb_keymap_min_keycode(m_xkbKeymap);
     xkb_keycode_t max = xkb_keymap_max_keycode(m_xkbKeymap);
 
-    // Search all levels (0 = unshifted, 1 = shifted, etc.)
+    
+
+    int maxLevel = level0Only ? 0 : 3;
     for (xkb_keycode_t code = min; code <= max; code++) {
-        for (int level = 0; level < 4; level++) {
+        for (int level = 0; level <= maxLevel; level++) {
             const xkb_keysym_t* syms;
             int nsyms = xkb_keymap_key_get_syms_by_level(m_xkbKeymap, code, 0, level, &syms);
             for (int i = 0; i < nsyms; i++) {
-                if (syms[i] == static_cast<xkb_keysym_t>(sym))
-                    return code - min + 1; // convert to evdev scancode
+                if (syms[i] == static_cast<xkb_keysym_t>(sym)) {
+                    uint32_t evdevCode = code - min + 1;
+                    
+                    return evdevCode;
+                }
             }
         }
     }
