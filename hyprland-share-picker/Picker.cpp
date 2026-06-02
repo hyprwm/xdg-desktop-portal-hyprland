@@ -341,12 +341,16 @@ void CPicker::populateRegion() {
 void CPicker::emitAndQuit(const std::string& kind, const std::string& detail) {
     const std::string FLAGS = m_restoreToken ? "r" : "";
     std::cout << "[SELECTION]" << FLAGS << "/" << kind << ":" << detail << "\n" << std::flush;
-    saveGeometry();
     quit();
 }
 
 void CPicker::quit() {
     // idempotent: safe to call multiple times (close-request, signal, selection emit)
+    static bool saved = false;
+    if (!saved) {
+        saveGeometry();
+        saved = true;
+    }
     if (m_window) {
         m_window->close();
         m_window.reset();
