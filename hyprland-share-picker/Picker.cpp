@@ -53,8 +53,19 @@ CPicker::~CPicker() {
 }
 
 int CPicker::run() {
+    if (!m_backend) {
+        std::cerr << "[picker] failed to create hyprtoolkit backend\n";
+        return 1;
+    }
+
     loadGeometry();
     build();
+
+    if (!m_window) {
+        std::cerr << "[picker] failed to create window\n";
+        return 1;
+    }
+
     switchTab(TAB_SCREENS);
     m_window->open();
     m_backend->enterLoop();
@@ -285,10 +296,13 @@ void CPicker::emitAndQuit(const std::string& kind, const std::string& detail) {
 }
 
 void CPicker::quit() {
+    // idempotent: safe to call multiple times (close-request, signal, selection emit)
     if (m_window) {
         m_window->close();
         m_window.reset();
     }
-    if (m_backend)
+    if (m_backend) {
         m_backend->destroy();
+        m_backend.reset();
+    }
 }
