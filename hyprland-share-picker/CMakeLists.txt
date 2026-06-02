@@ -25,3 +25,11 @@ target_link_libraries(hyprland-share-picker PRIVATE ${deps_LIBRARIES})
 target_compile_options(hyprland-share-picker PRIVATE ${deps_CFLAGS_OTHER})
 
 install(TARGETS hyprland-share-picker)
+
+# parser unit test: pure functions only, no toolkit/wayland deps.
+option(PICKER_TESTS "Build the picker parser tests" OFF)
+if(PICKER_TESTS)
+  enable_testing()
+  add_executable(picker-parsers-test tests_parsers.cpp Parsers.cpp)
+  add_test(NAME picker-parsers COMMAND picker-parsers-test)
+endif()

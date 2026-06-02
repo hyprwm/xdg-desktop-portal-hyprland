@@ -1,1 +1,2 @@
 option('systemd', type: 'feature', value: 'auto', description: 'Install systemd user service unit')
+option('tests', type: 'boolean', value: false, description: 'Build unit tests')
