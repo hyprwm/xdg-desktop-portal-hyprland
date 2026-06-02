@@ -5,9 +5,12 @@
 #include <hyprtoolkit/element/Button.hpp>
 #include <hyprtoolkit/element/Text.hpp>
 #include <hyprtoolkit/element/Null.hpp>
+#include <hyprtoolkit/element/Image.hpp>
 #include <hyprtoolkit/types/SizeType.hpp>
 #include <hyprtoolkit/types/FontTypes.hpp>
+#include <hyprtoolkit/types/ImageTypes.hpp>
 #include <hyprtoolkit/palette/Palette.hpp>
+#include <hyprtoolkit/system/Icons.hpp>
 
 #include <hyprutils/os/Process.hpp>
 
@@ -257,16 +260,46 @@ void CPicker::populateWindows() {
         return;
     }
 
+    auto icons = m_backend ? m_backend->systemIcons() : nullptr;
+
     for (const auto& w : WINDOWS) {
         const auto LABEL = truncate(w.clazz + ": " + w.title);
         const auto ID    = std::to_string(w.id);
-        auto       btn   = CButtonBuilder::begin()
-                               ->label(std::string{LABEL})
-                               ->onMainClick([this, ID](SP<CButtonElement>) { emitAndQuit("window", ID); })
-                               ->size({CDynamicSize::HT_SIZE_PERCENT, CDynamicSize::HT_SIZE_ABSOLUTE, {1.F, 40.F}})
-                               ->fontSize({CFontSize::HT_FONT_TEXT})
-                               ->commence();
-        m_sourcesList->addChild(btn);
+
+        SP<ISystemIconDescription> iconDesc;
+        if (icons && !w.clazz.empty())
+            iconDesc = icons->lookupIcon(w.clazz);
+
+        if (iconDesc && iconDesc->exists()) {
+            // row: icon + button. icon area is non-clickable, button is.
+            auto row = CRowLayoutBuilder::begin()
+                           ->gap(8)
+                           ->size({CDynamicSize::HT_SIZE_PERCENT, CDynamicSize::HT_SIZE_ABSOLUTE, {1.F, 40.F}})
+                           ->commence();
+            auto img = CImageBuilder::begin()
+                           ->icon(iconDesc)
+                           ->fitMode(IMAGE_FIT_MODE_CONTAIN)
+                           ->size({CDynamicSize::HT_SIZE_ABSOLUTE, CDynamicSize::HT_SIZE_PERCENT, {28.F, 1.F}})
+                           ->commence();
+            auto btn = CButtonBuilder::begin()
+                           ->label(std::string{LABEL})
+                           ->onMainClick([this, ID](SP<CButtonElement>) { emitAndQuit("window", ID); })
+                           ->size({CDynamicSize::HT_SIZE_PERCENT, CDynamicSize::HT_SIZE_PERCENT, {1.F, 1.F}})
+                           ->fontSize({CFontSize::HT_FONT_TEXT})
+                           ->commence();
+            btn->setGrow(true);
+            row->addChild(img);
+            row->addChild(btn);
+            m_sourcesList->addChild(row);
+        } else {
+            auto btn = CButtonBuilder::begin()
+                           ->label(std::string{LABEL})
+                           ->onMainClick([this, ID](SP<CButtonElement>) { emitAndQuit("window", ID); })
+                           ->size({CDynamicSize::HT_SIZE_PERCENT, CDynamicSize::HT_SIZE_ABSOLUTE, {1.F, 40.F}})
+                           ->fontSize({CFontSize::HT_FONT_TEXT})
+                           ->commence();
+            m_sourcesList->addChild(btn);
+        }
     }
 }
 
