@@ -41,6 +41,14 @@ namespace {
         return "?";
     }
 
+    // hyprtoolkit's CButton uses noEllipsize(true) for its label, so a 200-char
+    // window title would just overflow the row. truncate defensively.
+    std::string truncate(const std::string& s, size_t max = 80) {
+        if (s.size() <= max)
+            return s;
+        return s.substr(0, max - 1) + "\xE2\x80\xA6"; // u2026 horizontal ellipsis
+    }
+
 }
 
 CPicker::CPicker(bool allowTokenByDefault) : m_restoreToken(allowTokenByDefault) {
@@ -227,7 +235,7 @@ void CPicker::populateScreens() {
     }
 
     for (const auto& m : m_monitors) {
-        const auto LABEL = m.name + " (" + std::to_string(m.width) + "x" + std::to_string(m.height) + ")";
+        const auto LABEL = truncate(m.name + " (" + std::to_string(m.width) + "x" + std::to_string(m.height) + ")");
         const auto NAME  = m.name;
         auto       btn   = CButtonBuilder::begin()
                                ->label(std::string{LABEL})
@@ -250,7 +258,7 @@ void CPicker::populateWindows() {
     }
 
     for (const auto& w : WINDOWS) {
-        const auto LABEL = w.clazz + ": " + w.title;
+        const auto LABEL = truncate(w.clazz + ": " + w.title);
         const auto ID    = std::to_string(w.id);
         auto       btn   = CButtonBuilder::begin()
                                ->label(std::string{LABEL})
