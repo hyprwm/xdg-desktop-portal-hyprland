@@ -100,14 +100,23 @@ void CPicker::loadGeometry() {
 }
 
 void CPicker::saveGeometry() const {
+    namespace fs = std::filesystem;
     std::error_code ec;
-    std::filesystem::create_directories(std::filesystem::path(GEOMETRY_PATH).parent_path(), ec);
+    fs::create_directories(fs::path(GEOMETRY_PATH).parent_path(), ec);
 
-    std::ofstream f(GEOMETRY_PATH, std::ios::trunc);
-    if (!f.good())
-        return;
-    f << "width=" << static_cast<int>(m_logicalSize.x) << "\n";
-    f << "height=" << static_cast<int>(m_logicalSize.y) << "\n";
+    // atomic write: dump to a tmpfile next to the target, then rename. avoids
+    // half-written files if the process dies mid-write.
+    const std::string TMP = std::string{GEOMETRY_PATH} + ".tmp";
+    {
+        std::ofstream f(TMP, std::ios::trunc);
+        if (!f.good())
+            return;
+        f << "width=" << static_cast<int>(m_logicalSize.x) << "\n";
+        f << "height=" << static_cast<int>(m_logicalSize.y) << "\n";
+    }
+    fs::rename(TMP, GEOMETRY_PATH, ec);
+    if (ec)
+        fs::remove(TMP, ec);
 }
 
 void CPicker::build() {
