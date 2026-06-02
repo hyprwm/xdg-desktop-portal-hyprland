@@ -604,8 +604,9 @@ uint32_t CRemoteDesktopPortal::keycodeFromKeysym(uint32_t sym, bool level0Only) 
             int nsyms = xkb_keymap_key_get_syms_by_level(m_xkbKeymap, code, 0, level, &syms);
             for (int i = 0; i < nsyms; i++) {
                 if (syms[i] == static_cast<xkb_keysym_t>(sym)) {
-                    uint32_t evdevCode = code - min + 1;
-                    
+                    // XKB keycodes are evdev scancodes + 8 in the standard evdev ruleset.
+                    // code - min + 1 is wrong when min != 9; use the fixed 8 offset.
+                    uint32_t evdevCode = code - 8;
                     return evdevCode;
                 }
             }
