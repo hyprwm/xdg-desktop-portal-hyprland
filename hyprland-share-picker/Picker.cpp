@@ -138,42 +138,36 @@ void CPicker::build() {
                                           ->size({CDynamicSize::HT_SIZE_PERCENT, CDynamicSize::HT_SIZE_PERCENT, {1.F, 1.F}})
                                           ->commence());
 
-    // tab row: anchored to top
-    m_tabRow = CRowLayoutBuilder::begin()->gap(6)->size({CDynamicSize::HT_SIZE_PERCENT, CDynamicSize::HT_SIZE_ABSOLUTE, {0.96F, 40.F}})->commence();
-    m_tabRow->setPositionMode(IElement::HT_POSITION_ABSOLUTE);
-    m_tabRow->setPositionFlag(IElement::HT_POSITION_FLAG_TOP, true);
-    m_tabRow->setPositionFlag(IElement::HT_POSITION_FLAG_HCENTER, true);
-    m_tabRow->setMargin(8);
-    m_window->m_rootElement->addChild(m_tabRow);
+    // one vertical stack: tab row / source panel (grows) / footer. a single
+    // column with uniform margin keeps spacing consistent at any window size,
+    // instead of three separately-anchored absolute panels.
+    constexpr float GAP    = 10.F;
+    constexpr float MARGIN = 12.F;
+    constexpr float TABS_H = 44.F;
+    constexpr float FOOT_H = 40.F;
+
+    auto root = CColumnLayoutBuilder::begin()->gap(GAP)->size({CDynamicSize::HT_SIZE_PERCENT, CDynamicSize::HT_SIZE_PERCENT, {1.F, 1.F}})->commence();
+    root->setMargin(MARGIN);
+    m_window->m_rootElement->addChild(root);
+
+    // tab row
+    m_tabRow = CRowLayoutBuilder::begin()->gap(GAP)->size({CDynamicSize::HT_SIZE_PERCENT, CDynamicSize::HT_SIZE_ABSOLUTE, {1.F, TABS_H}})->commence();
+    root->addChild(m_tabRow);
     buildTabBar(m_tabRow);
 
-    // footer: anchored to bottom
-    auto footerBg = CRectangleBuilder::begin()
-                        ->color([bk = m_backend] { return bk->getPalette()->m_colors.alternateBase; })
-                        ->rounding(8)
-                        ->size({CDynamicSize::HT_SIZE_PERCENT, CDynamicSize::HT_SIZE_ABSOLUTE, {0.96F, 40.F}})
-                        ->commence();
-    footerBg->setPositionMode(IElement::HT_POSITION_ABSOLUTE);
-    footerBg->setPositionFlag(IElement::HT_POSITION_FLAG_BOTTOM, true);
-    footerBg->setPositionFlag(IElement::HT_POSITION_FLAG_HCENTER, true);
-    footerBg->setMargin(8);
-    m_window->m_rootElement->addChild(footerBg);
-
-    auto footer = CRowLayoutBuilder::begin()->gap(8)->size({CDynamicSize::HT_SIZE_PERCENT, CDynamicSize::HT_SIZE_PERCENT, {1.F, 1.F}})->commence();
-    footer->setMargin(8);
-    footerBg->addChild(footer);
-
-    // source list between
+    // source panel: grows to fill the space between tabs and footer. uses a
+    // fixed 1px base height + setGrow rather than AUTO; an AUTO container holding
+    // a percent-sized scroll area measures circularly and overflows the column,
+    // which would push the footer off-screen.
     auto scrollBg = CRectangleBuilder::begin()
                         ->color([bk = m_backend] { return bk->getPalette()->m_colors.base; })
                         ->rounding(8)
                         ->borderColor([bk = m_backend] { return bk->getPalette()->m_colors.alternateBase; })
                         ->borderThickness(1)
-                        ->size({CDynamicSize::HT_SIZE_PERCENT, CDynamicSize::HT_SIZE_PERCENT, {0.96F, 0.78F}})
+                        ->size({CDynamicSize::HT_SIZE_PERCENT, CDynamicSize::HT_SIZE_ABSOLUTE, {1.F, 1.F}})
                         ->commence();
-    scrollBg->setPositionMode(IElement::HT_POSITION_ABSOLUTE);
-    scrollBg->setPositionFlag(IElement::HT_POSITION_FLAG_CENTER, true);
-    m_window->m_rootElement->addChild(scrollBg);
+    scrollBg->setGrow(true);
+    root->addChild(scrollBg);
 
     auto scroll = CScrollAreaBuilder::begin()->scrollY(true)->size({CDynamicSize::HT_SIZE_PERCENT, CDynamicSize::HT_SIZE_PERCENT, {1.F, 1.F}})->commence();
     scrollBg->addChild(scroll);
@@ -182,19 +176,35 @@ void CPicker::build() {
     m_sourcesList->setMargin(8);
     scroll->addChild(m_sourcesList);
 
+    // footer: checkbox + label
+    auto footerBg = CRectangleBuilder::begin()
+                        ->color([bk = m_backend] { return bk->getPalette()->m_colors.alternateBase; })
+                        ->rounding(8)
+                        ->size({CDynamicSize::HT_SIZE_PERCENT, CDynamicSize::HT_SIZE_ABSOLUTE, {1.F, FOOT_H}})
+                        ->commence();
+    root->addChild(footerBg);
+
+    auto footer = CRowLayoutBuilder::begin()->gap(8)->size({CDynamicSize::HT_SIZE_PERCENT, CDynamicSize::HT_SIZE_PERCENT, {1.F, 1.F}})->commence();
+    footer->setMargin(10);
+    footerBg->addChild(footer);
+
     m_restoreCheckbox = CCheckboxBuilder::begin()
                             ->toggled(m_restoreToken)
                             ->onToggled([this](SP<CCheckboxElement>, bool state) { m_restoreToken = state; })
-                            ->size({CDynamicSize::HT_SIZE_ABSOLUTE, CDynamicSize::HT_SIZE_PERCENT, {20.F, 1.F}})
+                            ->size({CDynamicSize::HT_SIZE_ABSOLUTE, CDynamicSize::HT_SIZE_ABSOLUTE, {18.F, 18.F}})
                             ->commence();
+    m_restoreCheckbox->setPositionMode(IElement::HT_POSITION_ABSOLUTE);
+    m_restoreCheckbox->setPositionFlag(IElement::HT_POSITION_FLAG_VCENTER, true);
     footer->addChild(m_restoreCheckbox);
 
     auto restoreLabel = CTextBuilder::begin()
                             ->text("Allow restore session")
                             ->color([bk = m_backend] { return bk->getPalette()->m_colors.text; })
                             ->fontSize({CFontSize::HT_FONT_TEXT})
-                            ->size({CDynamicSize::HT_SIZE_AUTO, CDynamicSize::HT_SIZE_PERCENT, {1.F, 1.F}})
+                            ->size({CDynamicSize::HT_SIZE_AUTO, CDynamicSize::HT_SIZE_AUTO, {1.F, 1.F}})
                             ->commence();
+    restoreLabel->setPositionMode(IElement::HT_POSITION_ABSOLUTE);
+    restoreLabel->setPositionFlag(IElement::HT_POSITION_FLAG_VCENTER, true);
     footer->addChild(restoreLabel);
 
     // events
