@@ -7,12 +7,12 @@
   hyprland,
   hyprland-protocols,
   hyprlang,
+  hyprtoolkit,
   hyprutils,
   hyprwayland-scanner,
   libdrm,
   libgbm,
   pipewire,
-  qt6,
   sdbus-cpp_2,
   slurp,
   systemd,
@@ -37,20 +37,17 @@ stdenv.mkDerivation {
     cmake
     makeWrapper
     pkg-config
-    qt6.wrapQtAppsHook
     hyprwayland-scanner
   ];
 
   buildInputs = [
     hyprland-protocols
     hyprlang
+    hyprtoolkit
     hyprutils
     libdrm
     libgbm
     pipewire
-    qt6.qtbase
-    qt6.qttools
-    qt6.qtwayland
     sdbus-cpp_2
     systemd
     wayland
@@ -62,11 +59,8 @@ stdenv.mkDerivation {
 
   dontStrip = true;
 
-  dontWrapQtApps = true;
-
   postInstall = ''
     wrapProgramShell $out/bin/hyprland-share-picker \
-      "''${qtWrapperArgs[@]}" \
       --prefix PATH ":" ${
         lib.makeBinPath [
           slurp

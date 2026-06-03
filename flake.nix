@@ -20,6 +20,14 @@
       inputs.systems.follows = "systems";
     };
 
+    hyprtoolkit = {
+      url = "github:hyprwm/hyprtoolkit";
+      inputs.hyprutils.follows = "hyprutils";
+      inputs.hyprlang.follows = "hyprlang";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.systems.follows = "systems";
+    };
+
     hyprutils = {
       url = "github:hyprwm/hyprutils";
       inputs.nixpkgs.follows = "nixpkgs";
