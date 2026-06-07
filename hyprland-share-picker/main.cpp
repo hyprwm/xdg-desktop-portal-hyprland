@@ -17,6 +17,11 @@ namespace {
 }
 
 int main(int argc, char** argv) {
+    // our stdout is the IPC channel to xdph (the [SELECTION] line). keep hyprtoolkit's
+    // debug logging off it so nothing can ever interleave with or trail the selection.
+    // must be set before the backend is created (the logger reads it on first log).
+    setenv("HT_QUIET", "1", 1);
+
     struct sigaction sa{};
     sa.sa_handler = onTermSignal;
     sigemptyset(&sa.sa_mask);
