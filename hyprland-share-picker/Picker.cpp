@@ -11,8 +11,11 @@
 #include <hyprtoolkit/types/ImageTypes.hpp>
 #include <hyprtoolkit/palette/Palette.hpp>
 #include <hyprtoolkit/system/Icons.hpp>
+#include <hyprtoolkit/core/Input.hpp>
 
 #include <hyprutils/os/Process.hpp>
+
+#include <xkbcommon/xkbcommon-keysyms.h>
 
 #include <cstdlib>
 #include <filesystem>
@@ -207,9 +210,24 @@ void CPicker::build() {
     restoreLabel->setPositionFlag(IElement::HT_POSITION_FLAG_VCENTER, true);
     footer->addChild(restoreLabel);
 
+    // clicking the label toggles the checkbox too, the usual expectation
+    restoreLabel->setReceivesMouse(true);
+    restoreLabel->setMouseButton([this](Input::eMouseButton btn, bool down) {
+        if (!down || btn != Input::MOUSE_BUTTON_LEFT || !m_restoreCheckbox)
+            return;
+        const bool NS = !m_restoreCheckbox->state();
+        m_restoreCheckbox->setState(NS); // setState does not fire onToggled, so mirror the flag here
+        m_restoreToken = NS;
+    });
+
     // events
     m_resizeListener = m_window->m_events.resized.listen([this](Vector2D size) { m_logicalSize = size; });
     m_closeListener  = m_window->m_events.closeRequest.listen([this] { quit(); });
+    // esc cancels, same as closing the window: no [SELECTION] emitted
+    m_keyListener = m_window->m_events.keyboardKey.listen([this](Input::SKeyboardKeyEvent ev) {
+        if (ev.xkbKeysym == XKB_KEY_Escape)
+            quit();
+    });
 }
 
 void CPicker::buildTabBar(const SP<IElement>& parent) {
@@ -294,7 +312,7 @@ void CPicker::populateWindows() {
             auto btn = CButtonBuilder::begin()
                            ->label(std::string{LABEL})
                            ->onMainClick([this, ID](SP<CButtonElement>) { emitAndQuit("window", ID); })
-                           ->size({CDynamicSize::HT_SIZE_PERCENT, CDynamicSize::HT_SIZE_PERCENT, {1.F, 1.F}})
+                           ->size({CDynamicSize::HT_SIZE_PERCENT, CDynamicSize::HT_SIZE_PERCENT, {0.2F, 1.F}})
                            ->fontSize({CFontSize::HT_FONT_TEXT})
                            ->commence();
             btn->setGrow(true);

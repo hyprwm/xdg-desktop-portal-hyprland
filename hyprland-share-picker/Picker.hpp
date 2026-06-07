@@ -52,6 +52,7 @@ class CPicker {
 
     Hyprutils::Signal::CHyprSignalListener m_closeListener;
     Hyprutils::Signal::CHyprSignalListener m_resizeListener;
+    Hyprutils::Signal::CHyprSignalListener m_keyListener;
 
     std::vector<Picker::SMonitorEntry>     m_monitors;
     Hyprutils::Math::Vector2D              m_logicalSize{720, 600};
