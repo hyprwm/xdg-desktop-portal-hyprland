@@ -1,5 +1,4 @@
 #include "MiscFunctions.hpp"
-#include "../helpers/Log.hpp"
 
 #include <unistd.h>
 #include <filesystem>
@@ -7,6 +6,7 @@
 #include <vector>
 #include <string>
 #include <algorithm>
+#include <format>
 
 #include <hyprutils/os/Process.hpp>
 using namespace Hyprutils::OS;
@@ -22,10 +22,9 @@ std::string execAndGet(const char* cmd) {
 }
 
 void addHyprlandNotification(const std::string& icon, float timeMs, const std::string& color, const std::string& message) {
-    const std::string CMD = std::format("hyprctl notify {} {} {} \"{}\"", icon, timeMs, color, message);
-    Debug::log(LOG, "addHyprlandNotification: {}", CMD);
-    if (fork() == 0)
-        execl("/bin/sh", "/bin/sh", "-c", CMD.c_str(), nullptr);
+    // argv, never /bin/sh -c: `message` can carry untrusted text (e.g. an app_id) a shell would expand
+    CProcess proc("hyprctl", {"notify", icon, std::format("{}", timeMs), color, message});
+    proc.runAsync();
 }
 
 bool inShellPath(const std::string& exec) {
