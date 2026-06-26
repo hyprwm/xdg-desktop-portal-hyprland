@@ -2,6 +2,8 @@
 #define ELIDEDBUTTON_H
 
 #include <QPushButton>
+#include <QIcon>
+#include <QSize>
 
 class ElidedButton : public QPushButton
 {
@@ -9,6 +11,7 @@ public:
     explicit ElidedButton(QWidget *parent = nullptr);
     explicit ElidedButton(const QString &text, QWidget *parent = nullptr);
     void setText(QString);
+    void setIcon(const QIcon &icon);
 
 protected:
     void resizeEvent(QResizeEvent *);
