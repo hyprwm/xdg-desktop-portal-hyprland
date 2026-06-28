@@ -1,66 +1,35 @@
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.16)
 
 project(
   hyprland-share-picker
-  VERSION 0.1
+  VERSION 0.2
   LANGUAGES CXX)
 
-set(QT_VERSION_MAJOR 6)
-
-set(CMAKE_AUTOUIC ON)
-set(CMAKE_AUTOMOC ON)
-set(CMAKE_AUTORCC ON)
-
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
-find_package(QT NAMES Qt6 REQUIRED COMPONENTS Widgets)
-find_package(Qt6 REQUIRED COMPONENTS Widgets)
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(
   deps
   REQUIRED
-  IMPORTED_TARGET
-  hyprutils>=0.2.6)
+  hyprutils>=0.11.0
+  hyprtoolkit>=0.5.4
+  pixman-1
+  libdrm)
 
-set(PROJECT_SOURCES main.cpp mainpicker.cpp mainpicker.h mainpicker.ui
-                    elidedbutton.h elidedbutton.cpp)
+add_executable(hyprland-share-picker main.cpp Picker.cpp Parsers.cpp)
 
-if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
-  qt_add_executable(hyprland-share-picker MANUAL_FINALIZATION
-                    ${PROJECT_SOURCES})
-  # Define target properties for Android with Qt 6 as: set_property(TARGET
-  # hyprland-share-picker APPEND PROPERTY QT_ANDROID_PACKAGE_SOURCE_DIR
-  # ${CMAKE_CURRENT_SOURCE_DIR}/android) For more information, see
-  # https://doc.qt.io/qt-6/qt-add-executable.html#target-creation
-else()
-  if(ANDROID)
-    add_library(hyprland-share-picker SHARED ${PROJECT_SOURCES})
-    # Define properties for Android with Qt 5 after find_package() calls as:
-    # set(ANDROID_PACKAGE_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/android")
-  else()
-    add_executable(hyprland-share-picker ${PROJECT_SOURCES})
-  endif()
-endif()
+target_include_directories(hyprland-share-picker PRIVATE ${deps_INCLUDE_DIRS})
+target_link_directories(hyprland-share-picker PRIVATE ${deps_LIBRARY_DIRS})
+target_link_libraries(hyprland-share-picker PRIVATE ${deps_LIBRARIES})
+target_compile_options(hyprland-share-picker PRIVATE ${deps_CFLAGS_OTHER})
 
-target_link_libraries(hyprland-share-picker
-                      PRIVATE Qt${QT_VERSION_MAJOR}::Widgets PkgConfig::deps)
+install(TARGETS hyprland-share-picker)
 
-set_target_properties(
-  hyprland-share-picker
-  PROPERTIES MACOSX_BUNDLE_GUI_IDENTIFIER my.example.com
-             MACOSX_BUNDLE_BUNDLE_VERSION ${PROJECT_VERSION}
-             MACOSX_BUNDLE_SHORT_VERSION_STRING
-             ${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}
-             MACOSX_BUNDLE TRUE
-             WIN32_EXECUTABLE TRUE)
-
-install(
-  TARGETS hyprland-share-picker
-  BUNDLE DESTINATION .
-  LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
-
-if(QT_VERSION_MAJOR EQUAL 6)
-  qt_finalize_executable(hyprland-share-picker)
+# parser unit test: pure functions only, no toolkit/wayland deps.
+option(PICKER_TESTS "Build the picker parser tests" OFF)
+if(PICKER_TESTS)
+  enable_testing()
+  add_executable(picker-parsers-test tests_parsers.cpp Parsers.cpp)
+  add_test(NAME picker-parsers COMMAND picker-parsers-test)
 endif()

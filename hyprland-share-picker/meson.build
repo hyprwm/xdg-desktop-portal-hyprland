@@ -1,23 +1,26 @@
-# select either qt6 or qt5
-qtdep = dependency('qt6', 'qt5', modules: ['Widgets'])
-qtver = qtdep.version()
-qt = import('qt' + qtver[0])
-
-ui_files = qt.compile_ui(sources: 'mainpicker.ui')
-moc = qt.compile_moc(headers: 'mainpicker.h')
+deps = [
+  dependency('hyprutils', version: '>=0.11.0'),
+  dependency('hyprtoolkit', version: '>=0.5.4'),
+  dependency('pixman-1'),
+  dependency('libdrm'),
+]
 
 sources = files([
   'main.cpp',
-  'mainpicker.cpp',
-  'mainpicker.h',
-  'elidedbutton.h',
-  'elidedbutton.cpp',
+  'Picker.cpp',
+  'Parsers.cpp',
 ])
 
 executable('hyprland-share-picker',
   sources,
-  ui_files,
-  moc,
-  dependencies: qtdep,
+  dependencies: deps,
   install: true
 )
+
+# parser unit test: pure functions only, no toolkit/wayland deps.
+if get_option('tests')
+  picker_parsers_test = executable('picker-parsers-test',
+    files('tests_parsers.cpp', 'Parsers.cpp'),
+  )
+  test('picker-parsers', picker_parsers_test)
+endif

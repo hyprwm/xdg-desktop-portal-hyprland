@@ -56,35 +56,33 @@ SSelectionData promptForScreencopySelection() {
 
     CProcess proc(std::string{*PCUSTOMPICKER}.empty() ? "hyprland-share-picker" : *PCUSTOMPICKER, args);
     proc.addEnv("WAYLAND_DISPLAY", WAYLAND_DISPLAY ? WAYLAND_DISPLAY : "");
-    proc.addEnv("QT_QPA_PLATFORM", "wayland");
     proc.addEnv("XCURSOR_SIZE", XCURSOR_SIZE ? XCURSOR_SIZE : "24");
     proc.addEnv("HYPRLAND_INSTANCE_SIGNATURE", HYPRLAND_INSTANCE_SIGNATURE ? HYPRLAND_INSTANCE_SIGNATURE : "0");
-    proc.addEnv("XDPH_WINDOW_SHARING_LIST", buildWindowList()); // buildWindowList will sanitize any shell stuff in case the picker (qt) does something funky? It shouldn't.
+    proc.addEnv("XDPH_WINDOW_SHARING_LIST", buildWindowList());
 
     if (!proc.runSync())
         return data;
 
-    const auto RETVAL    = proc.stdOut();
-    const auto RETVALERR = proc.stdErr();
+    const auto RETVAL = proc.stdOut();
 
-    if (!RETVAL.contains("[SELECTION]")) {
-        // failed
-        constexpr const char* QPA_ERR = "qt.qpa.plugin: Could not find the Qt platform plugin";
-
-        if (RETVAL.contains(QPA_ERR) || RETVALERR.contains(QPA_ERR)) {
-            // prompt the user to install qt5-wayland and qt6-wayland
-            addHyprlandNotification("3", 7000, "0", "[xdph] Could not open the picker: qt5-wayland or qt6-wayland doesn't seem to be installed.");
-        }
-
+    if (!RETVAL.contains("[SELECTION]"))
         return data;
-    }
 
-    const auto SELECTION = RETVAL.substr(RETVAL.find("[SELECTION]") + 11);
+    auto SELECTION = RETVAL.substr(RETVAL.find("[SELECTION]") + 11);
+
+    // the picker writes exactly one selection line. take just that line, so anything the
+    // picker may print after it (toolkit logs, teardown noise) can never leak into the value.
+    if (const auto NL = SELECTION.find_first_of('\n'); NL != std::string::npos)
+        SELECTION = SELECTION.substr(0, NL);
 
     Debug::log(LOG, "[sc] Selection: {}", SELECTION);
 
-    const auto FLAGS = SELECTION.substr(0, SELECTION.find_first_of('/'));
-    const auto SEL   = SELECTION.substr(SELECTION.find_first_of('/') + 1);
+    const auto SLASH = SELECTION.find_first_of('/');
+    if (SLASH == std::string::npos)
+        return data;
+
+    const auto FLAGS = SELECTION.substr(0, SLASH);
+    const auto SEL   = SELECTION.substr(SLASH + 1);
 
     for (auto& flag : FLAGS) {
         if (flag == 'r')
@@ -93,35 +91,38 @@ SSelectionData promptForScreencopySelection() {
             Debug::log(LOG, "[screencopy] unknown flag from share-picker: {}", flag);
     }
 
-    if (SEL.find("screen:") == 0) {
-        data.type   = TYPE_OUTPUT;
-        data.output = SEL.substr(7);
+    try {
+        if (SEL.find("screen:") == 0) {
+            data.type   = TYPE_OUTPUT;
+            data.output = SEL.substr(7); // the trailing newline is already gone
+        } else if (SEL.find("window:") == 0) {
+            data.type         = TYPE_WINDOW;
+            uint32_t handleLo = std::stoull(SEL.substr(7));
+            data.windowHandle = nullptr;
 
-        data.output.pop_back();
-    } else if (SEL.find("window:") == 0) {
-        data.type         = TYPE_WINDOW;
-        uint32_t handleLo = std::stoull(SEL.substr(7));
-        data.windowHandle = nullptr;
+            const auto HANDLE = g_pPortalManager->m_sHelpers.toplevel->handleFromHandleLower(handleLo);
+            if (HANDLE) {
+                data.windowHandle = HANDLE->handle;
+                data.windowClass  = HANDLE->windowClass;
+            }
+        } else if (SEL.find("region:") == 0) {
+            std::string running = SEL;
+            running             = running.substr(7);
+            data.type           = TYPE_GEOMETRY;
+            data.output         = running.substr(0, running.find_first_of('@'));
+            running             = running.substr(running.find_first_of('@') + 1);
 
-        const auto HANDLE = g_pPortalManager->m_sHelpers.toplevel->handleFromHandleLower(handleLo);
-        if (HANDLE) {
-            data.windowHandle = HANDLE->handle;
-            data.windowClass  = HANDLE->windowClass;
+            data.x  = std::stoi(running.substr(0, running.find_first_of(',')));
+            running = running.substr(running.find_first_of(',') + 1);
+            data.y  = std::stoi(running.substr(0, running.find_first_of(',')));
+            running = running.substr(running.find_first_of(',') + 1);
+            data.w  = std::stoi(running.substr(0, running.find_first_of(',')));
+            running = running.substr(running.find_first_of(',') + 1);
+            data.h  = std::stoi(running);
         }
-    } else if (SEL.find("region:") == 0) {
-        std::string running = SEL;
-        running             = running.substr(7);
-        data.type           = TYPE_GEOMETRY;
-        data.output         = running.substr(0, running.find_first_of('@'));
-        running             = running.substr(running.find_first_of('@') + 1);
-
-        data.x  = std::stoi(running.substr(0, running.find_first_of(',')));
-        running = running.substr(running.find_first_of(',') + 1);
-        data.y  = std::stoi(running.substr(0, running.find_first_of(',')));
-        running = running.substr(running.find_first_of(',') + 1);
-        data.w  = std::stoi(running.substr(0, running.find_first_of(',')));
-        running = running.substr(running.find_first_of(',') + 1);
-        data.h  = std::stoi(running);
+    } catch (const std::exception& e) {
+        Debug::log(ERR, "[screencopy] malformed selection from share-picker: {} ({})", SEL, e.what());
+        return SSelectionData{};
     }
 
     return data;

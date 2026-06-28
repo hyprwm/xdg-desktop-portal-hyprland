@@ -26,6 +26,7 @@ in
     inputs.hyprwayland-scanner.overlays.default
     inputs.hyprlang.overlays.default
     inputs.hyprutils.overlays.default
+    inputs.hyprtoolkit.overlays.default
     self.overlays.sdbus-cpp_2
     self.overlays.xdg-desktop-portal-hyprland
   ];
