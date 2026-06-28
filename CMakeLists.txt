@@ -63,6 +63,8 @@ pkg_check_modules(
   libspa-0.2
   libdrm
   gbm
+  xkbcommon
+  libeis-1.0
   hyprlang>=0.2.0
   hyprutils>=0.2.6
   hyprwayland-scanner>=0.4.2)
@@ -134,6 +136,8 @@ protocolnew("${HYPRLAND_PROTOCOLS}/protocols" "hyprland-toplevel-mapping-v1"
         true)
 protocolnew("stable/linux-dmabuf" "linux-dmabuf-v1" false)
 protocolnew("staging/ext-foreign-toplevel-list" "ext-foreign-toplevel-list-v1" false)
+protocolnew("${CMAKE_SOURCE_DIR}/protocols" "wlr-virtual-pointer-unstable-v1" true)
+protocolnew("${CMAKE_SOURCE_DIR}/protocols" "virtual-keyboard-unstable-v1" true)
 
 # Installation
 install(TARGETS hyprland-share-picker)

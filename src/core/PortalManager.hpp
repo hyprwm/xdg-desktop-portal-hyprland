@@ -8,6 +8,7 @@
 #include "../portals/Screencopy.hpp"
 #include "../portals/Screenshot.hpp"
 #include "../portals/GlobalShortcuts.hpp"
+#include "../portals/RemoteDesktop.hpp"
 #include "../helpers/Timer.hpp"
 #include "../shared/ToplevelManager.hpp"
 #include "../shared/ToplevelMappingManager.hpp"
@@ -19,6 +20,8 @@
 #include "linux-dmabuf-v1.hpp"
 #include "wlr-foreign-toplevel-management-unstable-v1.hpp"
 #include "wlr-screencopy-unstable-v1.hpp"
+#include "wlr-virtual-pointer-unstable-v1.hpp"
+#include "virtual-keyboard-unstable-v1.hpp"
 
 #include "../includes.hpp"
 #include "../dbusDefines.hpp"
@@ -61,6 +64,7 @@ class CPortalManager {
         std::unique_ptr<CScreencopyPortal>      screencopy;
         std::unique_ptr<CScreenshotPortal>      screenshot;
         std::unique_ptr<CGlobalShortcutsPortal> globalShortcuts;
+        std::unique_ptr<CRemoteDesktopPortal>   remoteDesktop;
     } m_sPortals;
 
     struct {
@@ -75,6 +79,9 @@ class CPortalManager {
         SP<CCZwpLinuxDmabufV1>                linuxDmabuf;
         SP<CCZwpLinuxDmabufFeedbackV1>        linuxDmabufFeedback;
         SP<CCWlShm>                           shm;
+        SP<CCWlSeat>                          seat;
+        SP<CCZwlrVirtualPointerManagerV1>     virtualPointerMgr;
+        SP<CCZwpVirtualKeyboardManagerV1>     virtualKeyboardMgr;
         gbm_bo*                               gbm       = nullptr;
         gbm_device*                           gbmDevice = nullptr;
         struct {
@@ -95,6 +102,9 @@ class CPortalManager {
 
     gbm_device*                  createGBMDevice(drmDevice* dev);
 
+    void                         addExtraPollFd(int fd);
+    void                         removeExtraPollFd(int fd);
+
     // terminate after the event loop has been created. Before we can exit()
     void terminate();
 
@@ -103,6 +113,10 @@ class CPortalManager {
 
     bool  m_bTerminate = false;
     pid_t m_iPID       = 0;
+
+    std::mutex              m_mExtraPollMutex;
+    std::vector<int>        m_vExtraPollFds;
+    std::vector<short>      m_vExtraPollRevents;
 
     struct {
         std::condition_variable loopSignal;
