@@ -290,6 +290,9 @@ void CPortalManager::init() {
 
     wl_display_roundtrip(m_sWaylandConnection.display);
 
+    // Initialize Settings portal
+    m_sPortals.settings = std::make_unique<CSettingsPortal>();
+
     startEventLoop();
 }
 
