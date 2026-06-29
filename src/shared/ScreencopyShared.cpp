@@ -1,5 +1,6 @@
 #include "ScreencopyShared.hpp"
 #include "../helpers/MiscFunctions.hpp"
+#include <format>
 #include <wayland-client.h>
 #include "../helpers/Log.hpp"
 #include <libdrm/drm_fourcc.h>
@@ -25,15 +26,50 @@ std::string sanitizeNameForWindowList(const std::string& name) {
     return result;
 }
 
+
+std::vector<std::string> split_lines(const std::string& str) {
+    std::vector<std::string> lines;
+    std::string::size_type pos = 0;
+    std::string::size_type prev = 0;
+
+    while ((pos = str.find('\n', prev)) != std::string::npos) {
+        lines.push_back(str.substr(prev, pos - prev));
+        prev = pos + 1;
+    }
+    // Add the remaining text after the last newline
+    lines.push_back(str.substr(prev));
+    return lines;
+}
+
 std::string buildWindowList() {
     std::string result = "";
     if (!g_pPortalManager->m_sPortals.screencopy->hasToplevelCapabilities())
         return result;
 
     for (auto& e : g_pPortalManager->m_sHelpers.toplevel->m_vToplevels) {
-        result += std::format("{}[HC>]{}[HT>]{}[HE>]{}[HA>]", (uint32_t)(((uint64_t)e->handle->resource()) & 0xFFFFFFFF), sanitizeNameForWindowList(e->windowClass),
+        result += std::format("{}[HC>]{}[HT>]{}[HE>]{}[HA>]", 
+                             (uint32_t)(((uint64_t)e->handle->resource()) & 0xFFFFFFFF), 
+                             sanitizeNameForWindowList(e->windowClass),
                               sanitizeNameForWindowList(e->windowTitle),
                               g_pPortalManager->m_sHelpers.toplevelMapping ? g_pPortalManager->m_sHelpers.toplevelMapping->getWindowForToplevel(e->handle) : 0);
+    }
+
+    return result;
+}
+
+std::string buildWorkspaceList() {
+    std::string result = "";
+    if (!g_pPortalManager->m_sPortals.screencopy->hasWorkspaceCapabilities())
+        return result;
+
+    //TODO: Do we need to get rid of this execAndGet?
+    const std::string out = execAndGet("hyprctl workspaces");
+
+    for (auto& line : split_lines(out)) {
+        int         id   = 0;
+        char        name[256] = {};
+        if (sscanf(line.c_str(), "workspace ID %d (%255[^)])", &id, name) == 2)
+            result += std::format("{}[WI>]{}[WN>]", id, name);
     }
 
     return result;
@@ -48,7 +84,7 @@ SSelectionData promptForScreencopySelection() {
 
     static auto* const* PALLOWTOKENBYDEFAULT =
         (Hyprlang::INT* const*)g_pPortalManager->m_sConfig.config->getConfigValuePtr("screencopy:allow_token_by_default")->getDataStaticPtr();
-    static auto* const*      PCUSTOMPICKER = (Hyprlang::STRING* const)g_pPortalManager->m_sConfig.config->getConfigValuePtr("screencopy:custom_picker_binary")->getDataStaticPtr();
+    static auto* const* PCUSTOMPICKER = (Hyprlang::STRING* const)g_pPortalManager->m_sConfig.config->getConfigValuePtr("screencopy:custom_picker_binary")->getDataStaticPtr();
 
     std::vector<std::string> args;
     if (**PALLOWTOKENBYDEFAULT)
@@ -60,12 +96,14 @@ SSelectionData promptForScreencopySelection() {
     proc.addEnv("XCURSOR_SIZE", XCURSOR_SIZE ? XCURSOR_SIZE : "24");
     proc.addEnv("HYPRLAND_INSTANCE_SIGNATURE", HYPRLAND_INSTANCE_SIGNATURE ? HYPRLAND_INSTANCE_SIGNATURE : "0");
     proc.addEnv("XDPH_WINDOW_SHARING_LIST", buildWindowList()); // buildWindowList will sanitize any shell stuff in case the picker (qt) does something funky? It shouldn't.
+    proc.addEnv("XDPH_WORKSPACE_SHARING_LIST", buildWorkspaceList()); //TODO: THKINH ADD WORKSPACE GET ALL
 
     if (!proc.runSync())
         return data;
 
     const auto RETVAL    = proc.stdOut();
     const auto RETVALERR = proc.stdErr();
+    Debug::log(ERR, RETVAL);
 
     if (!RETVAL.contains("[SELECTION]")) {
         // failed
@@ -108,6 +146,10 @@ SSelectionData promptForScreencopySelection() {
             data.windowHandle = HANDLE->handle;
             data.windowClass  = HANDLE->windowClass;
         }
+    } else if (SEL.find("workspace:") == 0) {
+        data.type         = TYPE_WORKSPACE;
+        data.workspaceName= SEL.substr(10);
+        data.workspaceName.pop_back();
     } else if (SEL.find("region:") == 0) {
         std::string running = SEL;
         running             = running.substr(7);

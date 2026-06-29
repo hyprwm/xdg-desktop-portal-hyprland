@@ -9,6 +9,7 @@
 #include <QtWidgets>
 #include <QSettings>
 #include <array>
+#include <cstdint>
 #include <cstdio>
 #include <iostream>
 #include <memory>
@@ -39,6 +40,38 @@ struct SWindowEntry {
     std::string        clazz;
     unsigned long long id = 0;
 };
+
+struct SWorkspaceEntry {
+    std::string name;
+    int64_t id;
+};
+
+std::vector<SWorkspaceEntry> getWorkspaces(const char* env) {
+    std::vector<SWorkspaceEntry> result;
+
+    if (!env)
+        return result;
+
+    std::string rolling = env;
+    while(!rolling.empty()) {
+        const auto IDSEPPOS = rolling.find("[WI>]");
+        const auto IDSTR    = rolling.substr(0, IDSEPPOS);
+
+        const auto NAMESEPPOS = rolling.find("[WN>]");
+        const auto NAMESTR    = rolling.substr(IDSEPPOS + 5, NAMESEPPOS - IDSEPPOS - 5);
+
+        try {
+            result.push_back({NAMESTR, std::stoll(IDSTR)});
+        } catch (std::exception& e) {
+            // silent err
+        }
+
+        rolling = rolling.substr(NAMESEPPOS + 5);
+    }
+
+    return result;
+}
+
 
 std::vector<SWindowEntry> getWindows(const char* env) {
     std::vector<SWindowEntry> result;
@@ -153,9 +186,8 @@ int main(int argc, char* argv[]) {
         (QWidget*)TAB1->findChild<QWidget*>("windows")->findChild<QScrollArea*>("scrollArea_2")->findChild<QWidget*>("scrollAreaWidgetContents_2");
 
     const auto WINDOWS_SCROLL_AREA_CONTENTS_LAYOUT = WINDOWS_SCROLL_AREA_CONTENTS->layout();
-
     // loop over them
-    int windowIterator = 0;
+    //int windowIterator = 0;
     for (auto& window : WINDOWLIST) {
         QString       text = QString::fromStdString(window.clazz + ": " + window.name);
 
@@ -180,11 +212,41 @@ int main(int argc, char* argv[]) {
             return 0;
         });
 
-        windowIterator++;
+        //windowIterator++;
     }
 
     QSpacerItem* WINDOWS_SPACER = new QSpacerItem(0, 10000, QSizePolicy::Expanding, QSizePolicy::Expanding);
     WINDOWS_SCROLL_AREA_CONTENTS_LAYOUT->addItem(WINDOWS_SPACER);
+
+    //workspaces
+    const char*  WORKSPACELISTSTR = getenv("XDPH_WORKSPACE_SHARING_LIST");
+    const auto   WORKSPACELIST   = getWorkspaces(WORKSPACELISTSTR);
+    const auto   WORKSPACES_SCROLL_AREA_CONTENTS = 
+        (QWidget*)TAB1->findChild<QWidget*>("workspaces")->findChild<QScrollArea*>("scrollArea_3")->findChild<QWidget*>("scrollAreaWidgetContents_3");
+    const auto WORKSPACES_SCROLL_AREA_CONTENTS_LAYOUT = WORKSPACES_SCROLL_AREA_CONTENTS->layout();
+
+    for (auto& workspace : WORKSPACELIST) {
+        QString text = "Workspace: id=" + QString::number(workspace.id) + ", name=" + QString::fromStdString(workspace.name);
+
+        ElidedButton* button = new ElidedButton(text);
+        button->setMinimumSize(0, BUTTON_HEIGHT);
+        WORKSPACES_SCROLL_AREA_CONTENTS_LAYOUT->addWidget(button);
+
+        mainPickerPtr->workspaceIDS[button] = workspace.id;
+
+        QObject::connect(button, &QPushButton::clicked, [=]() {
+            std::cout << "[SELECTION]";
+            std::cout << (ALLOWTOKENBUTTON->isChecked() ? "r" : "");
+            std::cout << "/";
+            std::cout << "workspace:" << mainPickerPtr->workspaceIDS[button] << "\n";
+            settings->setValue("width", mainPickerPtr->width());
+            settings->setValue("height", mainPickerPtr->height());
+            settings->sync();
+            pickerPtr->quit();
+            return 0;
+        });
+    }
+
 
     // lastly, region
     const auto    REGION_OBJECT = (QWidget*)TAB1->findChild<QWidget*>("region");

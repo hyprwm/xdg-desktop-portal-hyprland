@@ -34,6 +34,7 @@ struct SSelectionData {
     eSelectionType                    type = TYPE_INVALID;
     std::string                       output;
     SP<CCZwlrForeignToplevelHandleV1> windowHandle = nullptr;
+    std::string                       workspaceName = "";
     uint32_t                          x = 0, y = 0, w = 0, h = 0; // for TYPE_GEOMETRY
     bool                              allowToken = false;
 

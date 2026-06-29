@@ -1,6 +1,7 @@
 #include "PortalManager.hpp"
 #include "../helpers/Log.hpp"
 #include "../helpers/MiscFunctions.hpp"
+#include "hyprland-workspace-export-v1.hpp"
 
 #include <pipewire/pipewire.h>
 #include <poll.h>
@@ -68,6 +69,11 @@ void CPortalManager::onGlobal(uint32_t name, const char* interface, uint32_t ver
     else if (INTERFACE == hyprland_toplevel_export_manager_v1_interface.name) {
         m_sWaylandConnection.hyprlandToplevelMgr = makeShared<CCHyprlandToplevelExportManagerV1>(
             (wl_proxy*)wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &hyprland_toplevel_export_manager_v1_interface, version));
+    }
+
+    else if (INTERFACE == hyprland_workspace_export_manager_v1_interface.name) {
+        m_sWaylandConnection.hyprlandWorkspaceMgr = makeShared<CCHyprlandWorkspaceExportManagerV1>(
+            (wl_proxy*)wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &hyprland_workspace_export_manager_v1_interface, version));
     }
 
     else if (INTERFACE == wl_output_interface.name) {
@@ -269,10 +275,14 @@ void CPortalManager::init() {
 
     wl_display_roundtrip(m_sWaylandConnection.display);
 
-    if (!m_sPortals.screencopy)
+    if (!m_sPortals.screencopy) {
         Debug::log(WARN, "Screencopy not started: compositor doesn't support zwlr_screencopy_v1 or pw refused a loop");
-    else if (m_sWaylandConnection.hyprlandToplevelMgr)
-        m_sPortals.screencopy->appendToplevelExport(m_sWaylandConnection.hyprlandToplevelMgr);
+    } else {
+        if (m_sWaylandConnection.hyprlandToplevelMgr) 
+            m_sPortals.screencopy->appendToplevelExport(m_sWaylandConnection.hyprlandToplevelMgr);
+        if (m_sWaylandConnection.hyprlandWorkspaceMgr) 
+            m_sPortals.screencopy->appendWorkspaceExport(m_sWaylandConnection.hyprlandWorkspaceMgr);
+    }
 
     if (!inShellPath("grim"))
         Debug::log(WARN, "grim not found. Screenshots will not work.");
