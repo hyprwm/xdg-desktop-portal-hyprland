@@ -8,6 +8,7 @@
 #include <libdrm/drm_fourcc.h>
 #include <pipewire/pipewire.h>
 #include "linux-dmabuf-v1.hpp"
+#include <sys/mman.h>
 #include <unistd.h>
 
 constexpr static int MAX_RETRIES        = 10;
@@ -1156,6 +1157,92 @@ CPipewireConnection::SPWStream* CPipewireConnection::streamFromSession(CScreenco
     return nullptr;
 }
 
+static bool isFourByteDRMFormat(uint32_t fmt) {
+    switch (fmt) {
+        case DRM_FORMAT_XRGB8888:
+        case DRM_FORMAT_XBGR8888:
+        case DRM_FORMAT_RGBX8888:
+        case DRM_FORMAT_BGRX8888:
+        case DRM_FORMAT_ARGB8888:
+        case DRM_FORMAT_ABGR8888:
+        case DRM_FORMAT_RGBA8888:
+        case DRM_FORMAT_BGRA8888:
+        case DRM_FORMAT_XRGB2101010:
+        case DRM_FORMAT_XBGR2101010:
+        case DRM_FORMAT_RGBX1010102:
+        case DRM_FORMAT_BGRX1010102:
+        case DRM_FORMAT_ARGB2101010:
+        case DRM_FORMAT_ABGR2101010:
+        case DRM_FORMAT_RGBA1010102:
+        case DRM_FORMAT_BGRA1010102: return true;
+        default: return false;
+    }
+}
+
+static void swapPixel4(uint8_t* a, uint8_t* b) {
+    for (size_t i = 0; i < 4; ++i)
+        std::swap(a[i], b[i]);
+}
+
+static bool applySHMTransformForDiscordTest(SBuffer* pBuffer, wl_output_transform transform) {
+    if (!pBuffer || pBuffer->isDMABUF || transform == WL_OUTPUT_TRANSFORM_NORMAL)
+        return false;
+
+    if (!isFourByteDRMFormat(pBuffer->fmt)) {
+        Debug::log(WARN, "[pw] Discord transform test skipped unsupported SHM format {}", pBuffer->fmt);
+        return false;
+    }
+
+    if (pBuffer->planeCount != 1 || pBuffer->fd[0] < 0 || pBuffer->size[0] == 0 || pBuffer->stride[0] < pBuffer->w * 4) {
+        Debug::log(WARN, "[pw] Discord transform test skipped invalid SHM buffer");
+        return false;
+    }
+
+    uint8_t* data = (uint8_t*)mmap(nullptr, pBuffer->size[0], PROT_READ | PROT_WRITE, MAP_SHARED, pBuffer->fd[0], 0);
+    if (data == MAP_FAILED) {
+        Debug::log(ERR, "[pw] Discord transform test mmap failed");
+        return false;
+    }
+
+    switch (transform) {
+        case WL_OUTPUT_TRANSFORM_180: {
+            for (uint32_t y = 0; y < pBuffer->h; ++y) {
+                const uint32_t otherY = pBuffer->h - 1 - y;
+                for (uint32_t x = 0; x < pBuffer->w; ++x) {
+                    const uint32_t otherX = pBuffer->w - 1 - x;
+                    if (y > otherY || (y == otherY && x >= otherX))
+                        break;
+
+                    swapPixel4(data + y * pBuffer->stride[0] + x * 4, data + otherY * pBuffer->stride[0] + otherX * 4);
+                }
+            }
+            break;
+        }
+        case WL_OUTPUT_TRANSFORM_FLIPPED: {
+            for (uint32_t y = 0; y < pBuffer->h; ++y) {
+                for (uint32_t x = 0; x < pBuffer->w / 2; ++x)
+                    swapPixel4(data + y * pBuffer->stride[0] + x * 4, data + y * pBuffer->stride[0] + (pBuffer->w - 1 - x) * 4);
+            }
+            break;
+        }
+        case WL_OUTPUT_TRANSFORM_FLIPPED_180: {
+            for (uint32_t y = 0; y < pBuffer->h / 2; ++y) {
+                for (uint32_t x = 0; x < pBuffer->w; ++x)
+                    swapPixel4(data + y * pBuffer->stride[0] + x * 4, data + (pBuffer->h - 1 - y) * pBuffer->stride[0] + x * 4);
+            }
+            break;
+        }
+        default:
+            Debug::log(WARN, "[pw] Discord transform test only supports non-rotating SHM transforms, got {}", (int)transform);
+            munmap(data, pBuffer->size[0]);
+            return false;
+    }
+
+    munmap(data, pBuffer->size[0]);
+    Debug::log(TRACE, "[pw] Discord transform test applied SHM transform {}", (int)transform);
+    return true;
+}
+
 void CPipewireConnection::enqueue(CScreencopyPortal::SSession* pSession) {
     const auto PSTREAM = streamFromSession(pSession);
 
@@ -1178,6 +1265,12 @@ void CPipewireConnection::enqueue(CScreencopyPortal::SSession* pSession) {
 
     Debug::log(TRACE, "[pw] Enqueue data:");
 
+    const bool APPLIED_SHM_TRANSFORM = !CORRUPT && applySHMTransformForDiscordTest(PSTREAM->currentPWBuffer, pSession->sharingData.transform);
+    if (APPLIED_SHM_TRANSFORM) {
+        pSession->sharingData.damageCount = 1;
+        pSession->sharingData.damage[0]   = {0, 0, pSession->sharingData.frameInfoSHM.w, pSession->sharingData.frameInfoSHM.h};
+    }
+
     spa_meta_header* header = (spa_meta_header*)spa_buffer_find_meta_data(spaBuf, SPA_META_Header, sizeof(*header));
     if (header) {
         header->pts        = PSTREAM->pSession->sharingData.tvTimestampNs;
@@ -1190,7 +1283,7 @@ void CPipewireConnection::enqueue(CScreencopyPortal::SSession* pSession) {
 
     spa_meta_videotransform* vt = (spa_meta_videotransform*)spa_buffer_find_meta_data(spaBuf, SPA_META_VideoTransform, sizeof(*vt));
     if (vt) {
-        vt->transform = pSession->sharingData.transform;
+        vt->transform = APPLIED_SHM_TRANSFORM ? WL_OUTPUT_TRANSFORM_NORMAL : pSession->sharingData.transform;
         Debug::log(TRACE, "[pw]  | meta transform {}", vt->transform);
     }
 
