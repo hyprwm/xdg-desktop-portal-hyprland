@@ -349,13 +349,16 @@ void CPortalManager::startEventLoop() {
             if (ret < 0) {
                 Debug::log(CRIT, "[core] Polling fds failed with {}", strerror(errno));
                 g_pPortalManager->terminate();
+                break;
             }
 
-            for (size_t i = 0; i < 3; ++i) {
-                if (m_sEventLoopInternals.pollFds.data()->revents & POLLHUP) {
-                    Debug::log(CRIT, "[core] Disconnected from pollfd id {}", i);
-                    g_pPortalManager->terminate();
-                }
+            for (size_t i = 0; i < m_sEventLoopInternals.pollFds.size(); ++i) {
+                if (!(m_sEventLoopInternals.pollFds[i].revents & (POLLHUP | POLLERR | POLLNVAL)))
+                    continue;
+
+                Debug::log(CRIT, "[core] Disconnected from pollfd id {}", i);
+                g_pPortalManager->terminate();
+                break;
             }
 
             if (m_bTerminate)
@@ -557,7 +560,7 @@ void CPortalManager::addTimer(const CTimer& timer) {
 }
 
 void CPortalManager::addFdToEventLoop(int fd, short events, std::function<void()> callback) {
-    m_sEventLoopInternals.pollFds.emplace_back(pollfd{.fd = fd, .events = POLLIN});
+    m_sEventLoopInternals.pollFds.emplace_back(pollfd{.fd = fd, .events = events});
 
     if (callback == nullptr)
         return;
