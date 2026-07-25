@@ -21,11 +21,25 @@ SOutput::SOutput(SP<CCWlOutput> output_) : output(output_) {
         Debug::log(LOG, "Found output name {}", name);
     });
     output->setMode([this](CCWlOutput* r, uint32_t flags, int32_t width, int32_t height, int32_t refresh) { //
+        if (flags & WL_OUTPUT_MODE_CURRENT) {
+            physicalW = width;
+            physicalH = height;
+        }
         refreshRate = refresh;
     });
     output->setGeometry([this](CCWlOutput* r, int32_t x, int32_t y, int32_t physical_width, int32_t physical_height, int32_t subpixel, const char* make, const char* model,
                                int32_t transform_) { //
         transform = (wl_output_transform)transform_;
+    });
+    output->setScale([this](CCWlOutput* r, int32_t s) { //
+        scale = s;
+    });
+    output->setDone([this](CCWlOutput* r) {
+        if (physicalW > 0 && physicalH > 0 && scale > 0) {
+            logicalW = physicalW / scale;
+            logicalH = physicalH / scale;
+        }
+        Debug::log(LOG, "Output {} done: physical={}x{} scale={} logical={}x{}", name, physicalW, physicalH, scale, logicalW, logicalH);
     });
 }
 
@@ -602,6 +616,24 @@ gbm_device* CPortalManager::createGBMDevice(drmDevice* dev) {
 
     free(renderNode);
     return gbm_create_device(fd);
+}
+
+void CPortalManager::getOutputExtents(uint32_t& w, uint32_t& h) {
+    for (auto& o : m_vOutputs) {
+        if (o->logicalW > 0 && o->logicalH > 0) {
+            w = o->logicalW;
+            h = o->logicalH;
+            return;
+        }
+    }
+    // Fallback: physical dimensions if logical not yet computed
+    for (auto& o : m_vOutputs) {
+        if (o->physicalW > 0 && o->physicalH > 0) {
+            w = o->physicalW;
+            h = o->physicalH;
+            return;
+        }
+    }
 }
 
 void CPortalManager::addTimer(const CTimer& timer) {

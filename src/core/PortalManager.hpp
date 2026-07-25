@@ -37,6 +37,15 @@ struct SOutput {
     uint32_t            id          = 0;
     float               refreshRate = 60.0;
     wl_output_transform transform   = WL_OUTPUT_TRANSFORM_NORMAL;
+
+    // Physical mode dimensions (from wl_output.mode event)
+    int32_t             physicalW   = 0;
+    int32_t             physicalH   = 0;
+    // Scale factor (from wl_output.scale event)
+    int32_t             scale       = 1;
+    // Logical dimensions = physical / scale (computed in setDone)
+    int32_t             logicalW    = 0;
+    int32_t             logicalH    = 0;
 };
 
 struct SDMABUFModifier {
@@ -104,6 +113,10 @@ class CPortalManager {
 
     void                         addExtraPollFd(int fd);
     void                         removeExtraPollFd(int fd);
+
+    // Get the logical coordinate extents from the active output(s).
+    // Falls back to physical dimensions if logical not yet computed.
+    void                         getOutputExtents(uint32_t& w, uint32_t& h);
 
     // terminate after the event loop has been created. Before we can exit()
     void terminate();
