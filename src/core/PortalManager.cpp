@@ -593,6 +593,24 @@ gbm_device* CPortalManager::createGBMDevice(drmDevice* dev) {
     return gbm_create_device(fd);
 }
 
+void CPortalManager::getOutputExtents(uint32_t& w, uint32_t& h) {
+    for (auto& o : m_vOutputs) {
+        if (o->logicalWidth > 0 && o->logicalHeight > 0) {
+            w = o->logicalWidth;
+            h = o->logicalHeight;
+            return;
+        }
+    }
+    // Fallback: physical dimensions if logical not yet computed
+    for (auto& o : m_vOutputs) {
+        if (o->width > 0 && o->height > 0) {
+            w = o->width / std::max(o->scale, 1.0);
+            h = o->height / std::max(o->scale, 1.0);
+            return;
+        }
+    }
+}
+
 void CPortalManager::addTimer(const CTimer& timer) {
     Debug::log(TRACE, "[core] adding timer for {}ms", timer.duration());
     m_sTimersThread.timers.emplace_back(std::make_unique<CTimer>(timer));

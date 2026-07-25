@@ -125,6 +125,10 @@ class CPortalManager {
     void                         addFdToEventLoop(int fd, short events, std::function<void()> callback);
     void                         removeFdFromEventLoop(int fd);
 
+    // Get the logical coordinate extents from the active output(s).
+    // Falls back to physical dimensions if logical not yet computed.
+    void                         getOutputExtents(uint32_t& w, uint32_t& h);
+
     // terminate after the event loop has been created. Before we can exit()
     void terminate();
 

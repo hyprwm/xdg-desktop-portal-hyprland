@@ -61,6 +61,9 @@ CRemoteDesktopPortal::CRemoteDesktopPortal(SP<CCZwlrVirtualPointerManagerV1> poi
                         .implementedAs([this](sdbus::ObjectPath o, std::unordered_map<std::string, sdbus::Variant> m, double d1, double d2) {
                             onNotifyPointerMotion(o, m, d1, d2);
                         }),
+                    sdbus::registerMethod("NotifyPointerMotionAbsolute")
+                        .implementedAs([this](sdbus::ObjectPath o, std::unordered_map<std::string, sdbus::Variant> m, uint32_t u1, double d1,
+                                              double d2) { onNotifyPointerMotionAbsolute(o, m, u1, d1, d2); }),
                     sdbus::registerMethod("NotifyPointerButton")
                         .implementedAs([this](sdbus::ObjectPath o, std::unordered_map<std::string, sdbus::Variant> m, int32_t i1, uint32_t u1) {
                             onNotifyPointerButton(o, m, i1, u1);
@@ -303,6 +306,26 @@ void CRemoteDesktopPortal::onNotifyPointerMotion(sdbus::ObjectPath sessionHandle
     wl_display_flush(g_pPortalManager->m_sWaylandConnection.display);
 }
 
+void CRemoteDesktopPortal::onNotifyPointerMotionAbsolute(sdbus::ObjectPath sessionHandle, std::unordered_map<std::string, sdbus::Variant> opts,
+                                                         uint32_t stream, double x, double y) {
+    const auto PSESSION = getSession(sessionHandle);
+    if (!PSESSION || !PSESSION->virtualPointer)
+        return;
+
+    // Get the logical coordinate extents from the active output(s).
+    // The x/y values from the frontend portal are in the stream's logical
+    // coordinate space (see the RemoteDesktop XML spec). We forward these
+    // with the correct extents so the compositor scales properly.
+    uint32_t extentW = 3840, extentH = 2160; // generous fallback
+    if (g_pPortalManager)
+        g_pPortalManager->getOutputExtents(extentW, extentH);
+
+    Debug::log(TRACE, "[remotedesktop] NotifyPointerMotionAbsolute: x={}, y={}, extents={}x{}", x, y, extentW, extentH);
+    PSESSION->virtualPointer->sendMotionAbsolute(currentTimeMs(), (uint32_t)x, (uint32_t)y, extentW, extentH);
+    PSESSION->virtualPointer->sendFrame();
+    wl_display_flush(g_pPortalManager->m_sWaylandConnection.display);
+}
+
 void CRemoteDesktopPortal::onNotifyPointerButton(sdbus::ObjectPath sessionHandle, std::unordered_map<std::string, sdbus::Variant> opts, int32_t button,
                                                  uint32_t state) {
     const auto PSESSION = getSession(sessionHandle);
@@ -514,7 +537,10 @@ void CRemoteDesktopPortal::processEISEvents() {
                     double x = eis_event_pointer_get_absolute_x(event);
                     double y = eis_event_pointer_get_absolute_y(event);
                     
-                    s->virtualPointer->sendMotionAbsolute(time, (uint32_t)x, (uint32_t)y, 3840, 2160);
+                    uint32_t extentW = 3840, extentH = 2160; // fallback
+                    if (g_pPortalManager)
+                        g_pPortalManager->getOutputExtents(extentW, extentH);
+                    s->virtualPointer->sendMotionAbsolute(time, (uint32_t)x, (uint32_t)y, extentW, extentH);
                 }
                 break;
             }
