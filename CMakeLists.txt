@@ -77,7 +77,7 @@ if(NOT SDBUS_FOUND)
 endif()
 
 # same for hyprland-protocols
-pkg_check_modules(HYPRLAND_PROTOS IMPORTED_TARGET hyprland-protocols)
+pkg_check_modules(HYPRLAND_PROTOS IMPORTED_TARGET hyprland-protocols>=0.8.0)
 if(HYPRLAND_PROTOS_FOUND)
   set(HYPRLAND_PROTOCOLS "${HYPRLAND_PROTOS_PREFIX}/share/hyprland-protocols")
 else()
@@ -107,6 +107,7 @@ function(protocolnew protoPath protoName external)
            ${CMAKE_SOURCE_DIR}/protocols/${protoName}.hpp
     COMMAND hyprwayland-scanner --client ${path}/${protoName}.xml
             ${CMAKE_SOURCE_DIR}/protocols/
+    DEPENDS ${path}/${protoName}.xml
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
   target_sources(xdg-desktop-portal-hyprland PRIVATE protocols/${protoName}.cpp
                                                      protocols/${protoName}.hpp)
@@ -117,6 +118,7 @@ function(protocolWayland)
            ${CMAKE_SOURCE_DIR}/protocols/wayland.hpp
     COMMAND hyprwayland-scanner --wayland-enums --client
             ${WAYLAND_SCANNER_DIR}/wayland.xml ${CMAKE_SOURCE_DIR}/protocols/
+    DEPENDS ${WAYLAND_SCANNER_DIR}/wayland.xml
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
   target_sources(xdg-desktop-portal-hyprland PRIVATE protocols/wayland.cpp
                                                      protocols/wayland.hpp)
