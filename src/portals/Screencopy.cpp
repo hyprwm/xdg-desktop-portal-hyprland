@@ -9,6 +9,9 @@
 #include <pipewire/pipewire.h>
 #include "linux-dmabuf-v1.hpp"
 #include <unistd.h>
+#include <hyprutils/math/Vector2D.hpp>
+
+using namespace Hyprutils::Math;
 
 constexpr static int MAX_RETRIES        = 10;
 constexpr static int MAX_DMABUF_RETRIES = 2;
@@ -367,11 +370,20 @@ void CScreencopyPortal::SSession::startCopy() {
     if (selection.type == TYPE_GEOMETRY) {
         sharingData.frameCallback = makeShared<CCZwlrScreencopyFrameV1>(g_pPortalManager->m_sPortals.screencopy->m_sState.screencopy->sendCaptureOutputRegion(
             OVERLAYCURSOR, POUTPUT->output->resource(), selection.x, selection.y, selection.w, selection.h));
-        sharingData.transform     = POUTPUT->transform;
+        sharingData.transform     = WL_OUTPUT_TRANSFORM_NORMAL;
     } else if (selection.type == TYPE_OUTPUT) {
         sharingData.frameCallback =
             makeShared<CCZwlrScreencopyFrameV1>(g_pPortalManager->m_sPortals.screencopy->m_sState.screencopy->sendCaptureOutput(OVERLAYCURSOR, POUTPUT->output->resource()));
-        sharingData.transform = POUTPUT->transform;
+
+        // Since Hyprland#15714, hyprland will no longer (wrongly) send transformed buffers. If the buffer size matches, let's send normal.
+        // this is not perfect (180 will be wrong on old hl) but it's the best we can do
+        // always fall back to new.
+        const auto SIZE = sharingData.frameInfoSHM.w > 0 ? Vector2D{sc<float>(sharingData.frameInfoSHM.w), sc<float>(sharingData.frameInfoSHM.h)} :
+                                                           Vector2D{sc<float>(sharingData.frameInfoDMA.w), sc<float>(sharingData.frameInfoDMA.h)};
+        if (SIZE.x == POUTPUT->height && SIZE.y == POUTPUT->width)
+            sharingData.transform = POUTPUT->transform;
+        else
+            sharingData.transform = WL_OUTPUT_TRANSFORM_NORMAL;
     } else if (selection.type == TYPE_WINDOW) {
         if (!selection.windowHandle) {
             Debug::log(ERR, "[screencopy] selected invalid window?");
