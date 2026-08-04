@@ -497,10 +497,9 @@ void CScreencopyPortal::SSession::initCallbacks() {
                 // pwStreamStateChange() calls startFrameCopy() and installs a new frame
                 // callback. The reset() below then destroys it, leaving the session with
                 // no callback and nothing queued.
-                if (sharingData.copyRetries++ < MAX_RETRIES) {
+                if (sharingData.copyRetries++ < MAX_RETRIES)
                     Debug::log(LOG, "[sc] Retrying screencopy ({}/{})", sharingData.copyRetries, MAX_RETRIES);
-                    g_pPortalManager->m_sPortals.screencopy->queueNextShareFrame(this);
-                }
+                g_pPortalManager->m_sPortals.screencopy->queueNextShareFrame(this);
                 sharingData.frameCallback.reset();
                 return;
             }
@@ -616,10 +615,9 @@ void CScreencopyPortal::SSession::initCallbacks() {
                 // pwStreamStateChange() calls startFrameCopy() and installs a new frame
                 // callback. The reset() below then destroys it, leaving the session with
                 // no callback and nothing queued.
-                if (sharingData.copyRetries++ < MAX_RETRIES) {
+                if (sharingData.copyRetries++ < MAX_RETRIES)
                     Debug::log(LOG, "[sc] Retrying screencopy ({}/{})", sharingData.copyRetries, MAX_RETRIES);
-                    g_pPortalManager->m_sPortals.screencopy->queueNextShareFrame(this);
-                }
+                g_pPortalManager->m_sPortals.screencopy->queueNextShareFrame(this);
                 sharingData.windowFrameCallback.reset();
                 return;
             }
