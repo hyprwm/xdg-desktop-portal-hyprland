@@ -33,7 +33,7 @@ in
   xdg-desktop-portal-hyprland = lib.composeManyExtensions [
     (final: prev: {
       xdg-desktop-portal-hyprland = final.callPackage ./default.nix {
-        stdenv = prev.gcc15Stdenv;
+        stdenv = prev.gcc16Stdenv;
         inherit version;
         src = self;
       };
