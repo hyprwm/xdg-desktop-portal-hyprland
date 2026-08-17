@@ -488,11 +488,11 @@ void CScreencopyPortal::SSession::initCallbacks() {
             if ((PSTREAM->pwVideoInfo.format != pwFromDrmFourcc(FMT) && PSTREAM->pwVideoInfo.format != pwStripAlpha(pwFromDrmFourcc(FMT))) ||
                 (PSTREAM->pwVideoInfo.size.width != sharingData.frameInfoDMA.w || PSTREAM->pwVideoInfo.size.height != sharingData.frameInfoDMA.h)) {
                 Debug::log(LOG, "[sc] Incompatible formats, renegotiate stream");
-                sharingData.status = FRAME_RENEG;
-                g_pPortalManager->m_sPortals.screencopy->m_pPipewire->updateStreamParam(PSTREAM);
-                g_pPortalManager->m_sPortals.screencopy->queueNextShareFrame(this);
+                const auto EXPIRED = std::move(sharingData.frameCallback);
                 sharingData.status = FRAME_NONE;
-                sharingData.frameCallback.reset();
+                g_pPortalManager->m_sPortals.screencopy->m_pPipewire->updateStreamParam(PSTREAM);
+                if (!sharingData.frameCallback)
+                    g_pPortalManager->m_sPortals.screencopy->queueNextShareFrame(this);
                 return;
             }
 
@@ -606,11 +606,11 @@ void CScreencopyPortal::SSession::initCallbacks() {
             if ((PSTREAM->pwVideoInfo.format != pwFromDrmFourcc(FMT) && PSTREAM->pwVideoInfo.format != pwStripAlpha(pwFromDrmFourcc(FMT))) ||
                 (PSTREAM->pwVideoInfo.size.width != sharingData.frameInfoDMA.w || PSTREAM->pwVideoInfo.size.height != sharingData.frameInfoDMA.h)) {
                 Debug::log(LOG, "[sc] Incompatible formats, renegotiate stream");
-                sharingData.status = FRAME_RENEG;
-                g_pPortalManager->m_sPortals.screencopy->m_pPipewire->updateStreamParam(PSTREAM);
-                g_pPortalManager->m_sPortals.screencopy->queueNextShareFrame(this);
+                const auto EXPIRED = std::move(sharingData.windowFrameCallback);
                 sharingData.status = FRAME_NONE;
-                sharingData.windowFrameCallback.reset();
+                g_pPortalManager->m_sPortals.screencopy->m_pPipewire->updateStreamParam(PSTREAM);
+                if (!sharingData.windowFrameCallback)
+                    g_pPortalManager->m_sPortals.screencopy->queueNextShareFrame(this);
                 return;
             }
 
