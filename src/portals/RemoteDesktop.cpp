@@ -12,7 +12,6 @@
 static uint32_t currentTimeMs() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
 }
-
 // Map linux evdev keycodes to xkb modifier bits.
 // Standard xkb modifier indices: Shift=0, Lock=1, Control=2, Mod1(Alt)=3, Mod4(Super)=6
 static uint32_t xkbModForEvdev(int evdevKeycode) {
@@ -375,7 +374,7 @@ void CRemoteDesktopPortal::onNotifyKeyboardKeycode(sdbus::ObjectPath sessionHand
     if (!PSESSION || !PSESSION->virtualKeyboard)
         return;
 
-    
+
 
     uint32_t modBit = xkbModForEvdev(keycode);
     if (modBit) {
@@ -407,7 +406,7 @@ void CRemoteDesktopPortal::onNotifyKeyboardKeysym(sdbus::ObjectPath sessionHandl
         return;
     }
 
-    
+
     PSESSION->virtualKeyboard->sendKey(currentTimeMs(), keycode, state);
     wl_display_flush(g_pPortalManager->m_sWaylandConnection.display);
 }
@@ -415,7 +414,7 @@ void CRemoteDesktopPortal::onNotifyKeyboardKeysym(sdbus::ObjectPath sessionHandl
 // ─── EIS event processing ───────────────────────────────────────
 
 void CRemoteDesktopPortal::processEISEvents() {
-    
+
     for (auto& s : m_vSessions) {
         if (!s->eis)
             continue;
@@ -425,11 +424,9 @@ void CRemoteDesktopPortal::processEISEvents() {
 
         // Process events (pull model)
         struct eis_event* event;
-        int evCount = 0;
         while ((event = eis_get_event(s->eis))) {
             auto eventType = eis_event_get_type(event);
-            
-            evCount++;
+
             auto*    client    = eis_event_get_client(event);
             auto*    seat      = eis_event_get_seat(event);
             uint32_t time      = currentTimeMs();
@@ -471,9 +468,23 @@ void CRemoteDesktopPortal::processEISEvents() {
                         eis_device_configure_capability(dev, EIS_DEVICE_CAP_POINTER_ABSOLUTE);
                         eis_device_configure_capability(dev, EIS_DEVICE_CAP_BUTTON);
                         eis_device_configure_capability(dev, EIS_DEVICE_CAP_SCROLL);
+
+                        // Virtual absolute-pointer devices require at least one
+                        // region. Without it libei discards absolute motion as
+                        // outside the device's coordinate space.
+                        uint32_t extentW = 3840, extentH = 2160;
+                        if (g_pPortalManager)
+                            g_pPortalManager->getOutputExtents(extentW, extentH);
+                        if (auto* region = eis_device_new_region(dev)) {
+                            eis_region_set_offset(region, 0, 0);
+                            eis_region_set_size(region, extentW, extentH);
+                            eis_region_add(region);
+                            eis_region_unref(region);
+                        }
+
                         eis_device_add(dev);
-                        eis_device_start_emulating(dev, 0);
-                        Debug::log(LOG, "[remotedesktop] EIS pointer device added & emulating");
+                        eis_device_resume(dev);
+                        Debug::log(LOG, "[remotedesktop] EIS pointer device added & resumed with region {}x{}", extentW, extentH);
                     }
                 }
                 if (eis_event_seat_has_capability(event, EIS_DEVICE_CAP_KEYBOARD)) {
@@ -515,8 +526,8 @@ void CRemoteDesktopPortal::processEISEvents() {
                             }
                         }
                         eis_device_add(dev);
-                        eis_device_start_emulating(dev, 0);
-                        Debug::log(LOG, "[remotedesktop] EIS keyboard device added & emulating");
+                        eis_device_resume(dev);
+                        Debug::log(LOG, "[remotedesktop] EIS keyboard device added & resumed");
                     }
                 }
                 break;
@@ -525,7 +536,7 @@ void CRemoteDesktopPortal::processEISEvents() {
                 if (s->virtualPointer) {
                     double dx = eis_event_pointer_get_dx(event);
                     double dy = eis_event_pointer_get_dy(event);
-                    
+
                     s->virtualPointer->sendMotion(time,
                                                   wl_fixed_from_double(dx),
                                                   wl_fixed_from_double(dy));
@@ -536,7 +547,7 @@ void CRemoteDesktopPortal::processEISEvents() {
                 if (s->virtualPointer) {
                     double x = eis_event_pointer_get_absolute_x(event);
                     double y = eis_event_pointer_get_absolute_y(event);
-                    
+
                     uint32_t extentW = 3840, extentH = 2160; // fallback
                     if (g_pPortalManager)
                         g_pPortalManager->getOutputExtents(extentW, extentH);
@@ -595,7 +606,7 @@ void CRemoteDesktopPortal::processEISEvents() {
                 break;
             }
             case EIS_EVENT_FRAME: {
-                
+
                 // Commit all pending events with a frame
                 if (s->virtualPointer)
                     s->virtualPointer->sendFrame();
@@ -621,7 +632,7 @@ uint32_t CRemoteDesktopPortal::keycodeFromKeysym(uint32_t sym, bool level0Only) 
     xkb_keycode_t min = xkb_keymap_min_keycode(m_xkbKeymap);
     xkb_keycode_t max = xkb_keymap_max_keycode(m_xkbKeymap);
 
-    
+
 
     int maxLevel = level0Only ? 0 : 3;
     for (xkb_keycode_t code = min; code <= max; code++) {

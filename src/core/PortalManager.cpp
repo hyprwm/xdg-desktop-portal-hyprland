@@ -353,10 +353,10 @@ void CPortalManager::init() {
     }
 
     // Initialize RemoteDesktop portal if protocols are available
-    
+
     Debug::log(LOG, "[core] init check: vp={}, vk={}, pw={}", !!m_sWaylandConnection.virtualPointerMgr, !!m_sWaylandConnection.virtualKeyboardMgr, !!m_sPipewire.loop);
     if (!m_sWaylandConnection.virtualPointerMgr || !m_sWaylandConnection.virtualKeyboardMgr) {
-        
+
         Debug::log(WARN, "RemoteDesktop not started: compositor doesn't support virtual pointer/keyboard");
     } else
         m_sPortals.remoteDesktop = std::make_unique<CRemoteDesktopPortal>(m_sWaylandConnection.virtualPointerMgr, m_sWaylandConnection.virtualKeyboardMgr);
@@ -366,7 +366,7 @@ void CPortalManager::init() {
     // The frontend portal introspects when it sees our name appear; if we claim
     // the name too early (before RemoteDesktop object is registered), the
     // frontend will see an empty interface set and skip us for RemoteDesktop.
-    
+
     try {
         m_pConnection->requestName(sdbus::ServiceName{"org.freedesktop.impl.portal.desktop.hyprland"});
     } catch (std::exception& e) {
