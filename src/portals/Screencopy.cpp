@@ -206,14 +206,13 @@ dbUasv CScreencopyPortal::onSelectSources(sdbus::ObjectPath requestHandle, sdbus
         }
     }
 
-    // clang-format off
-    const bool     RESTOREDATAVALID = restoreData.exists &&
-    (
-        (!restoreData.output.empty() && g_pPortalManager->getOutputFromName(restoreData.output)) || // output exists
-        (!restoreData.windowClass.empty() && g_pPortalManager->m_sHelpers.toplevel->handleFromClass(restoreData.windowClass)) || // window exists
-        (restoreData.hasWorkspace && hasWorkspaceCapabilities() && g_pPortalManager->m_sHelpers.workspaceTracker->fromName(restoreData.workspace))
-    );
-    // clang-format on
+    const bool OUTPUTRESTORE =
+        !restoreData.hasWorkspace && restoreData.windowClass.empty() && !restoreData.output.empty() && g_pPortalManager->getOutputFromName(restoreData.output);
+    const bool WINDOWRESTORE = !PSESSION->remoteDesktop && !restoreData.hasWorkspace && !restoreData.windowClass.empty() && g_pPortalManager->m_sHelpers.toplevel &&
+        g_pPortalManager->m_sHelpers.toplevel->handleFromClass(restoreData.windowClass);
+    const bool WORKSPACERESTORE =
+        !PSESSION->remoteDesktop && restoreData.hasWorkspace && hasWorkspaceCapabilities() && g_pPortalManager->m_sHelpers.workspaceTracker->fromName(restoreData.workspace);
+    const bool     RESTOREDATAVALID = restoreData.exists && (OUTPUTRESTORE || WINDOWRESTORE || WORKSPACERESTORE);
 
     SSelectionData SHAREDATA;
     if (RESTOREDATAVALID) {
@@ -257,12 +256,15 @@ dbUasv CScreencopyPortal::onSelectSources(sdbus::ObjectPath requestHandle, sdbus
     if (SHAREDATA.type == TYPE_INVALID) {
         Debug::log(LOG, "[screencopy] restore data invalid / missing, prompting");
 
-        SHAREDATA = promptForScreencopySelection();
+        SHAREDATA = promptForScreencopySelection(!PSESSION->remoteDesktop);
     }
 
     Debug::log(LOG, "[screencopy] SHAREDATA returned selection {}", (int)SHAREDATA.type);
 
-    if (SHAREDATA.type == TYPE_WINDOW && !m_sState.toplevel) {
+    if ((SHAREDATA.type == TYPE_WINDOW || SHAREDATA.type == TYPE_WORKSPACE) && PSESSION->remoteDesktop) {
+        Debug::log(ERR, "[screencopy] Window and workspace sources are unsupported for RemoteDesktop sessions");
+        SHAREDATA.type = TYPE_INVALID;
+    } else if (SHAREDATA.type == TYPE_WINDOW && !m_sState.toplevel) {
         Debug::log(ERR, "[screencopy] Requested type window for no toplevel export protocol!");
         SHAREDATA.type = TYPE_INVALID;
     } else if (SHAREDATA.type == TYPE_WORKSPACE) {

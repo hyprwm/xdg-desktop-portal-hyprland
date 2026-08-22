@@ -238,7 +238,7 @@ static SSelectionData parsePickerSelection(const std::string& output, const std:
     return data;
 }
 
-SSelectionData promptForScreencopySelection() {
+SSelectionData promptForScreencopySelection(bool allowWindows) {
     const char*         WAYLAND_DISPLAY             = getenv("WAYLAND_DISPLAY");
     const char*         XCURSOR_SIZE                = getenv("XCURSOR_SIZE");
     const char*         HYPRLAND_INSTANCE_SIGNATURE = getenv("HYPRLAND_INSTANCE_SIGNATURE");
@@ -260,9 +260,9 @@ SSelectionData promptForScreencopySelection() {
         proc.addEnv("QT_QPA_PLATFORM", "wayland");
     proc.addEnv("XCURSOR_SIZE", XCURSOR_SIZE ? XCURSOR_SIZE : "24");
     proc.addEnv("HYPRLAND_INSTANCE_SIGNATURE", HYPRLAND_INSTANCE_SIGNATURE ? HYPRLAND_INSTANCE_SIGNATURE : "0");
-    proc.addEnv("XDPH_WINDOW_SHARING_LIST", buildWindowList());
+    proc.addEnv("XDPH_WINDOW_SHARING_LIST", allowWindows ? buildWindowList() : "");
     proc.addEnv("XDPH_OUTPUT_SHARING_LIST", buildOutputList());
-    proc.addEnv("XDPH_WORKSPACE_SHARING_LIST_V3", buildWorkspaceList(workspaces, v2Workspaces, legacyWorkspaces));
+    proc.addEnv("XDPH_WORKSPACE_SHARING_LIST_V3", allowWindows ? buildWorkspaceList(workspaces, v2Workspaces, legacyWorkspaces) : "");
     proc.addEnv("XDPH_WORKSPACE_SHARING_LIST_V2", v2Workspaces);
     proc.addEnv("XDPH_WORKSPACE_SHARING_LIST", legacyWorkspaces);
 

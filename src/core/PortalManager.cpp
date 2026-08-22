@@ -25,6 +25,9 @@ SOutput::SOutput(SP<CCWlOutput> output_) : output(output_) {
         Debug::log(LOG, "Found output name {}", name);
     });
     output->setMode([this](CCWlOutput* r, uint32_t flags, int32_t width_, int32_t height_, int32_t refresh) {
+        if (!(flags & WL_OUTPUT_MODE_CURRENT))
+            return;
+
         refreshRate = refresh;
         width       = width_;
         height      = height_;
@@ -39,6 +42,8 @@ SOutput::SOutput(SP<CCWlOutput> output_) : output(output_) {
     output->setDone([](CCWlOutput* r) {
         if (g_pPortalManager->m_sPortals.inputCapture != nullptr)
             g_pPortalManager->m_sPortals.inputCapture->zonesChanged();
+        if (g_pPortalManager->m_sPortals.remoteDesktop != nullptr)
+            g_pPortalManager->m_sPortals.remoteDesktop->updateEISPointerRegions();
     });
 }
 
@@ -61,6 +66,8 @@ void CPortalManager::setupXDGOutput(SOutput* output) {
     output->xdgOutput->setDone([](CCZxdgOutputV1* r) {
         if (g_pPortalManager->m_sPortals.inputCapture != nullptr)
             g_pPortalManager->m_sPortals.inputCapture->zonesChanged();
+        if (g_pPortalManager->m_sPortals.remoteDesktop != nullptr)
+            g_pPortalManager->m_sPortals.remoteDesktop->updateEISPointerRegions();
     });
 }
 
@@ -297,6 +304,8 @@ void CPortalManager::onGlobal(uint32_t name, const char* interface, uint32_t ver
 
 void CPortalManager::onGlobalRemoved(uint32_t name) {
     std::erase_if(m_vOutputs, [&](const auto& other) { return other->id == name; });
+    if (m_sPortals.remoteDesktop != nullptr)
+        m_sPortals.remoteDesktop->updateEISPointerRegions();
 }
 
 void CPortalManager::init() {
@@ -377,14 +386,10 @@ void CPortalManager::init() {
             Debug::log(INFO, "hyprpicker not found. We suggest to use hyprpicker for color picking to be less meh.");
     }
 
-    // Initialize RemoteDesktop portal if protocols are available
-
+    // Always register RemoteDesktop because the portal descriptor advertises it.
+    // Missing input protocols are reported through AvailableDeviceTypes.
     Debug::log(LOG, "[core] init check: vp={}, vk={}, pw={}", !!m_sWaylandConnection.virtualPointerMgr, !!m_sWaylandConnection.virtualKeyboardMgr, !!m_sPipewire.loop);
-    if (!m_sWaylandConnection.virtualPointerMgr && !m_sWaylandConnection.virtualKeyboardMgr) {
-
-        Debug::log(WARN, "RemoteDesktop not started: compositor supports neither virtual pointers nor virtual keyboards");
-    } else
-        m_sPortals.remoteDesktop = std::make_unique<CRemoteDesktopPortal>(m_sWaylandConnection.virtualPointerMgr, m_sWaylandConnection.virtualKeyboardMgr);
+    m_sPortals.remoteDesktop = std::make_unique<CRemoteDesktopPortal>(m_sWaylandConnection.virtualPointerMgr, m_sWaylandConnection.virtualKeyboardMgr);
     fflush(stdout);
 
     // Now that all D-Bus objects are registered, claim our service name.
@@ -712,13 +717,16 @@ void CPortalManager::getOutputLayout(int32_t& x, int32_t& y, uint32_t& w, uint32
         if (o->width == 0 || o->height == 0)
             continue;
 
-        const auto WIDTH  = sc<int32_t>(o->width / std::max(o->scale, 1.0));
-        const auto HEIGHT = sc<int32_t>(o->height / std::max(o->scale, 1.0));
-        minX              = found ? std::min(minX, o->x) : o->x;
-        minY              = found ? std::min(minY, o->y) : o->y;
-        maxX              = found ? std::max(maxX, o->x + WIDTH) : o->x + WIDTH;
-        maxY              = found ? std::max(maxY, o->y + HEIGHT) : o->y + HEIGHT;
-        found             = true;
+        auto WIDTH  = sc<int32_t>(o->width / std::max(o->scale, 1.0));
+        auto HEIGHT = sc<int32_t>(o->height / std::max(o->scale, 1.0));
+        if (o->transform == WL_OUTPUT_TRANSFORM_90 || o->transform == WL_OUTPUT_TRANSFORM_270 || o->transform == WL_OUTPUT_TRANSFORM_FLIPPED_90 ||
+            o->transform == WL_OUTPUT_TRANSFORM_FLIPPED_270)
+            std::swap(WIDTH, HEIGHT);
+        minX  = found ? std::min(minX, o->x) : o->x;
+        minY  = found ? std::min(minY, o->y) : o->y;
+        maxX  = found ? std::max(maxX, o->x + WIDTH) : o->x + WIDTH;
+        maxY  = found ? std::max(maxY, o->y + HEIGHT) : o->y + HEIGHT;
+        found = true;
     }
 
     if (found) {

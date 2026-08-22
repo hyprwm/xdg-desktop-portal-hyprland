@@ -47,8 +47,15 @@ class CRemoteDesktopPortal {
 
     // EIS event processing (called from the main event loop)
     void processEISEvents();
+    void updateEISPointerRegions();
 
   private:
+    struct SKeycode {
+        uint32_t           keycode   = 0;
+        xkb_mod_mask_t     modifiers = 0;
+        xkb_layout_index_t layout    = XKB_LAYOUT_INVALID;
+    };
+
     struct SSession {
         SSession(const std::string& app, const sdbus::ObjectPath& req, const sdbus::ObjectPath& sess) : appid(app), requestHandle(req), sessionHandle(sess) {}
         ~SSession();
@@ -66,30 +73,37 @@ class CRemoteDesktopPortal {
         bool                          started     = false;
 
         // Wayland objects (created on Start)
-        SP<CCZwlrVirtualPointerV1> virtualPointer;
-        SP<CCZwpVirtualKeyboardV1> virtualKeyboard;
+        SP<CCZwlrVirtualPointerV1>                  virtualPointer;
+        SP<CCZwpVirtualKeyboardV1>                  virtualKeyboard;
 
-        struct xkb_state*          xkbState        = nullptr;
-        bool                       axisActiveX     = false;
-        bool                       axisActiveY     = false;
-        int32_t                    discreteScrollX = 0;
-        int32_t                    discreteScrollY = 0;
+        struct xkb_state*                           xkbState        = nullptr;
+        bool                                        axisActiveX     = false;
+        bool                                        axisActiveY     = false;
+        int32_t                                     discreteScrollX = 0;
+        int32_t                                     discreteScrollY = 0;
+        std::unordered_map<int32_t, xkb_mod_mask_t> keysymModifiers;
+        std::unordered_map<int32_t, SKeycode>       keysymKeycodes;
 
         // EIS/libei state (created by ConnectToEIS)
-        struct eis* eis      = nullptr;
-        int         eisFd    = -1; // fd to poll for EIS events
-        bool        eisReady = false;
+        struct eis*        eis              = nullptr;
+        struct eis_seat*   eisSeat          = nullptr;
+        struct eis_device* eisPointer       = nullptr;
+        struct eis_device* eisKeyboard      = nullptr;
+        uint32_t           eisPointerWidth  = 0;
+        uint32_t           eisPointerHeight = 0;
+        int                eisFd            = -1; // fd to poll for EIS events
+        bool               eisReady         = false;
     };
 
     SSession* getSession(const sdbus::ObjectPath& path);
     void      destroySession(const sdbus::ObjectPath& path);
+    void      createEISPointerDevice(SSession* session);
+    void      removeEISPointerDevice(SSession* session, bool notifyClient = true);
+    void      createEISKeyboardDevice(SSession* session);
+    void      removeEISKeyboardDevice(SSession* session, bool notifyClient = true);
 
     // Keysym → keycode conversion (via xkbcommon)
-    struct SKeycode {
-        uint32_t       keycode   = 0;
-        xkb_mod_mask_t modifiers = 0;
-    };
-    SKeycode                               keycodeFromKeysym(uint32_t sym);
+    SKeycode                               keycodeFromKeysym(uint32_t sym, xkb_layout_index_t preferredLayout);
 
     std::unique_ptr<sdbus::IObject>        m_pObject;
     std::vector<std::unique_ptr<SSession>> m_vSessions;
