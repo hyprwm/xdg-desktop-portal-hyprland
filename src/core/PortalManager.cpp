@@ -22,6 +22,9 @@ SOutput::SOutput(SP<CCWlOutput> output_) : output(output_) {
         Debug::log(LOG, "Found output name {}", name);
     });
     output->setMode([this](CCWlOutput* r, uint32_t flags, int32_t width_, int32_t height_, int32_t refresh) {
+        if (!(flags & WL_OUTPUT_MODE_CURRENT))
+            return;
+
         refreshRate = refresh;
         width       = width_;
         height      = height_;
