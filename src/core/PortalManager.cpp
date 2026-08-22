@@ -112,8 +112,8 @@ void CPortalManager::onGlobal(uint32_t name, const char* interface, uint32_t ver
     }
 
     else if (INTERFACE == wl_seat_interface.name) {
-        m_sWaylandConnection.seat = makeShared<CCWlSeat>(
-            (wl_proxy*)wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &wl_seat_interface, std::min(version, 7u)));
+        m_sWaylandConnection.seat =
+            makeShared<CCWlSeat>((wl_proxy*)wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &wl_seat_interface, std::min(version, 7u)));
     }
 
     else if (INTERFACE == zwlr_virtual_pointer_manager_v1_interface.name) {
@@ -355,9 +355,9 @@ void CPortalManager::init() {
     // Initialize RemoteDesktop portal if protocols are available
 
     Debug::log(LOG, "[core] init check: vp={}, vk={}, pw={}", !!m_sWaylandConnection.virtualPointerMgr, !!m_sWaylandConnection.virtualKeyboardMgr, !!m_sPipewire.loop);
-    if (!m_sWaylandConnection.virtualPointerMgr || !m_sWaylandConnection.virtualKeyboardMgr) {
+    if (!m_sWaylandConnection.virtualPointerMgr && !m_sWaylandConnection.virtualKeyboardMgr) {
 
-        Debug::log(WARN, "RemoteDesktop not started: compositor doesn't support virtual pointer/keyboard");
+        Debug::log(WARN, "RemoteDesktop not started: compositor supports neither virtual pointers nor virtual keyboards");
     } else
         m_sPortals.remoteDesktop = std::make_unique<CRemoteDesktopPortal>(m_sWaylandConnection.virtualPointerMgr, m_sWaylandConnection.virtualKeyboardMgr);
     fflush(stdout);
@@ -370,7 +370,8 @@ void CPortalManager::init() {
     try {
         m_pConnection->requestName(sdbus::ServiceName{"org.freedesktop.impl.portal.desktop.hyprland"});
     } catch (std::exception& e) {
-        Debug::log(ERR, "Couldn't request service name ({})", e.what());
+        Debug::log(CRIT, "Couldn't request service name ({})", e.what());
+        exit(1);
     }
 
     wl_display_roundtrip(m_sWaylandConnection.display);
@@ -594,20 +595,45 @@ gbm_device* CPortalManager::createGBMDevice(drmDevice* dev) {
 }
 
 void CPortalManager::getOutputExtents(uint32_t& w, uint32_t& h) {
+    int32_t minX = 0, minY = 0, maxX = 0, maxY = 0;
+    bool    found = false;
+
     for (auto& o : m_vOutputs) {
-        if (o->logicalWidth > 0 && o->logicalHeight > 0) {
-            w = o->logicalWidth;
-            h = o->logicalHeight;
-            return;
-        }
+        if (!o->logicalPositionValid || !o->logicalSizeValid || o->logicalWidth <= 0 || o->logicalHeight <= 0)
+            continue;
+
+        minX  = found ? std::min(minX, o->logicalX) : o->logicalX;
+        minY  = found ? std::min(minY, o->logicalY) : o->logicalY;
+        maxX  = found ? std::max(maxX, o->logicalX + o->logicalWidth) : o->logicalX + o->logicalWidth;
+        maxY  = found ? std::max(maxY, o->logicalY + o->logicalHeight) : o->logicalY + o->logicalHeight;
+        found = true;
     }
-    // Fallback: physical dimensions if logical not yet computed
+
+    if (found) {
+        w = maxX - minX;
+        h = maxY - minY;
+        return;
+    }
+
+    // Fallback to wl_output geometry and scaled physical dimensions when
+    // xdg-output has not supplied logical geometry yet.
+    found = false;
     for (auto& o : m_vOutputs) {
-        if (o->width > 0 && o->height > 0) {
-            w = o->width / std::max(o->scale, 1.0);
-            h = o->height / std::max(o->scale, 1.0);
-            return;
-        }
+        if (o->width == 0 || o->height == 0)
+            continue;
+
+        const auto WIDTH  = sc<int32_t>(o->width / std::max(o->scale, 1.0));
+        const auto HEIGHT = sc<int32_t>(o->height / std::max(o->scale, 1.0));
+        minX              = found ? std::min(minX, o->x) : o->x;
+        minY              = found ? std::min(minY, o->y) : o->y;
+        maxX              = found ? std::max(maxX, o->x + WIDTH) : o->x + WIDTH;
+        maxY              = found ? std::max(maxY, o->y + HEIGHT) : o->y + HEIGHT;
+        found             = true;
+    }
+
+    if (found) {
+        w = maxX - minX;
+        h = maxY - minY;
     }
 }
 

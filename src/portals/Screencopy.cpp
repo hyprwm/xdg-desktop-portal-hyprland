@@ -249,7 +249,8 @@ dbUasv CScreencopyPortal::onSelectSources(sdbus::ObjectPath requestHandle, sdbus
         }
     }
 
-    PSESSION->selection = SHAREDATA;
+    PSESSION->selection       = SHAREDATA;
+    PSESSION->sourcesSelected = SHAREDATA.type != TYPE_INVALID;
 
     return {SHAREDATA.type == TYPE_INVALID ? 1 : 0, {}};
 }
@@ -272,18 +273,22 @@ dbUasv CScreencopyPortal::onStart(sdbus::ObjectPath requestHandle, sdbus::Object
 
     startSharing(PSESSION);
 
+    return {0, buildStartResults(PSESSION)};
+}
+
+std::unordered_map<std::string, sdbus::Variant> CScreencopyPortal::buildStartResults(SSession* pSession) {
     std::unordered_map<std::string, sdbus::Variant> options;
 
-    if (PSESSION->selection.allowToken) {
+    if (pSession->selection.allowToken) {
         // give them a token :)
-        options["restore_data"] = sdbus::Variant{getFullRestoreStruct(PSESSION->selection, PSESSION->cursorMode)};
+        options["restore_data"] = sdbus::Variant{getFullRestoreStruct(pSession->selection, pSession->cursorMode)};
         options["persist_mode"] = sdbus::Variant{uint32_t{2}};
 
-        Debug::log(LOG, "[screencopy] Sent restore token to {}", PSESSION->sessionHandle.c_str());
+        Debug::log(LOG, "[screencopy] Sent restore token to {}", pSession->sessionHandle.c_str());
     }
 
     uint32_t type = 0;
-    switch (PSESSION->selection.type) {
+    switch (pSession->selection.type) {
         case TYPE_OUTPUT: type = MONITOR; break;
         case TYPE_WINDOW: type = WINDOW; break;
         case TYPE_GEOMETRY:
@@ -296,20 +301,20 @@ dbUasv CScreencopyPortal::onStart(sdbus::ObjectPath requestHandle, sdbus::Object
 
     std::unordered_map<std::string, sdbus::Variant>                                       streamData;
     streamData["position"]    = sdbus::Variant{sdbus::Struct<int32_t, int32_t>{0, 0}};
-    streamData["size"]        = sdbus::Variant{sdbus::Struct<int32_t, int32_t>{PSESSION->sharingData.frameInfoSHM.w, PSESSION->sharingData.frameInfoSHM.h}};
+    streamData["size"]        = sdbus::Variant{sdbus::Struct<int32_t, int32_t>{pSession->sharingData.frameInfoSHM.w, pSession->sharingData.frameInfoSHM.h}};
     streamData["source_type"] = sdbus::Variant{uint32_t{type}};
 
-    if (PSESSION->selection.type == TYPE_OUTPUT && !PSESSION->selection.output.empty())
-        streamData["mapping_id"] = sdbus::Variant{PSESSION->selection.output};
+    if (pSession->selection.type == TYPE_OUTPUT && !pSession->selection.output.empty())
+        streamData["mapping_id"] = sdbus::Variant{pSession->selection.output};
 
-    if (PSESSION->sharingData.pipewireSerial != 0)
-        streamData["pipewire-serial"] = sdbus::Variant{PSESSION->sharingData.pipewireSerial};
+    if (pSession->sharingData.pipewireSerial != 0)
+        streamData["pipewire-serial"] = sdbus::Variant{pSession->sharingData.pipewireSerial};
 
-    streams.emplace_back(sdbus::Struct<uint32_t, std::unordered_map<std::string, sdbus::Variant>>{PSESSION->sharingData.nodeID, streamData});
+    streams.emplace_back(sdbus::Struct<uint32_t, std::unordered_map<std::string, sdbus::Variant>>{pSession->sharingData.nodeID, streamData});
 
     options["streams"] = sdbus::Variant{streams};
 
-    return {0, options};
+    return options;
 }
 
 void CScreencopyPortal::startSharing(CScreencopyPortal::SSession* pSession) {
@@ -656,14 +661,48 @@ void CScreencopyPortal::queueNextShareFrame(CScreencopyPortal::SSession* pSessio
     Debug::log(TRACE, "[screencopy] set fps {}, frame took {:.2f}ms, ms till next refresh {:.2f}, estimated actual fps: {:.2f}", pSession->sharingData.framerate, FRAMETOOKMS,
                MSTILNEXTREFRESH, std::clamp(1000.0 / FRAMETOOKMS, 1.0, (double)pSession->sharingData.framerate));
 
-    g_pPortalManager->addTimer(
-        {std::clamp(MSTILNEXTREFRESH - 1.0 /* safezone */, 6.0, 1000.0), [pSession]() { g_pPortalManager->m_sPortals.screencopy->startFrameCopy(pSession); }});
+    const auto PSESSION = pSession->self;
+    g_pPortalManager->addTimer({std::clamp(MSTILNEXTREFRESH - 1.0 /* safezone */, 6.0, 1000.0), [PSESSION]() {
+                                    if (PSESSION && g_pPortalManager->m_sPortals.screencopy)
+                                        g_pPortalManager->m_sPortals.screencopy->startFrameCopy(PSESSION.get());
+                                }});
 }
 bool CScreencopyPortal::hasToplevelCapabilities() {
     return !!m_sState.toplevel;
 }
 
-CScreencopyPortal::SSession* CScreencopyPortal::getSession(sdbus::ObjectPath& path) {
+void CScreencopyPortal::createRemoteDesktopSession(const std::string& appID, const sdbus::ObjectPath& sessionHandle) {
+    if (getSession(sessionHandle))
+        return;
+
+    g_pPortalManager->m_sHelpers.toplevel->activate();
+    const Hyprutils::Memory::CWeakPointer<SSession> PSESSION = m_vSessions.emplace_back(Hyprutils::Memory::makeUnique<SSession>(appID, sdbus::ObjectPath{"/"}, sessionHandle));
+    PSESSION->self                                           = PSESSION;
+    PSESSION->remoteDesktop                                  = true;
+}
+
+void CScreencopyPortal::destroyRemoteDesktopSession(const sdbus::ObjectPath& sessionHandle) {
+    std::erase_if(m_vSessions, [&](const auto& session) {
+        if (session->sessionHandle != sessionHandle || !session->remoteDesktop)
+            return false;
+
+        if (session->sharingData.active)
+            m_pPipewire->destroyStream(session.get());
+        g_pPortalManager->m_sHelpers.toplevel->deactivate();
+        return true;
+    });
+}
+
+std::unordered_map<std::string, sdbus::Variant> CScreencopyPortal::startRemoteDesktopSession(const sdbus::ObjectPath& sessionHandle) {
+    const auto PSESSION = getSession(sessionHandle);
+    if (!PSESSION || !PSESSION->remoteDesktop || !PSESSION->sourcesSelected)
+        return {};
+
+    startSharing(PSESSION);
+    return buildStartResults(PSESSION);
+}
+
+CScreencopyPortal::SSession* CScreencopyPortal::getSession(const sdbus::ObjectPath& path) {
     for (auto& s : m_vSessions) {
         if (s->sessionHandle == path)
             return s.get();

@@ -21,19 +21,16 @@ struct eis_device;
 class CRemoteDesktopPortal {
   public:
     CRemoteDesktopPortal(SP<CCZwlrVirtualPointerManagerV1> pointerMgr, SP<CCZwpVirtualKeyboardManagerV1> keyboardMgr);
-    ~CRemoteDesktopPortal() = default;
+    ~CRemoteDesktopPortal();
 
     // D-Bus session management
-    dbUasv onCreateSession(sdbus::ObjectPath requestHandle, sdbus::ObjectPath sessionHandle, std::string appID,
-                           std::unordered_map<std::string, sdbus::Variant> opts);
-    dbUasv onSelectDevices(sdbus::ObjectPath requestHandle, sdbus::ObjectPath sessionHandle, std::string appID,
-                           std::unordered_map<std::string, sdbus::Variant> opts);
+    dbUasv onCreateSession(sdbus::ObjectPath requestHandle, sdbus::ObjectPath sessionHandle, std::string appID, std::unordered_map<std::string, sdbus::Variant> opts);
+    dbUasv onSelectDevices(sdbus::ObjectPath requestHandle, sdbus::ObjectPath sessionHandle, std::string appID, std::unordered_map<std::string, sdbus::Variant> opts);
     dbUasv onStart(sdbus::ObjectPath requestHandle, sdbus::ObjectPath sessionHandle, std::string appID, std::string parentWindow,
                    std::unordered_map<std::string, sdbus::Variant> opts);
 
     // ConnectToEIS (libei-based input path - used by KDE Connect, etc.)
-    sdbus::UnixFd onConnectToEIS(sdbus::ObjectPath sessionHandle, std::string appID,
-                                 std::unordered_map<std::string, sdbus::Variant> opts);
+    sdbus::UnixFd onConnectToEIS(sdbus::ObjectPath sessionHandle, std::string appID, std::unordered_map<std::string, sdbus::Variant> opts);
 
     // Input notification handlers (fire-and-forget, void returns)
     void onNotifyPointerMotion(sdbus::ObjectPath sessionHandle, std::unordered_map<std::string, sdbus::Variant> opts, double dx, double dy);
@@ -53,44 +50,46 @@ class CRemoteDesktopPortal {
 
   private:
     struct SSession {
-        SSession(const std::string& app, const sdbus::ObjectPath& req, const sdbus::ObjectPath& sess)
-            : appid(app)
-            , requestHandle(req)
-            , sessionHandle(sess) {}
+        SSession(const std::string& app, const sdbus::ObjectPath& req, const sdbus::ObjectPath& sess) : appid(app), requestHandle(req), sessionHandle(sess) {}
         ~SSession();
 
-        std::string             appid;
-        sdbus::ObjectPath       requestHandle;
-        sdbus::ObjectPath       sessionHandle;
+        std::string                   appid;
+        sdbus::ObjectPath             requestHandle;
+        sdbus::ObjectPath             sessionHandle;
 
         std::unique_ptr<SDBusSession> session;
         std::unique_ptr<SDBusRequest> request;
 
-        CWeakPointer<SSession>  self;
+        CWeakPointer<SSession>        self;
 
-        uint32_t                deviceTypes    = 0; // bitmask: 1=keyboard, 2=pointer, 4=touchscreen
-        bool                    started        = false;
+        uint32_t                      deviceTypes = 0; // bitmask: 1=keyboard, 2=pointer, 4=touchscreen
+        bool                          started     = false;
 
         // Wayland objects (created on Start)
-        SP<CCZwlrVirtualPointerV1>      virtualPointer;
-        SP<CCZwpVirtualKeyboardV1>      virtualKeyboard;
+        SP<CCZwlrVirtualPointerV1> virtualPointer;
+        SP<CCZwpVirtualKeyboardV1> virtualKeyboard;
 
         // XKB modifier tracking for sendModifiers()
-        uint32_t                        modDepressed = 0;
+        uint32_t modDepressed = 0;
 
         // EIS/libei state (created by ConnectToEIS)
-        struct eis*                     eis          = nullptr;
-        int                             eisFd        = -1; // fd to poll for EIS events
-        bool                            eisReady     = false;
+        struct eis* eis      = nullptr;
+        int         eisFd    = -1; // fd to poll for EIS events
+        bool        eisReady = false;
     };
 
     SSession* getSession(const sdbus::ObjectPath& path);
+    void      destroySession(const sdbus::ObjectPath& path);
 
     // Keysym → keycode conversion (via xkbcommon)
-    uint32_t keycodeFromKeysym(uint32_t sym, bool level0Only = false);
+    struct SKeycode {
+        uint32_t       keycode   = 0;
+        xkb_mod_mask_t modifiers = 0;
+    };
+    SKeycode                               keycodeFromKeysym(uint32_t sym);
 
-    std::unique_ptr<sdbus::IObject>           m_pObject;
-    std::vector<std::unique_ptr<SSession>>     m_vSessions;
+    std::unique_ptr<sdbus::IObject>        m_pObject;
+    std::vector<std::unique_ptr<SSession>> m_vSessions;
 
     struct {
         SP<CCZwlrVirtualPointerManagerV1> pointer;
@@ -98,8 +97,8 @@ class CRemoteDesktopPortal {
     } m_sState;
 
     // XKB state for keysym → keycode conversion
-    struct xkb_context* m_xkbCtx   = nullptr;
-    struct xkb_keymap*  m_xkbKeymap = nullptr;
+    struct xkb_context*        m_xkbCtx    = nullptr;
+    struct xkb_keymap*         m_xkbKeymap = nullptr;
 
     const sdbus::InterfaceName INTERFACE_NAME = sdbus::InterfaceName{"org.freedesktop.impl.portal.RemoteDesktop"};
     const sdbus::ObjectPath    OBJECT_PATH    = sdbus::ObjectPath{"/org/freedesktop/portal/desktop"};

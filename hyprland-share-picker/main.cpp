@@ -63,7 +63,7 @@ std::vector<SWindowEntry> getWindows(const char* env) {
 
         // window address
         const auto WINDOWSEPPOS = rolling.find("[HA>]");
-        const auto WINDOWADDR = rolling.substr(TITLESEPPOS + 5, WINDOWSEPPOS - 5 - TITLESEPPOS);
+        const auto WINDOWADDR   = rolling.substr(TITLESEPPOS + 5, WINDOWSEPPOS - 5 - TITLESEPPOS);
 
         try {
             result.push_back({TITLESTR, CLASSSTR, std::stoull(IDSTR)});
@@ -81,9 +81,12 @@ int main(int argc, char* argv[]) {
     qputenv("QT_LOGGING_RULES", "qml=false");
 
     bool allowTokenByDefault = false;
+    bool remoteDesktop       = false;
     for (int i = 1; i < argc; ++i) {
         if (argv[i] == std::string{"--allow-token"})
             allowTokenByDefault = true;
+        else if (argv[i] == std::string{"--remote-desktop"})
+            remoteDesktop = true;
     }
 
     const char*  WINDOWLISTSTR = getenv("XDPH_WINDOW_SHARING_LIST");
@@ -91,6 +94,19 @@ int main(int argc, char* argv[]) {
 
     QApplication picker(argc, argv);
     pickerPtr = &picker;
+
+    if (remoteDesktop) {
+        const char* APPID  = getenv("XDPH_REMOTE_DESKTOP_APP_ID");
+        const auto  APP    = APPID && *APPID ? QString::fromUtf8(APPID) : QStringLiteral("An application");
+        const auto  RESULT = QMessageBox::question(nullptr, QStringLiteral("Allow remote control?"), QStringLiteral("%1 wants to control your pointer and keyboard.").arg(APP),
+                                                   QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+        if (RESULT != QMessageBox::Yes)
+            return 1;
+
+        std::cout << "[AUTHORIZED]\n";
+        return 0;
+    }
+
     MainPicker w;
     mainPickerPtr = &w;
 

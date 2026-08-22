@@ -27,7 +27,7 @@ std::string sanitizeNameForWindowList(const std::string& name) {
 
 std::string buildWindowList() {
     std::string result = "";
-    if (!g_pPortalManager->m_sPortals.screencopy->hasToplevelCapabilities())
+    if (!g_pPortalManager->m_sPortals.screencopy || !g_pPortalManager->m_sPortals.screencopy->hasToplevelCapabilities())
         return result;
 
     for (auto& e : g_pPortalManager->m_sHelpers.toplevel->m_vToplevels) {
@@ -125,6 +125,19 @@ SSelectionData promptForScreencopySelection() {
     }
 
     return data;
+}
+
+bool promptForRemoteDesktopConsent(const std::string& appID) {
+    const char* WAYLAND_DISPLAY = getenv("WAYLAND_DISPLAY");
+    const char* XCURSOR_SIZE    = getenv("XCURSOR_SIZE");
+
+    CProcess    proc("hyprland-share-picker", {"--remote-desktop"});
+    proc.addEnv("WAYLAND_DISPLAY", WAYLAND_DISPLAY ? WAYLAND_DISPLAY : "");
+    proc.addEnv("QT_QPA_PLATFORM", "wayland");
+    proc.addEnv("XCURSOR_SIZE", XCURSOR_SIZE ? XCURSOR_SIZE : "24");
+    proc.addEnv("XDPH_REMOTE_DESKTOP_APP_ID", appID);
+
+    return proc.runSync() && proc.stdOut().contains("[AUTHORIZED]");
 }
 
 wl_shm_format wlSHMFromDrmFourcc(uint32_t format) {

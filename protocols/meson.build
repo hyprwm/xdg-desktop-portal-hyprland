@@ -20,6 +20,8 @@ hyprwayland_scanner = find_program(
 client_protocols = [
 	'wlr-screencopy-unstable-v1.xml',
 	'wlr-foreign-toplevel-management-unstable-v1.xml',
+	'wlr-virtual-pointer-unstable-v1.xml',
+	'virtual-keyboard-unstable-v1.xml',
 	hl_protocol_dir / 'protocols/hyprland-toplevel-export-v1.xml',
 	hl_protocol_dir / 'protocols/hyprland-toplevel-mapping-v1.xml',
 	hl_protocol_dir / 'protocols/hyprland-global-shortcuts-v1.xml',
