@@ -8,6 +8,7 @@
 
 #include <pipewire/pipewire.h>
 #include <sys/mman.h>
+#include <sys/eventfd.h>
 #include <fcntl.h>
 #include <unistd.h>
 
@@ -115,8 +116,8 @@ void CPortalManager::onGlobal(uint32_t name, const char* interface, uint32_t ver
     }
 
     else if (INTERFACE == wl_seat_interface.name) {
-        m_sWaylandConnection.seat = makeShared<CCWlSeat>(
-            (wl_proxy*)wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &wl_seat_interface, std::min(version, 7u)));
+        m_sWaylandConnection.seat =
+            makeShared<CCWlSeat>((wl_proxy*)wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &wl_seat_interface, std::min(version, 7u)));
     }
 
     else if (INTERFACE == zwlr_virtual_pointer_manager_v1_interface.name) {
@@ -377,11 +378,11 @@ void CPortalManager::init() {
     }
 
     // Initialize RemoteDesktop portal if protocols are available
-    
+
     Debug::log(LOG, "[core] init check: vp={}, vk={}, pw={}", !!m_sWaylandConnection.virtualPointerMgr, !!m_sWaylandConnection.virtualKeyboardMgr, !!m_sPipewire.loop);
-    if (!m_sWaylandConnection.virtualPointerMgr || !m_sWaylandConnection.virtualKeyboardMgr) {
-        
-        Debug::log(WARN, "RemoteDesktop not started: compositor doesn't support virtual pointer/keyboard");
+    if (!m_sWaylandConnection.virtualPointerMgr && !m_sWaylandConnection.virtualKeyboardMgr) {
+
+        Debug::log(WARN, "RemoteDesktop not started: compositor supports neither virtual pointers nor virtual keyboards");
     } else
         m_sPortals.remoteDesktop = std::make_unique<CRemoteDesktopPortal>(m_sWaylandConnection.virtualPointerMgr, m_sWaylandConnection.virtualKeyboardMgr);
     fflush(stdout);
@@ -390,11 +391,12 @@ void CPortalManager::init() {
     // The frontend portal introspects when it sees our name appear; if we claim
     // the name too early (before RemoteDesktop object is registered), the
     // frontend will see an empty interface set and skip us for RemoteDesktop.
-    
+
     try {
         m_pConnection->requestName(sdbus::ServiceName{"org.freedesktop.impl.portal.desktop.hyprland"});
     } catch (std::exception& e) {
-        Debug::log(ERR, "Couldn't request service name ({})", e.what());
+        Debug::log(CRIT, "Couldn't request service name ({})", e.what());
+        exit(1);
     }
 
     wl_display_roundtrip(m_sWaylandConnection.display);
@@ -403,24 +405,65 @@ void CPortalManager::init() {
 }
 
 void CPortalManager::startEventLoop() {
+    m_sEventLoopInternals.wakeFd = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
+    if (m_sEventLoopInternals.wakeFd < 0) {
+        Debug::log(CRIT, "[core] Failed to create poll wake fd: {}", strerror(errno));
+        exit(1);
+    }
+
     addFdToEventLoop(m_pConnection->getEventLoopPollData().fd, POLLIN, nullptr);
     addFdToEventLoop(wl_display_get_fd(m_sWaylandConnection.display), POLLIN, nullptr);
     addFdToEventLoop(pw_loop_get_fd(m_sPipewire.loop), POLLIN, nullptr);
+    addFdToEventLoop(m_sEventLoopInternals.wakeFd, POLLIN, nullptr);
 
     std::thread pollThr([this]() {
         while (1) {
-            int ret = poll(m_sEventLoopInternals.pollFds.data(), m_sEventLoopInternals.pollFds.size(), 5000 /* 5 seconds, reasonable. It's because we might need to terminate */);
+            std::vector<pollfd> pollFds;
+            {
+                std::lock_guard<std::mutex> lg(m_sEventLoopInternals.pollMutex);
+                pollFds = m_sEventLoopInternals.pollFds;
+            }
+
+            int ret = poll(pollFds.data(), pollFds.size(), -1);
             if (ret < 0) {
+                if (errno == EINTR)
+                    continue;
                 Debug::log(CRIT, "[core] Polling fds failed with {}", strerror(errno));
                 g_pPortalManager->terminate();
                 break;
             }
 
-            for (size_t i = 0; i < m_sEventLoopInternals.pollFds.size(); ++i) {
-                if (!(m_sEventLoopInternals.pollFds[i].revents & (POLLHUP | POLLERR | POLLNVAL)))
-                    continue;
+            bool hasEvents = false;
+            bool fatal     = false;
+            {
+                std::lock_guard<std::mutex> lg(m_sEventLoopInternals.pollMutex);
+                for (const auto& polled : pollFds) {
+                    if (!polled.revents)
+                        continue;
 
-                Debug::log(CRIT, "[core] Disconnected from pollfd id {}", i);
+                    if (polled.fd == m_sEventLoopInternals.wakeFd) {
+                        uint64_t value = 0;
+                        while (read(m_sEventLoopInternals.wakeFd, &value, sizeof(value)) > 0) {
+                            ;
+                        }
+                        continue;
+                    }
+
+                    const auto CURRENT = std::ranges::find(m_sEventLoopInternals.pollFds, polled.fd, &pollfd::fd);
+                    if (CURRENT == m_sEventLoopInternals.pollFds.end())
+                        continue;
+
+                    CURRENT->revents |= polled.revents;
+                    hasEvents = true;
+                    if (!(polled.revents & (POLLHUP | POLLERR | POLLNVAL)))
+                        continue;
+
+                    Debug::log(CRIT, "[core] Disconnected from pollfd {}", polled.fd);
+                    fatal = true;
+                }
+            }
+
+            if (fatal) {
                 g_pPortalManager->terminate();
                 break;
             }
@@ -428,8 +471,11 @@ void CPortalManager::startEventLoop() {
             if (m_bTerminate)
                 break;
 
-            if (ret != 0) {
-                Debug::log(TRACE, "[core] got poll event");
+            if (!hasEvents)
+                continue;
+
+            Debug::log(TRACE, "[core] got poll event");
+            {
                 std::lock_guard<std::mutex> lg(m_sEventLoopInternals.loopRequestMutex);
                 m_sEventLoopInternals.shouldProcess = true;
                 m_sEventLoopInternals.loopSignal.notify_all();
@@ -492,13 +538,23 @@ void CPortalManager::startEventLoop() {
 
         m_mEventLock.lock();
 
-        if (m_sEventLoopInternals.pollFds[0].revents & POLLIN /* dbus */) {
+        std::vector<pollfd>                  readyFds;
+        std::map<int, std::function<void()>> pollCallbacks;
+        {
+            std::lock_guard<std::mutex> pollLock(m_sEventLoopInternals.pollMutex);
+            readyFds      = m_sEventLoopInternals.pollFds;
+            pollCallbacks = m_sEventLoopInternals.pollCallbacks;
+            for (auto& fd : m_sEventLoopInternals.pollFds)
+                fd.revents = 0;
+        }
+
+        if (readyFds[0].revents & POLLIN /* dbus */) {
             while (m_pConnection->processPendingEvent()) {
                 ;
             }
         }
 
-        if (m_sEventLoopInternals.pollFds[1].revents & POLLIN /* wl */) {
+        if (readyFds[1].revents & POLLIN /* wl */) {
             wl_display_flush(m_sWaylandConnection.display);
             if (wl_display_prepare_read(m_sWaylandConnection.display) == 0) {
                 wl_display_read_events(m_sWaylandConnection.display);
@@ -508,16 +564,15 @@ void CPortalManager::startEventLoop() {
             }
         }
 
-        if (m_sEventLoopInternals.pollFds[2].revents & POLLIN /* pw */) {
+        if (readyFds[2].revents & POLLIN /* pw */) {
             while (pw_loop_iterate(m_sPipewire.loop, 0) != 0) {
                 ;
             }
         }
 
-        for (pollfd p : m_sEventLoopInternals.pollFds) {
-            if (p.revents & POLLIN && m_sEventLoopInternals.pollCallbacks.contains(p.fd)) {
-                m_sEventLoopInternals.pollCallbacks[p.fd]();
-            }
+        for (pollfd p : readyFds) {
+            if (p.revents & POLLIN && pollCallbacks.contains(p.fd))
+                pollCallbacks[p.fd]();
         }
 
         std::vector<CTimer*> toRemove;
@@ -560,6 +615,8 @@ void CPortalManager::startEventLoop() {
 
     m_sTimersThread.thread.release();
     pollThr.join(); // wait for poll to exit
+    close(m_sEventLoopInternals.wakeFd);
+    m_sEventLoopInternals.wakeFd = -1;
 }
 
 sdbus::IConnection* CPortalManager::getConnection() {
@@ -621,20 +678,54 @@ gbm_device* CPortalManager::createGBMDevice(drmDevice* dev) {
 }
 
 void CPortalManager::getOutputExtents(uint32_t& w, uint32_t& h) {
+    int32_t x = 0, y = 0;
+    getOutputLayout(x, y, w, h);
+}
+
+void CPortalManager::getOutputLayout(int32_t& x, int32_t& y, uint32_t& w, uint32_t& h) {
+    int32_t minX = 0, minY = 0, maxX = 0, maxY = 0;
+    bool    found = false;
+
     for (auto& o : m_vOutputs) {
-        if (o->logicalWidth > 0 && o->logicalHeight > 0) {
-            w = o->logicalWidth;
-            h = o->logicalHeight;
-            return;
-        }
+        if (!o->logicalPositionValid || !o->logicalSizeValid || o->logicalWidth <= 0 || o->logicalHeight <= 0)
+            continue;
+
+        minX  = found ? std::min(minX, o->logicalX) : o->logicalX;
+        minY  = found ? std::min(minY, o->logicalY) : o->logicalY;
+        maxX  = found ? std::max(maxX, o->logicalX + o->logicalWidth) : o->logicalX + o->logicalWidth;
+        maxY  = found ? std::max(maxY, o->logicalY + o->logicalHeight) : o->logicalY + o->logicalHeight;
+        found = true;
     }
-    // Fallback: physical dimensions if logical not yet computed
+
+    if (found) {
+        x = minX;
+        y = minY;
+        w = maxX - minX;
+        h = maxY - minY;
+        return;
+    }
+
+    // Fallback to wl_output geometry and scaled physical dimensions when
+    // xdg-output has not supplied logical geometry yet.
+    found = false;
     for (auto& o : m_vOutputs) {
-        if (o->width > 0 && o->height > 0) {
-            w = o->width / std::max(o->scale, 1.0);
-            h = o->height / std::max(o->scale, 1.0);
-            return;
-        }
+        if (o->width == 0 || o->height == 0)
+            continue;
+
+        const auto WIDTH  = sc<int32_t>(o->width / std::max(o->scale, 1.0));
+        const auto HEIGHT = sc<int32_t>(o->height / std::max(o->scale, 1.0));
+        minX              = found ? std::min(minX, o->x) : o->x;
+        minY              = found ? std::min(minY, o->y) : o->y;
+        maxX              = found ? std::max(maxX, o->x + WIDTH) : o->x + WIDTH;
+        maxY              = found ? std::max(maxY, o->y + HEIGHT) : o->y + HEIGHT;
+        found             = true;
+    }
+
+    if (found) {
+        x = minX;
+        y = minY;
+        w = maxX - minX;
+        h = maxY - minY;
     }
 }
 
@@ -646,17 +737,31 @@ void CPortalManager::addTimer(const CTimer& timer) {
 }
 
 void CPortalManager::addFdToEventLoop(int fd, short events, std::function<void()> callback) {
-    m_sEventLoopInternals.pollFds.emplace_back(pollfd{.fd = fd, .events = events});
+    {
+        std::lock_guard<std::mutex> lg(m_sEventLoopInternals.pollMutex);
+        m_sEventLoopInternals.pollFds.emplace_back(pollfd{.fd = fd, .events = events});
 
-    if (callback == nullptr)
-        return;
+        if (callback)
+            m_sEventLoopInternals.pollCallbacks[fd] = callback;
+    }
 
-    m_sEventLoopInternals.pollCallbacks[fd] = callback;
+    if (m_sEventLoopInternals.wakeFd >= 0 && fd != m_sEventLoopInternals.wakeFd) {
+        const uint64_t value = 1;
+        write(m_sEventLoopInternals.wakeFd, &value, sizeof(value));
+    }
 }
 
 void CPortalManager::removeFdFromEventLoop(int fd) {
-    std::erase_if(m_sEventLoopInternals.pollFds, [fd](const pollfd& p) { return p.fd == fd; });
-    m_sEventLoopInternals.pollCallbacks.erase(fd);
+    {
+        std::lock_guard<std::mutex> lg(m_sEventLoopInternals.pollMutex);
+        std::erase_if(m_sEventLoopInternals.pollFds, [fd](const pollfd& p) { return p.fd == fd; });
+        m_sEventLoopInternals.pollCallbacks.erase(fd);
+    }
+
+    if (m_sEventLoopInternals.wakeFd >= 0) {
+        const uint64_t value = 1;
+        write(m_sEventLoopInternals.wakeFd, &value, sizeof(value));
+    }
 }
 
 void CPortalManager::releaseWayland() {
@@ -677,6 +782,11 @@ void CPortalManager::releaseWayland() {
 
 void CPortalManager::terminate() {
     m_bTerminate = true;
+
+    if (m_sEventLoopInternals.wakeFd >= 0) {
+        const uint64_t value = 1;
+        write(m_sEventLoopInternals.wakeFd, &value, sizeof(value));
+    }
 
     // if we don't exit in 5s, we'll kill by force. Nuclear option. PIDs are not reused in linux until a wrap-around,
     // and I doubt anyone will make 4.2M PIDs within 5s.
