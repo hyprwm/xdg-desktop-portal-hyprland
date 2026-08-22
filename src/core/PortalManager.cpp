@@ -36,6 +36,8 @@ SOutput::SOutput(SP<CCWlOutput> output_) : output(output_) {
     output->setDone([](CCWlOutput* r) {
         if (g_pPortalManager->m_sPortals.inputCapture != nullptr)
             g_pPortalManager->m_sPortals.inputCapture->zonesChanged();
+        if (g_pPortalManager->m_sPortals.remoteDesktop != nullptr)
+            g_pPortalManager->m_sPortals.remoteDesktop->updateEISPointerRegions();
     });
 }
 
@@ -58,6 +60,8 @@ void CPortalManager::setupXDGOutput(SOutput* output) {
     output->xdgOutput->setDone([](CCZxdgOutputV1* r) {
         if (g_pPortalManager->m_sPortals.inputCapture != nullptr)
             g_pPortalManager->m_sPortals.inputCapture->zonesChanged();
+        if (g_pPortalManager->m_sPortals.remoteDesktop != nullptr)
+            g_pPortalManager->m_sPortals.remoteDesktop->updateEISPointerRegions();
     });
 }
 
@@ -279,6 +283,8 @@ void CPortalManager::onGlobal(uint32_t name, const char* interface, uint32_t ver
 
 void CPortalManager::onGlobalRemoved(uint32_t name) {
     std::erase_if(m_vOutputs, [&](const auto& other) { return other->id == name; });
+    if (m_sPortals.remoteDesktop != nullptr)
+        m_sPortals.remoteDesktop->updateEISPointerRegions();
 }
 
 void CPortalManager::init() {
@@ -685,13 +691,16 @@ void CPortalManager::getOutputLayout(int32_t& x, int32_t& y, uint32_t& w, uint32
         if (o->width == 0 || o->height == 0)
             continue;
 
-        const auto WIDTH  = sc<int32_t>(o->width / std::max(o->scale, 1.0));
-        const auto HEIGHT = sc<int32_t>(o->height / std::max(o->scale, 1.0));
-        minX              = found ? std::min(minX, o->x) : o->x;
-        minY              = found ? std::min(minY, o->y) : o->y;
-        maxX              = found ? std::max(maxX, o->x + WIDTH) : o->x + WIDTH;
-        maxY              = found ? std::max(maxY, o->y + HEIGHT) : o->y + HEIGHT;
-        found             = true;
+        auto WIDTH  = sc<int32_t>(o->width / std::max(o->scale, 1.0));
+        auto HEIGHT = sc<int32_t>(o->height / std::max(o->scale, 1.0));
+        if (o->transform == WL_OUTPUT_TRANSFORM_90 || o->transform == WL_OUTPUT_TRANSFORM_270 || o->transform == WL_OUTPUT_TRANSFORM_FLIPPED_90 ||
+            o->transform == WL_OUTPUT_TRANSFORM_FLIPPED_270)
+            std::swap(WIDTH, HEIGHT);
+        minX  = found ? std::min(minX, o->x) : o->x;
+        minY  = found ? std::min(minY, o->y) : o->y;
+        maxX  = found ? std::max(maxX, o->x + WIDTH) : o->x + WIDTH;
+        maxY  = found ? std::max(maxY, o->y + HEIGHT) : o->y + HEIGHT;
+        found = true;
     }
 
     if (found) {

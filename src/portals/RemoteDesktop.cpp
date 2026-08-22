@@ -96,11 +96,76 @@ CRemoteDesktopPortal::SSession::~SSession() {
         xkb_state_unref(xkbState);
     if (eisFd >= 0)
         g_pPortalManager->removeFdFromEventLoop(eisFd);
+    if (eisPointer) {
+        eis_device_remove(eisPointer);
+        eis_device_unref(eisPointer);
+    }
+    if (eisSeat)
+        eis_seat_unref(eisSeat);
     if (eis) {
         eis_unref(eis);
         eis = nullptr;
     }
     eisFd = -1;
+}
+
+void CRemoteDesktopPortal::removeEISPointerDevice(SSession* session, bool notifyClient) {
+    if (!session->eisPointer)
+        return;
+
+    if (notifyClient)
+        eis_device_remove(session->eisPointer);
+    eis_device_unref(session->eisPointer);
+    session->eisPointer       = nullptr;
+    session->eisPointerWidth  = 0;
+    session->eisPointerHeight = 0;
+}
+
+void CRemoteDesktopPortal::createEISPointerDevice(SSession* session) {
+    if (!session->eisSeat)
+        return;
+
+    auto* dev = eis_seat_new_device(session->eisSeat);
+    if (!dev)
+        return;
+
+    eis_device_configure_type(dev, EIS_DEVICE_TYPE_VIRTUAL);
+    eis_device_configure_name(dev, "Hyprland virtual pointer");
+    eis_device_configure_capability(dev, EIS_DEVICE_CAP_POINTER);
+    eis_device_configure_capability(dev, EIS_DEVICE_CAP_POINTER_ABSOLUTE);
+    eis_device_configure_capability(dev, EIS_DEVICE_CAP_BUTTON);
+    eis_device_configure_capability(dev, EIS_DEVICE_CAP_SCROLL);
+
+    uint32_t extentW = 3840, extentH = 2160;
+    if (g_pPortalManager)
+        g_pPortalManager->getOutputExtents(extentW, extentH);
+    if (auto* region = eis_device_new_region(dev)) {
+        eis_region_set_offset(region, 0, 0);
+        eis_region_set_size(region, extentW, extentH);
+        eis_region_add(region);
+        eis_region_unref(region);
+    }
+
+    eis_device_add(dev);
+    eis_device_resume(dev);
+    session->eisPointer       = dev;
+    session->eisPointerWidth  = extentW;
+    session->eisPointerHeight = extentH;
+    Debug::log(LOG, "[remotedesktop] EIS pointer device added & resumed with region {}x{}", extentW, extentH);
+}
+
+void CRemoteDesktopPortal::updateEISPointerRegions() {
+    uint32_t extentW = 3840, extentH = 2160;
+    if (g_pPortalManager)
+        g_pPortalManager->getOutputExtents(extentW, extentH);
+
+    for (auto& session : m_vSessions) {
+        if (!session->eisPointer || (session->eisPointerWidth == extentW && session->eisPointerHeight == extentH))
+            continue;
+
+        removeEISPointerDevice(session.get());
+        createEISPointerDevice(session.get());
+    }
 }
 
 dbUasv CRemoteDesktopPortal::onCreateSession(sdbus::ObjectPath requestHandle, sdbus::ObjectPath sessionHandle, std::string appID,
@@ -512,41 +577,30 @@ void CRemoteDesktopPortal::processEISEvents() {
                 }
                 case EIS_EVENT_CLIENT_DISCONNECT: {
                     Debug::log(LOG, "[remotedesktop] EIS client disconnect");
+                    removeEISPointerDevice(s.get(), false);
+                    if (s->eisSeat) {
+                        eis_seat_unref(s->eisSeat);
+                        s->eisSeat = nullptr;
+                    }
                     break;
                 }
                 case EIS_EVENT_SEAT_BIND: {
                     Debug::log(LOG, "[remotedesktop] EIS seat bind");
+                    if (s->eisSeat != seat) {
+                        removeEISPointerDevice(s.get());
+                        if (s->eisSeat)
+                            eis_seat_unref(s->eisSeat);
+                        s->eisSeat = eis_seat_ref(seat);
+                    }
+
                     // Create and announce a pointer device if requested
                     if ((s->deviceTypes & 2) &&
                         (eis_event_seat_has_capability(event, EIS_DEVICE_CAP_POINTER) || eis_event_seat_has_capability(event, EIS_DEVICE_CAP_POINTER_ABSOLUTE))) {
-                        auto* dev = eis_seat_new_device(seat);
-                        if (dev) {
-                            eis_device_configure_type(dev, EIS_DEVICE_TYPE_VIRTUAL);
-                            eis_device_configure_name(dev, "Hyprland virtual pointer");
-                            eis_device_configure_capability(dev, EIS_DEVICE_CAP_POINTER);
-                            eis_device_configure_capability(dev, EIS_DEVICE_CAP_POINTER_ABSOLUTE);
-                            eis_device_configure_capability(dev, EIS_DEVICE_CAP_BUTTON);
-                            eis_device_configure_capability(dev, EIS_DEVICE_CAP_SCROLL);
+                        if (!s->eisPointer)
+                            createEISPointerDevice(s.get());
+                    } else
+                        removeEISPointerDevice(s.get());
 
-                            // Virtual absolute-pointer devices require at least one
-                            // region. Without it libei discards absolute motion as
-                            // outside the device's coordinate space.
-                            uint32_t extentW = 3840, extentH = 2160;
-                            if (g_pPortalManager)
-                                g_pPortalManager->getOutputExtents(extentW, extentH);
-                            if (auto* region = eis_device_new_region(dev)) {
-                                eis_region_set_offset(region, 0, 0);
-                                eis_region_set_size(region, extentW, extentH);
-                                eis_region_add(region);
-                                eis_region_unref(region);
-                            }
-
-                            eis_device_add(dev);
-                            eis_device_resume(dev);
-                            eis_device_unref(dev);
-                            Debug::log(LOG, "[remotedesktop] EIS pointer device added & resumed with region {}x{}", extentW, extentH);
-                        }
-                    }
                     if ((s->deviceTypes & 1) && eis_event_seat_has_capability(event, EIS_DEVICE_CAP_KEYBOARD)) {
                         auto* dev = eis_seat_new_device(seat);
                         if (dev) {
@@ -556,6 +610,7 @@ void CRemoteDesktopPortal::processEISEvents() {
                             // Provide an XKB keymap so the EIS client can process keyboard events.
                             // Without this, ei_device_keyboard_get_keymap() returns NULL on the client,
                             // causing a crash.
+                            bool keymapAdded = false;
                             {
                                 auto* ctx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
                                 if (ctx) {
@@ -567,13 +622,14 @@ void CRemoteDesktopPortal::processEISEvents() {
                                             int  kfd       = mkstemp(tmpName);
                                             if (kfd >= 0) {
                                                 size_t sz = strlen(kmStr) + 1;
-                                                write(kfd, kmStr, sz);
-                                                lseek(kfd, 0, SEEK_SET);
-                                                // Use the libeis API: create keymap, add to device, release our ref
-                                                auto* eisKm = eis_device_new_keymap(dev, EIS_KEYMAP_TYPE_XKB, kfd, sz);
-                                                if (eisKm) {
-                                                    eis_keymap_add(eisKm);
-                                                    eis_keymap_unref(eisKm);
+                                                if (write(kfd, kmStr, sz) == sc<ssize_t>(sz) && lseek(kfd, 0, SEEK_SET) >= 0) {
+                                                    // Use the libeis API: create keymap, add to device, release our ref
+                                                    auto* eisKm = eis_device_new_keymap(dev, EIS_KEYMAP_TYPE_XKB, kfd, sz);
+                                                    if (eisKm) {
+                                                        eis_keymap_add(eisKm);
+                                                        eis_keymap_unref(eisKm);
+                                                        keymapAdded = true;
+                                                    }
                                                 }
                                                 close(kfd);
                                                 unlink(tmpName);
@@ -585,12 +641,20 @@ void CRemoteDesktopPortal::processEISEvents() {
                                     xkb_context_unref(ctx);
                                 }
                             }
-                            eis_device_add(dev);
-                            eis_device_resume(dev);
+                            if (keymapAdded) {
+                                eis_device_add(dev);
+                                eis_device_resume(dev);
+                                Debug::log(LOG, "[remotedesktop] EIS keyboard device added & resumed");
+                            } else
+                                Debug::log(ERR, "[remotedesktop] failed to create EIS keyboard keymap, withholding device");
                             eis_device_unref(dev);
-                            Debug::log(LOG, "[remotedesktop] EIS keyboard device added & resumed");
                         }
                     }
+                    break;
+                }
+                case EIS_EVENT_DEVICE_CLOSED: {
+                    if (eis_event_get_device(event) == s->eisPointer)
+                        removeEISPointerDevice(s.get(), false);
                     break;
                 }
                 case EIS_EVENT_POINTER_MOTION: {

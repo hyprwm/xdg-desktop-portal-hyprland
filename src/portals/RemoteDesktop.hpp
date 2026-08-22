@@ -47,6 +47,7 @@ class CRemoteDesktopPortal {
 
     // EIS event processing (called from the main event loop)
     void processEISEvents();
+    void updateEISPointerRegions();
 
   private:
     struct SSession {
@@ -77,13 +78,19 @@ class CRemoteDesktopPortal {
         std::unordered_map<int32_t, xkb_mod_mask_t> keysymModifiers;
 
         // EIS/libei state (created by ConnectToEIS)
-        struct eis* eis      = nullptr;
-        int         eisFd    = -1; // fd to poll for EIS events
-        bool        eisReady = false;
+        struct eis*        eis              = nullptr;
+        struct eis_seat*   eisSeat          = nullptr;
+        struct eis_device* eisPointer       = nullptr;
+        uint32_t           eisPointerWidth  = 0;
+        uint32_t           eisPointerHeight = 0;
+        int                eisFd            = -1; // fd to poll for EIS events
+        bool               eisReady         = false;
     };
 
     SSession* getSession(const sdbus::ObjectPath& path);
     void      destroySession(const sdbus::ObjectPath& path);
+    void      createEISPointerDevice(SSession* session);
+    void      removeEISPointerDevice(SSession* session, bool notifyClient = true);
 
     // Keysym → keycode conversion (via xkbcommon)
     struct SKeycode {
