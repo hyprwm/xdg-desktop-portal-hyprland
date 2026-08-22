@@ -488,6 +488,10 @@ void CRemoteDesktopPortal::onNotifyPointerAxisDiscrete(sdbus::ObjectPath session
     const auto PSESSION = getSession(sessionHandle);
     if (!PSESSION || !PSESSION->virtualPointer)
         return;
+    if (axis > 1) {
+        Debug::log(WARN, "[remotedesktop] ignoring discrete scroll with invalid axis {}", axis);
+        return;
+    }
 
     uint32_t time = currentTimeMs();
     if (axis == 0)
