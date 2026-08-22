@@ -69,8 +69,11 @@ class CRemoteDesktopPortal {
         SP<CCZwlrVirtualPointerV1> virtualPointer;
         SP<CCZwpVirtualKeyboardV1> virtualKeyboard;
 
-        // XKB modifier tracking for sendModifiers()
-        uint32_t modDepressed = 0;
+        struct xkb_state*          xkbState        = nullptr;
+        bool                       axisActiveX     = false;
+        bool                       axisActiveY     = false;
+        int32_t                    discreteScrollX = 0;
+        int32_t                    discreteScrollY = 0;
 
         // EIS/libei state (created by ConnectToEIS)
         struct eis* eis      = nullptr;

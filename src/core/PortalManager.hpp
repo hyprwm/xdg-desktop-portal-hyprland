@@ -127,25 +127,28 @@ class CPortalManager {
 
     // Get the logical coordinate extents from the active output(s).
     // Falls back to physical dimensions if logical not yet computed.
-    void                         getOutputExtents(uint32_t& w, uint32_t& h);
+    void getOutputExtents(uint32_t& w, uint32_t& h);
+    void getOutputLayout(int32_t& x, int32_t& y, uint32_t& w, uint32_t& h);
 
     // terminate after the event loop has been created. Before we can exit()
     void terminate();
 
   private:
-    void  startEventLoop();
-    void  setupXDGOutput(SOutput* output);
+    void              startEventLoop();
+    void              setupXDGOutput(SOutput* output);
 
-    bool  m_bTerminate = false;
-    pid_t m_iPID       = 0;
+    std::atomic<bool> m_bTerminate = false;
+    pid_t             m_iPID       = 0;
 
     struct {
         std::condition_variable              loopSignal;
         std::mutex                           loopMutex;
         std::atomic<bool>                    shouldProcess = false;
         std::mutex                           loopRequestMutex;
+        std::mutex                           pollMutex;
         std::vector<pollfd>                  pollFds;
         std::map<int, std::function<void()>> pollCallbacks;
+        int                                  wakeFd = -1;
     } m_sEventLoopInternals;
 
     struct {

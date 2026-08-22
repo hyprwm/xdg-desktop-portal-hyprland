@@ -88,7 +88,7 @@ class CScreencopyPortal {
             uint64_t                              tvSec               = 0;
             uint32_t                              tvNsec              = 0;
             uint64_t                              tvTimestampNs       = 0;
-            uint32_t                              nodeID              = 0;
+            uint32_t                              nodeID              = SPA_ID_INVALID;
             uint64_t                              pipewireSerial      = 0;
             uint32_t                              framerate           = 60;
             wl_output_transform                   transform           = WL_OUTPUT_TRANSFORM_NORMAL;
@@ -113,14 +113,16 @@ class CScreencopyPortal {
         void onCloseSession(sdbus::MethodCall&);
     };
 
-    void                                            startFrameCopy(SSession* pSession);
-    void                                            queueNextShareFrame(SSession* pSession);
-    bool                                            hasToplevelCapabilities();
-    void                                            createRemoteDesktopSession(const std::string& appID, const sdbus::ObjectPath& sessionHandle);
-    void                                            destroyRemoteDesktopSession(const sdbus::ObjectPath& sessionHandle);
-    std::unordered_map<std::string, sdbus::Variant> startRemoteDesktopSession(const sdbus::ObjectPath& sessionHandle);
+    void startFrameCopy(SSession* pSession);
+    void queueNextShareFrame(SSession* pSession);
+    bool hasToplevelCapabilities();
+    void createRemoteDesktopSession(const std::string& appID, const sdbus::ObjectPath& sessionHandle);
+    void destroyRemoteDesktopSession(const sdbus::ObjectPath& sessionHandle);
+    bool startRemoteDesktopSession(const sdbus::ObjectPath& sessionHandle, std::unordered_map<std::string, sdbus::Variant>& results);
+    bool mapRemoteDesktopCoordinates(const sdbus::ObjectPath& sessionHandle, uint32_t stream, double x, double y, uint32_t& mappedX, uint32_t& mappedY, uint32_t& extentW,
+                                     uint32_t& extentH);
 
-    std::unique_ptr<CPipewireConnection>            m_pPipewire;
+    std::unique_ptr<CPipewireConnection> m_pPipewire;
 
   private:
     std::unique_ptr<sdbus::IObject>                          m_pObject;
@@ -128,7 +130,7 @@ class CScreencopyPortal {
     std::vector<Hyprutils::Memory::CUniquePointer<SSession>> m_vSessions;
 
     SSession*                                                getSession(const sdbus::ObjectPath& path);
-    void                                                     startSharing(SSession* pSession);
+    bool                                                     startSharing(SSession* pSession);
     std::unordered_map<std::string, sdbus::Variant>          buildStartResults(SSession* pSession);
 
     struct {
@@ -149,7 +151,7 @@ class CPipewireConnection {
 
     bool good();
 
-    void createStream(CScreencopyPortal::SSession* pSession);
+    bool createStream(CScreencopyPortal::SSession* pSession);
     void destroyStream(CScreencopyPortal::SSession* pSession);
 
     void enqueue(CScreencopyPortal::SSession* pSession);

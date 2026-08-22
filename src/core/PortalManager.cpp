@@ -5,6 +5,7 @@
 
 #include <pipewire/pipewire.h>
 #include <sys/mman.h>
+#include <sys/eventfd.h>
 #include <fcntl.h>
 #include <unistd.h>
 
@@ -380,24 +381,65 @@ void CPortalManager::init() {
 }
 
 void CPortalManager::startEventLoop() {
+    m_sEventLoopInternals.wakeFd = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
+    if (m_sEventLoopInternals.wakeFd < 0) {
+        Debug::log(CRIT, "[core] Failed to create poll wake fd: {}", strerror(errno));
+        exit(1);
+    }
+
     addFdToEventLoop(m_pConnection->getEventLoopPollData().fd, POLLIN, nullptr);
     addFdToEventLoop(wl_display_get_fd(m_sWaylandConnection.display), POLLIN, nullptr);
     addFdToEventLoop(pw_loop_get_fd(m_sPipewire.loop), POLLIN, nullptr);
+    addFdToEventLoop(m_sEventLoopInternals.wakeFd, POLLIN, nullptr);
 
     std::thread pollThr([this]() {
         while (1) {
-            int ret = poll(m_sEventLoopInternals.pollFds.data(), m_sEventLoopInternals.pollFds.size(), 5000 /* 5 seconds, reasonable. It's because we might need to terminate */);
+            std::vector<pollfd> pollFds;
+            {
+                std::lock_guard<std::mutex> lg(m_sEventLoopInternals.pollMutex);
+                pollFds = m_sEventLoopInternals.pollFds;
+            }
+
+            int ret = poll(pollFds.data(), pollFds.size(), -1);
             if (ret < 0) {
+                if (errno == EINTR)
+                    continue;
                 Debug::log(CRIT, "[core] Polling fds failed with {}", strerror(errno));
                 g_pPortalManager->terminate();
                 break;
             }
 
-            for (size_t i = 0; i < m_sEventLoopInternals.pollFds.size(); ++i) {
-                if (!(m_sEventLoopInternals.pollFds[i].revents & (POLLHUP | POLLERR | POLLNVAL)))
-                    continue;
+            bool hasEvents = false;
+            bool fatal     = false;
+            {
+                std::lock_guard<std::mutex> lg(m_sEventLoopInternals.pollMutex);
+                for (const auto& polled : pollFds) {
+                    if (!polled.revents)
+                        continue;
 
-                Debug::log(CRIT, "[core] Disconnected from pollfd id {}", i);
+                    if (polled.fd == m_sEventLoopInternals.wakeFd) {
+                        uint64_t value = 0;
+                        while (read(m_sEventLoopInternals.wakeFd, &value, sizeof(value)) > 0) {
+                            ;
+                        }
+                        continue;
+                    }
+
+                    const auto CURRENT = std::ranges::find(m_sEventLoopInternals.pollFds, polled.fd, &pollfd::fd);
+                    if (CURRENT == m_sEventLoopInternals.pollFds.end())
+                        continue;
+
+                    CURRENT->revents |= polled.revents;
+                    hasEvents = true;
+                    if (!(polled.revents & (POLLHUP | POLLERR | POLLNVAL)))
+                        continue;
+
+                    Debug::log(CRIT, "[core] Disconnected from pollfd {}", polled.fd);
+                    fatal = true;
+                }
+            }
+
+            if (fatal) {
                 g_pPortalManager->terminate();
                 break;
             }
@@ -405,8 +447,11 @@ void CPortalManager::startEventLoop() {
             if (m_bTerminate)
                 break;
 
-            if (ret != 0) {
-                Debug::log(TRACE, "[core] got poll event");
+            if (!hasEvents)
+                continue;
+
+            Debug::log(TRACE, "[core] got poll event");
+            {
                 std::lock_guard<std::mutex> lg(m_sEventLoopInternals.loopRequestMutex);
                 m_sEventLoopInternals.shouldProcess = true;
                 m_sEventLoopInternals.loopSignal.notify_all();
@@ -469,13 +514,23 @@ void CPortalManager::startEventLoop() {
 
         m_mEventLock.lock();
 
-        if (m_sEventLoopInternals.pollFds[0].revents & POLLIN /* dbus */) {
+        std::vector<pollfd>                  readyFds;
+        std::map<int, std::function<void()>> pollCallbacks;
+        {
+            std::lock_guard<std::mutex> pollLock(m_sEventLoopInternals.pollMutex);
+            readyFds      = m_sEventLoopInternals.pollFds;
+            pollCallbacks = m_sEventLoopInternals.pollCallbacks;
+            for (auto& fd : m_sEventLoopInternals.pollFds)
+                fd.revents = 0;
+        }
+
+        if (readyFds[0].revents & POLLIN /* dbus */) {
             while (m_pConnection->processPendingEvent()) {
                 ;
             }
         }
 
-        if (m_sEventLoopInternals.pollFds[1].revents & POLLIN /* wl */) {
+        if (readyFds[1].revents & POLLIN /* wl */) {
             wl_display_flush(m_sWaylandConnection.display);
             if (wl_display_prepare_read(m_sWaylandConnection.display) == 0) {
                 wl_display_read_events(m_sWaylandConnection.display);
@@ -485,16 +540,15 @@ void CPortalManager::startEventLoop() {
             }
         }
 
-        if (m_sEventLoopInternals.pollFds[2].revents & POLLIN /* pw */) {
+        if (readyFds[2].revents & POLLIN /* pw */) {
             while (pw_loop_iterate(m_sPipewire.loop, 0) != 0) {
                 ;
             }
         }
 
-        for (pollfd p : m_sEventLoopInternals.pollFds) {
-            if (p.revents & POLLIN && m_sEventLoopInternals.pollCallbacks.contains(p.fd)) {
-                m_sEventLoopInternals.pollCallbacks[p.fd]();
-            }
+        for (pollfd p : readyFds) {
+            if (p.revents & POLLIN && pollCallbacks.contains(p.fd))
+                pollCallbacks[p.fd]();
         }
 
         std::vector<CTimer*> toRemove;
@@ -534,6 +588,8 @@ void CPortalManager::startEventLoop() {
 
     m_sTimersThread.thread.release();
     pollThr.join(); // wait for poll to exit
+    close(m_sEventLoopInternals.wakeFd);
+    m_sEventLoopInternals.wakeFd = -1;
 }
 
 sdbus::IConnection* CPortalManager::getConnection() {
@@ -595,6 +651,11 @@ gbm_device* CPortalManager::createGBMDevice(drmDevice* dev) {
 }
 
 void CPortalManager::getOutputExtents(uint32_t& w, uint32_t& h) {
+    int32_t x = 0, y = 0;
+    getOutputLayout(x, y, w, h);
+}
+
+void CPortalManager::getOutputLayout(int32_t& x, int32_t& y, uint32_t& w, uint32_t& h) {
     int32_t minX = 0, minY = 0, maxX = 0, maxY = 0;
     bool    found = false;
 
@@ -610,6 +671,8 @@ void CPortalManager::getOutputExtents(uint32_t& w, uint32_t& h) {
     }
 
     if (found) {
+        x = minX;
+        y = minY;
         w = maxX - minX;
         h = maxY - minY;
         return;
@@ -632,6 +695,8 @@ void CPortalManager::getOutputExtents(uint32_t& w, uint32_t& h) {
     }
 
     if (found) {
+        x = minX;
+        y = minY;
         w = maxX - minX;
         h = maxY - minY;
     }
@@ -645,21 +710,40 @@ void CPortalManager::addTimer(const CTimer& timer) {
 }
 
 void CPortalManager::addFdToEventLoop(int fd, short events, std::function<void()> callback) {
-    m_sEventLoopInternals.pollFds.emplace_back(pollfd{.fd = fd, .events = events});
+    {
+        std::lock_guard<std::mutex> lg(m_sEventLoopInternals.pollMutex);
+        m_sEventLoopInternals.pollFds.emplace_back(pollfd{.fd = fd, .events = events});
 
-    if (callback == nullptr)
-        return;
+        if (callback)
+            m_sEventLoopInternals.pollCallbacks[fd] = callback;
+    }
 
-    m_sEventLoopInternals.pollCallbacks[fd] = callback;
+    if (m_sEventLoopInternals.wakeFd >= 0 && fd != m_sEventLoopInternals.wakeFd) {
+        const uint64_t value = 1;
+        write(m_sEventLoopInternals.wakeFd, &value, sizeof(value));
+    }
 }
 
 void CPortalManager::removeFdFromEventLoop(int fd) {
-    std::erase_if(m_sEventLoopInternals.pollFds, [fd](const pollfd& p) { return p.fd == fd; });
-    m_sEventLoopInternals.pollCallbacks.erase(fd);
+    {
+        std::lock_guard<std::mutex> lg(m_sEventLoopInternals.pollMutex);
+        std::erase_if(m_sEventLoopInternals.pollFds, [fd](const pollfd& p) { return p.fd == fd; });
+        m_sEventLoopInternals.pollCallbacks.erase(fd);
+    }
+
+    if (m_sEventLoopInternals.wakeFd >= 0) {
+        const uint64_t value = 1;
+        write(m_sEventLoopInternals.wakeFd, &value, sizeof(value));
+    }
 }
 
 void CPortalManager::terminate() {
     m_bTerminate = true;
+
+    if (m_sEventLoopInternals.wakeFd >= 0) {
+        const uint64_t value = 1;
+        write(m_sEventLoopInternals.wakeFd, &value, sizeof(value));
+    }
 
     // if we don't exit in 5s, we'll kill by force. Nuclear option. PIDs are not reused in linux until a wrap-around,
     // and I doubt anyone will make 4.2M PIDs within 5s.

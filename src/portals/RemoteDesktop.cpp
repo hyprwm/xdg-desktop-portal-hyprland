@@ -12,25 +12,12 @@
 static uint32_t currentTimeMs() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
 }
-// Map linux evdev keycodes to xkb modifier bits.
-// Standard xkb modifier indices: Shift=0, Lock=1, Control=2, Mod1(Alt)=3, Mod4(Super)=6
-static uint32_t xkbModForEvdev(int evdevKeycode) {
-    switch (evdevKeycode) {
-        case 42:
-        case 54: return 1 << 0; // KEY_LEFTSHIFT, KEY_RIGHTSHIFT
-        case 29:
-        case 97: return 1 << 2; // KEY_LEFTCTRL, KEY_RIGHTCTRL
-        case 56:
-        case 100: return 1 << 3; // KEY_LEFTALT,  KEY_RIGHTALT
-        case 125:
-        case 126: return 1 << 6; // KEY_LEFTMETA, KEY_RIGHTMETA
-        default: return 0;
-    }
-}
+static void sendModifiers(CCZwpVirtualKeyboardV1* keyboard, xkb_state* state, xkb_mod_mask_t extraDepressed = 0) {
+    if (!keyboard || !state)
+        return;
 
-static void updateModifiers(CCZwpVirtualKeyboardV1* vk, uint32_t modDepressed) {
-    if (vk)
-        vk->sendModifiers(modDepressed, 0, 0, 0);
+    keyboard->sendModifiers(xkb_state_serialize_mods(state, XKB_STATE_MODS_DEPRESSED) | extraDepressed, xkb_state_serialize_mods(state, XKB_STATE_MODS_LATCHED),
+                            xkb_state_serialize_mods(state, XKB_STATE_MODS_LOCKED), xkb_state_serialize_layout(state, XKB_STATE_LAYOUT_EFFECTIVE));
 }
 
 // ─── CRemoteDesktopPortal implementation ─────────────────────────
@@ -98,6 +85,8 @@ CRemoteDesktopPortal::~CRemoteDesktopPortal() {
 // ─── Session management ──────────────────────────────────────────
 
 CRemoteDesktopPortal::SSession::~SSession() {
+    if (xkbState)
+        xkb_state_unref(xkbState);
     if (eisFd >= 0)
         g_pPortalManager->removeFdFromEventLoop(eisFd);
     if (eis) {
@@ -253,8 +242,13 @@ dbUasv CRemoteDesktopPortal::onStart(sdbus::ObjectPath requestHandle, sdbus::Obj
                 }
 
                 if (keymapSent) {
-                    wl_display_flush(display);
-                    Debug::log(LOG, "[remotedesktop] virtual keyboard created with keymap");
+                    PSESSION->xkbState = xkb_state_new(m_xkbKeymap);
+                    if (!PSESSION->xkbState)
+                        initialized = false;
+                    else {
+                        wl_display_flush(display);
+                        Debug::log(LOG, "[remotedesktop] virtual keyboard created with keymap");
+                    }
                 } else
                     initialized = false;
             } else
@@ -263,17 +257,29 @@ dbUasv CRemoteDesktopPortal::onStart(sdbus::ObjectPath requestHandle, sdbus::Obj
     }
 
     if (!initialized) {
+        if (PSESSION->xkbState) {
+            xkb_state_unref(PSESSION->xkbState);
+            PSESSION->xkbState = nullptr;
+        }
         PSESSION->virtualPointer.reset();
         PSESSION->virtualKeyboard.reset();
         Debug::log(ERR, "[remotedesktop] failed to initialize all requested devices");
         return {2, {}};
     }
 
-    PSESSION->started = true;
+    std::unordered_map<std::string, sdbus::Variant> results;
+    if (g_pPortalManager->m_sPortals.screencopy && !g_pPortalManager->m_sPortals.screencopy->startRemoteDesktopSession(sessionHandle, results)) {
+        if (PSESSION->xkbState) {
+            xkb_state_unref(PSESSION->xkbState);
+            PSESSION->xkbState = nullptr;
+        }
+        PSESSION->virtualPointer.reset();
+        PSESSION->virtualKeyboard.reset();
+        Debug::log(ERR, "[remotedesktop] failed to start the selected screencast");
+        return {2, {}};
+    }
 
-    std::unordered_map<std::string, sdbus::Variant> results = g_pPortalManager->m_sPortals.screencopy ?
-        g_pPortalManager->m_sPortals.screencopy->startRemoteDesktopSession(sessionHandle) :
-        std::unordered_map<std::string, sdbus::Variant>{};
+    PSESSION->started = true;
     // Must be a string, not ObjectPath — frontend expects GVariant string type
     results["session_handle"] = sdbus::Variant{std::string{sessionHandle}};
     results["devices"]        = sdbus::Variant{PSESSION->deviceTypes};
@@ -352,16 +358,15 @@ void CRemoteDesktopPortal::onNotifyPointerMotionAbsolute(sdbus::ObjectPath sessi
     if (!PSESSION || !PSESSION->virtualPointer)
         return;
 
-    // Get the logical coordinate extents from the active output(s).
-    // The x/y values from the frontend portal are in the stream's logical
-    // coordinate space (see the RemoteDesktop XML spec). We forward these
-    // with the correct extents so the compositor scales properly.
-    uint32_t extentW = 3840, extentH = 2160; // generous fallback
-    if (g_pPortalManager)
-        g_pPortalManager->getOutputExtents(extentW, extentH);
+    uint32_t mappedX = 0, mappedY = 0, extentW = 3840, extentH = 2160;
+    if (!g_pPortalManager->m_sPortals.screencopy ||
+        !g_pPortalManager->m_sPortals.screencopy->mapRemoteDesktopCoordinates(sessionHandle, stream, x, y, mappedX, mappedY, extentW, extentH)) {
+        Debug::log(WARN, "[remotedesktop] cannot map absolute motion for stream {}", stream);
+        return;
+    }
 
-    Debug::log(TRACE, "[remotedesktop] NotifyPointerMotionAbsolute: x={}, y={}, extents={}x{}", x, y, extentW, extentH);
-    PSESSION->virtualPointer->sendMotionAbsolute(currentTimeMs(), (uint32_t)x, (uint32_t)y, extentW, extentH);
+    Debug::log(TRACE, "[remotedesktop] NotifyPointerMotionAbsolute: stream={} x={}, y={} mapped={},{} extents={}x{}", stream, x, y, mappedX, mappedY, extentW, extentH);
+    PSESSION->virtualPointer->sendMotionAbsolute(currentTimeMs(), mappedX, mappedY, extentW, extentH);
     PSESSION->virtualPointer->sendFrame();
     wl_display_flush(g_pPortalManager->m_sWaylandConnection.display);
 }
@@ -385,10 +390,22 @@ void CRemoteDesktopPortal::onNotifyPointerAxis(sdbus::ObjectPath sessionHandle, 
     if (dy != 0.0) {
         PSESSION->virtualPointer->sendAxisSource(2);
         PSESSION->virtualPointer->sendAxis(time, 0, wl_fixed_from_double(-dy));
+        PSESSION->axisActiveY = true;
     }
     if (dx != 0.0) {
         PSESSION->virtualPointer->sendAxisSource(2);
         PSESSION->virtualPointer->sendAxis(time, 1, wl_fixed_from_double(dx));
+        PSESSION->axisActiveX = true;
+    }
+
+    const auto FINISH = opts.find("finish");
+    if (FINISH != opts.end() && FINISH->second.get<bool>()) {
+        if (PSESSION->axisActiveY)
+            PSESSION->virtualPointer->sendAxisStop(time, 0);
+        if (PSESSION->axisActiveX)
+            PSESSION->virtualPointer->sendAxisStop(time, 1);
+        PSESSION->axisActiveX = false;
+        PSESSION->axisActiveY = false;
     }
     PSESSION->virtualPointer->sendFrame();
     wl_display_flush(g_pPortalManager->m_sWaylandConnection.display);
@@ -411,16 +428,9 @@ void CRemoteDesktopPortal::onNotifyKeyboardKeycode(sdbus::ObjectPath sessionHand
     if (!PSESSION || !PSESSION->virtualKeyboard)
         return;
 
-    uint32_t modBit = xkbModForEvdev(keycode);
-    if (modBit) {
-        if (state == 1)
-            PSESSION->modDepressed |= modBit;
-        else
-            PSESSION->modDepressed &= ~modBit;
-    }
-
     PSESSION->virtualKeyboard->sendKey(currentTimeMs(), keycode, state);
-    updateModifiers(PSESSION->virtualKeyboard.get(), PSESSION->modDepressed);
+    xkb_state_update_key(PSESSION->xkbState, keycode + 8, state == 1 ? XKB_KEY_DOWN : XKB_KEY_UP);
+    sendModifiers(PSESSION->virtualKeyboard.get(), PSESSION->xkbState);
     wl_display_flush(g_pPortalManager->m_sWaylandConnection.display);
 }
 
@@ -436,10 +446,10 @@ void CRemoteDesktopPortal::onNotifyKeyboardKeysym(sdbus::ObjectPath sessionHandl
     }
 
     if (state == 1)
-        updateModifiers(PSESSION->virtualKeyboard.get(), PSESSION->modDepressed | KEY.modifiers);
+        sendModifiers(PSESSION->virtualKeyboard.get(), PSESSION->xkbState, KEY.modifiers);
     PSESSION->virtualKeyboard->sendKey(currentTimeMs(), KEY.keycode, state);
-    if (state != 1)
-        updateModifiers(PSESSION->virtualKeyboard.get(), PSESSION->modDepressed);
+    xkb_state_update_key(PSESSION->xkbState, KEY.keycode + 8, state == 1 ? XKB_KEY_DOWN : XKB_KEY_UP);
+    sendModifiers(PSESSION->virtualKeyboard.get(), PSESSION->xkbState);
     wl_display_flush(g_pPortalManager->m_sWaylandConnection.display);
 }
 
@@ -616,20 +626,30 @@ void CRemoteDesktopPortal::processEISEvents() {
                 }
                 case EIS_EVENT_SCROLL_DISCRETE: {
                     if (s->virtualPointer) {
-                        int      dx = eis_event_scroll_get_discrete_dx(event);
-                        int      dy = eis_event_scroll_get_discrete_dy(event);
-                        uint32_t axis;
-                        int      steps;
-                        if (dy != 0) {
-                            axis  = 0;
-                            steps = dy;
-                        } else if (dx != 0) {
-                            axis  = 1;
-                            steps = dx;
-                        } else
-                            break;
-                        s->virtualPointer->sendAxisSource(2);
-                        s->virtualPointer->sendAxisDiscrete(time, axis, wl_fixed_from_int(steps * 15), steps);
+                        s->discreteScrollX += eis_event_scroll_get_discrete_dx(event);
+                        s->discreteScrollY += eis_event_scroll_get_discrete_dy(event);
+                        const int32_t STEPSX = s->discreteScrollX / 120;
+                        const int32_t STEPSY = s->discreteScrollY / 120;
+                        s->discreteScrollX %= 120;
+                        s->discreteScrollY %= 120;
+                        if (STEPSY != 0) {
+                            s->virtualPointer->sendAxisSource(2);
+                            s->virtualPointer->sendAxisDiscrete(time, 0, wl_fixed_from_int(STEPSY * 15), STEPSY);
+                        }
+                        if (STEPSX != 0) {
+                            s->virtualPointer->sendAxisSource(2);
+                            s->virtualPointer->sendAxisDiscrete(time, 1, wl_fixed_from_int(STEPSX * 15), STEPSX);
+                        }
+                    }
+                    break;
+                }
+                case EIS_EVENT_SCROLL_STOP:
+                case EIS_EVENT_SCROLL_CANCEL: {
+                    if (s->virtualPointer) {
+                        if (eis_event_scroll_get_stop_y(event))
+                            s->virtualPointer->sendAxisStop(time, 0);
+                        if (eis_event_scroll_get_stop_x(event))
+                            s->virtualPointer->sendAxisStop(time, 1);
                     }
                     break;
                 }
@@ -638,6 +658,8 @@ void CRemoteDesktopPortal::processEISEvents() {
                         uint32_t key   = eis_event_keyboard_get_key(event);
                         uint32_t state = eis_event_keyboard_get_key_is_press(event) ? 1 : 0;
                         s->virtualKeyboard->sendKey(time, key, state);
+                        xkb_state_update_key(s->xkbState, key + 8, state == 1 ? XKB_KEY_DOWN : XKB_KEY_UP);
+                        sendModifiers(s->virtualKeyboard.get(), s->xkbState);
                     }
                     break;
                 }
