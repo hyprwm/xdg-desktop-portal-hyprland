@@ -424,6 +424,8 @@ void CRemoteDesktopPortal::onNotifyPointerAxisDiscrete(sdbus::ObjectPath session
         return;
 
     uint32_t time = currentTimeMs();
+    if (axis == 0)
+        steps = -steps;
     PSESSION->virtualPointer->sendAxisSource(0);
     PSESSION->virtualPointer->sendAxisDiscrete(time, axis, wl_fixed_from_int(steps * 15), steps);
     PSESSION->virtualPointer->sendFrame();
@@ -644,8 +646,9 @@ void CRemoteDesktopPortal::processEISEvents() {
                         s->discreteScrollX %= 120;
                         s->discreteScrollY %= 120;
                         if (STEPSY != 0) {
+                            const int32_t VERTICALSTEPS = -STEPSY;
                             s->virtualPointer->sendAxisSource(0);
-                            s->virtualPointer->sendAxisDiscrete(time, 0, wl_fixed_from_int(STEPSY * 15), STEPSY);
+                            s->virtualPointer->sendAxisDiscrete(time, 0, wl_fixed_from_int(VERTICALSTEPS * 15), VERTICALSTEPS);
                         }
                         if (STEPSX != 0) {
                             s->virtualPointer->sendAxisSource(0);

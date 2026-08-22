@@ -43,7 +43,7 @@ struct SSelectionData {
 
 struct wl_buffer;
 
-SSelectionData   promptForScreencopySelection();
+SSelectionData   promptForScreencopySelection(bool allowWindows);
 bool             promptForRemoteDesktopConsent(const std::string& appID);
 uint32_t         drmFourccFromSHM(wl_shm_format format);
 spa_video_format pwFromDrmFourcc(uint32_t format);

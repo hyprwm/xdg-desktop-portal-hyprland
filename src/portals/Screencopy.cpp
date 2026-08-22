@@ -200,7 +200,8 @@ dbUasv CScreencopyPortal::onSelectSources(sdbus::ObjectPath requestHandle, sdbus
     const bool     RESTOREDATAVALID = restoreData.exists &&
     (
         (!restoreData.output.empty() && g_pPortalManager->getOutputFromName(restoreData.output)) || // output exists
-        (!restoreData.windowClass.empty() && g_pPortalManager->m_sHelpers.toplevel->handleFromClass(restoreData.windowClass)) // window exists
+        (!PSESSION->remoteDesktop && !restoreData.windowClass.empty() && g_pPortalManager->m_sHelpers.toplevel &&
+         g_pPortalManager->m_sHelpers.toplevel->handleFromClass(restoreData.windowClass)) // window exists
     );
     // clang-format on
 
@@ -228,12 +229,15 @@ dbUasv CScreencopyPortal::onSelectSources(sdbus::ObjectPath requestHandle, sdbus
     } else {
         Debug::log(LOG, "[screencopy] restore data invalid / missing, prompting");
 
-        SHAREDATA = promptForScreencopySelection();
+        SHAREDATA = promptForScreencopySelection(!PSESSION->remoteDesktop);
     }
 
     Debug::log(LOG, "[screencopy] SHAREDATA returned selection {}", (int)SHAREDATA.type);
 
-    if (SHAREDATA.type == TYPE_WINDOW && !m_sState.toplevel) {
+    if (SHAREDATA.type == TYPE_WINDOW && PSESSION->remoteDesktop) {
+        Debug::log(ERR, "[screencopy] Window sources are unsupported for RemoteDesktop sessions");
+        SHAREDATA.type = TYPE_INVALID;
+    } else if (SHAREDATA.type == TYPE_WINDOW && !m_sState.toplevel) {
         Debug::log(ERR, "[screencopy] Requested type window for no toplevel export protocol!");
         SHAREDATA.type = TYPE_INVALID;
     } else if (SHAREDATA.type == TYPE_OUTPUT || SHAREDATA.type == TYPE_GEOMETRY) {
