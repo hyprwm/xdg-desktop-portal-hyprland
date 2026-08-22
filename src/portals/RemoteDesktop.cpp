@@ -833,7 +833,7 @@ uint32_t CRemoteDesktopPortal::availableDeviceTypes() {
 }
 
 uint32_t CRemoteDesktopPortal::version() {
-    return 5;
+    return 2;
 }
 
 // ─── Session lookup ──────────────────────────────────────────────

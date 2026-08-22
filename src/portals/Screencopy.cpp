@@ -196,14 +196,10 @@ dbUasv CScreencopyPortal::onSelectSources(sdbus::ObjectPath requestHandle, sdbus
         }
     }
 
-    // clang-format off
-    const bool     RESTOREDATAVALID = restoreData.exists &&
-    (
-        (!restoreData.output.empty() && g_pPortalManager->getOutputFromName(restoreData.output)) || // output exists
-        (!PSESSION->remoteDesktop && !restoreData.windowClass.empty() && g_pPortalManager->m_sHelpers.toplevel &&
-         g_pPortalManager->m_sHelpers.toplevel->handleFromClass(restoreData.windowClass)) // window exists
-    );
-    // clang-format on
+    const bool OUTPUTRESTORE = restoreData.windowClass.empty() && !restoreData.output.empty() && g_pPortalManager->getOutputFromName(restoreData.output);
+    const bool WINDOWRESTORE = !PSESSION->remoteDesktop && !restoreData.windowClass.empty() && g_pPortalManager->m_sHelpers.toplevel &&
+        g_pPortalManager->m_sHelpers.toplevel->handleFromClass(restoreData.windowClass);
+    const bool     RESTOREDATAVALID = restoreData.exists && (OUTPUTRESTORE || WINDOWRESTORE);
 
     SSelectionData SHAREDATA;
     if (RESTOREDATAVALID) {
