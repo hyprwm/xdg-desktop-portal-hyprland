@@ -10,7 +10,9 @@
   hyprutils,
   hyprwayland-scanner,
   libdrm,
+  libei,
   libgbm,
+  libxkbcommon,
   pipewire,
   qt6,
   sdbus-cpp_2,
@@ -46,7 +48,9 @@ stdenv.mkDerivation {
     hyprlang
     hyprutils
     libdrm
+    libei
     libgbm
+    libxkbcommon
     pipewire
     qt6.qtbase
     qt6.qttools
