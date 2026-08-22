@@ -362,14 +362,10 @@ void CPortalManager::init() {
             Debug::log(INFO, "hyprpicker not found. We suggest to use hyprpicker for color picking to be less meh.");
     }
 
-    // Initialize RemoteDesktop portal if protocols are available
-
+    // Always register RemoteDesktop because the portal descriptor advertises it.
+    // Missing input protocols are reported through AvailableDeviceTypes.
     Debug::log(LOG, "[core] init check: vp={}, vk={}, pw={}", !!m_sWaylandConnection.virtualPointerMgr, !!m_sWaylandConnection.virtualKeyboardMgr, !!m_sPipewire.loop);
-    if (!m_sWaylandConnection.virtualPointerMgr && !m_sWaylandConnection.virtualKeyboardMgr) {
-
-        Debug::log(WARN, "RemoteDesktop not started: compositor supports neither virtual pointers nor virtual keyboards");
-    } else
-        m_sPortals.remoteDesktop = std::make_unique<CRemoteDesktopPortal>(m_sWaylandConnection.virtualPointerMgr, m_sWaylandConnection.virtualKeyboardMgr);
+    m_sPortals.remoteDesktop = std::make_unique<CRemoteDesktopPortal>(m_sWaylandConnection.virtualPointerMgr, m_sWaylandConnection.virtualKeyboardMgr);
     fflush(stdout);
 
     // Now that all D-Bus objects are registered, claim our service name.

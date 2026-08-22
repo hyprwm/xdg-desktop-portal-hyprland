@@ -50,6 +50,12 @@ class CRemoteDesktopPortal {
     void updateEISPointerRegions();
 
   private:
+    struct SKeycode {
+        uint32_t           keycode   = 0;
+        xkb_mod_mask_t     modifiers = 0;
+        xkb_layout_index_t layout    = XKB_LAYOUT_INVALID;
+    };
+
     struct SSession {
         SSession(const std::string& app, const sdbus::ObjectPath& req, const sdbus::ObjectPath& sess) : appid(app), requestHandle(req), sessionHandle(sess) {}
         ~SSession();
@@ -76,6 +82,7 @@ class CRemoteDesktopPortal {
         int32_t                                     discreteScrollX = 0;
         int32_t                                     discreteScrollY = 0;
         std::unordered_map<int32_t, xkb_mod_mask_t> keysymModifiers;
+        std::unordered_map<int32_t, SKeycode>       keysymKeycodes;
 
         // EIS/libei state (created by ConnectToEIS)
         struct eis*        eis              = nullptr;
@@ -93,11 +100,7 @@ class CRemoteDesktopPortal {
     void      removeEISPointerDevice(SSession* session, bool notifyClient = true);
 
     // Keysym → keycode conversion (via xkbcommon)
-    struct SKeycode {
-        uint32_t       keycode   = 0;
-        xkb_mod_mask_t modifiers = 0;
-    };
-    SKeycode                               keycodeFromKeysym(uint32_t sym);
+    SKeycode                               keycodeFromKeysym(uint32_t sym, xkb_layout_index_t preferredLayout);
 
     std::unique_ptr<sdbus::IObject>        m_pObject;
     std::vector<std::unique_ptr<SSession>> m_vSessions;

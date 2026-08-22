@@ -12,12 +12,13 @@
 static uint32_t currentTimeMs() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
 }
-static void sendModifiers(CCZwpVirtualKeyboardV1* keyboard, xkb_state* state, xkb_mod_mask_t extraDepressed = 0) {
+static void sendModifiers(CCZwpVirtualKeyboardV1* keyboard, xkb_state* state, xkb_mod_mask_t extraDepressed = 0, xkb_layout_index_t layout = XKB_LAYOUT_INVALID) {
     if (!keyboard || !state)
         return;
 
+    const auto LAYOUT = layout == XKB_LAYOUT_INVALID ? xkb_state_serialize_layout(state, XKB_STATE_LAYOUT_EFFECTIVE) : layout;
     keyboard->sendModifiers(xkb_state_serialize_mods(state, XKB_STATE_MODS_DEPRESSED) | extraDepressed, xkb_state_serialize_mods(state, XKB_STATE_MODS_LATCHED),
-                            xkb_state_serialize_mods(state, XKB_STATE_MODS_LOCKED), xkb_state_serialize_layout(state, XKB_STATE_LAYOUT_EFFECTIVE));
+                            xkb_state_serialize_mods(state, XKB_STATE_MODS_LOCKED), LAYOUT);
 }
 
 static xkb_mod_mask_t activeKeysymModifiers(const std::unordered_map<int32_t, xkb_mod_mask_t>& keysymModifiers) {
@@ -513,20 +514,27 @@ void CRemoteDesktopPortal::onNotifyKeyboardKeysym(sdbus::ObjectPath sessionHandl
     if (!PSESSION || !PSESSION->virtualKeyboard)
         return;
 
-    const auto KEY = keycodeFromKeysym(keysym);
+    const auto PRESSED = PSESSION->keysymKeycodes.find(keysym);
+    const auto KEY     = state != 1 && PRESSED != PSESSION->keysymKeycodes.end() ?
+        PRESSED->second :
+        keycodeFromKeysym(keysym, xkb_state_serialize_layout(PSESSION->xkbState, XKB_STATE_LAYOUT_EFFECTIVE));
     if (!KEY.keycode) {
         Debug::log(WARN, "[remotedesktop] keysym 0x{:x} not found in keymap", keysym);
         return;
     }
 
-    if (state == 1)
+    if (state == 1) {
         PSESSION->keysymModifiers[keysym] = KEY.modifiers;
+        PSESSION->keysymKeycodes[keysym]  = KEY;
+    }
 
-    sendModifiers(PSESSION->virtualKeyboard.get(), PSESSION->xkbState, activeKeysymModifiers(PSESSION->keysymModifiers) | KEY.modifiers);
+    sendModifiers(PSESSION->virtualKeyboard.get(), PSESSION->xkbState, activeKeysymModifiers(PSESSION->keysymModifiers) | KEY.modifiers, KEY.layout);
     PSESSION->virtualKeyboard->sendKey(currentTimeMs(), KEY.keycode, state);
     xkb_state_update_key(PSESSION->xkbState, KEY.keycode + 8, state == 1 ? XKB_KEY_DOWN : XKB_KEY_UP);
-    if (state != 1)
+    if (state != 1) {
         PSESSION->keysymModifiers.erase(keysym);
+        PSESSION->keysymKeycodes.erase(keysym);
+    }
     sendModifiers(PSESSION->virtualKeyboard.get(), PSESSION->xkbState, activeKeysymModifiers(PSESSION->keysymModifiers));
     wl_display_flush(g_pPortalManager->m_sWaylandConnection.display);
 }
@@ -760,32 +768,56 @@ void CRemoteDesktopPortal::processEISEvents() {
 
 // ─── Keysym → keycode conversion ─────────────────────────────────
 
-CRemoteDesktopPortal::SKeycode CRemoteDesktopPortal::keycodeFromKeysym(uint32_t sym) {
+CRemoteDesktopPortal::SKeycode CRemoteDesktopPortal::keycodeFromKeysym(uint32_t sym, xkb_layout_index_t preferredLayout) {
     if (!m_xkbKeymap)
         return {};
 
-    xkb_keycode_t min = xkb_keymap_min_keycode(m_xkbKeymap);
-    xkb_keycode_t max = xkb_keymap_max_keycode(m_xkbKeymap);
+    const auto FINDINLAYOUT = [this, sym](xkb_layout_index_t layout) -> SKeycode {
+        const auto MIN = xkb_keymap_min_keycode(m_xkbKeymap);
+        const auto MAX = xkb_keymap_max_keycode(m_xkbKeymap);
 
-    for (xkb_keycode_t code = min; code <= max; code++) {
-        const auto LEVELS = xkb_keymap_num_levels_for_key(m_xkbKeymap, code, 0);
-        for (xkb_level_index_t level = 0; level < LEVELS; level++) {
-            const xkb_keysym_t* syms;
-            int                 nsyms = xkb_keymap_key_get_syms_by_level(m_xkbKeymap, code, 0, level, &syms);
-            for (int i = 0; i < nsyms; i++) {
-                if (syms[i] == static_cast<xkb_keysym_t>(sym)) {
-                    // XKB keycodes are evdev scancodes + 8 in the standard evdev ruleset.
-                    // code - min + 1 is wrong when min != 9; use the fixed 8 offset.
+        for (xkb_keycode_t code = MIN; code <= MAX; code++) {
+            if (layout >= xkb_keymap_num_layouts_for_key(m_xkbKeymap, code))
+                continue;
+
+            const auto LEVELS = xkb_keymap_num_levels_for_key(m_xkbKeymap, code, layout);
+            for (xkb_level_index_t level = 0; level < LEVELS; level++) {
+                const xkb_keysym_t* syms;
+                const int           NSYMS = xkb_keymap_key_get_syms_by_level(m_xkbKeymap, code, layout, level, &syms);
+                for (int i = 0; i < NSYMS; i++) {
+                    if (syms[i] != sc<xkb_keysym_t>(sym))
+                        continue;
+
                     xkb_mod_mask_t masks[8]  = {0};
-                    const auto     MASKCOUNT = xkb_keymap_key_get_mods_for_level(m_xkbKeymap, code, 0, level, masks, std::size(masks));
+                    const auto     MASKCOUNT = xkb_keymap_key_get_mods_for_level(m_xkbKeymap, code, layout, level, masks, std::size(masks));
                     return {
                         .keycode   = code - 8,
                         .modifiers = MASKCOUNT > 0 ? masks[0] : 0,
+                        .layout    = layout,
                     };
                 }
             }
         }
+
+        return {};
+    };
+
+    const auto LAYOUTCOUNT = xkb_keymap_num_layouts(m_xkbKeymap);
+    if (preferredLayout < LAYOUTCOUNT) {
+        const auto KEY = FINDINLAYOUT(preferredLayout);
+        if (KEY.keycode)
+            return KEY;
     }
+
+    for (xkb_layout_index_t layout = 0; layout < LAYOUTCOUNT; layout++) {
+        if (layout == preferredLayout)
+            continue;
+
+        const auto KEY = FINDINLAYOUT(layout);
+        if (KEY.keycode)
+            return KEY;
+    }
+
     return {};
 }
 
