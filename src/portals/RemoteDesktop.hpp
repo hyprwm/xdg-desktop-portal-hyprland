@@ -66,14 +66,15 @@ class CRemoteDesktopPortal {
         bool                          started     = false;
 
         // Wayland objects (created on Start)
-        SP<CCZwlrVirtualPointerV1> virtualPointer;
-        SP<CCZwpVirtualKeyboardV1> virtualKeyboard;
+        SP<CCZwlrVirtualPointerV1>                  virtualPointer;
+        SP<CCZwpVirtualKeyboardV1>                  virtualKeyboard;
 
-        struct xkb_state*          xkbState        = nullptr;
-        bool                       axisActiveX     = false;
-        bool                       axisActiveY     = false;
-        int32_t                    discreteScrollX = 0;
-        int32_t                    discreteScrollY = 0;
+        struct xkb_state*                           xkbState        = nullptr;
+        bool                                        axisActiveX     = false;
+        bool                                        axisActiveY     = false;
+        int32_t                                     discreteScrollX = 0;
+        int32_t                                     discreteScrollY = 0;
+        std::unordered_map<int32_t, xkb_mod_mask_t> keysymModifiers;
 
         // EIS/libei state (created by ConnectToEIS)
         struct eis* eis      = nullptr;

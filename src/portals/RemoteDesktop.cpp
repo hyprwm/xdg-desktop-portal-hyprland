@@ -20,6 +20,13 @@ static void sendModifiers(CCZwpVirtualKeyboardV1* keyboard, xkb_state* state, xk
                             xkb_state_serialize_mods(state, XKB_STATE_MODS_LOCKED), xkb_state_serialize_layout(state, XKB_STATE_LAYOUT_EFFECTIVE));
 }
 
+static xkb_mod_mask_t activeKeysymModifiers(const std::unordered_map<int32_t, xkb_mod_mask_t>& keysymModifiers) {
+    xkb_mod_mask_t modifiers = 0;
+    for (const auto& [_, mask] : keysymModifiers)
+        modifiers |= mask;
+    return modifiers;
+}
+
 // ─── CRemoteDesktopPortal implementation ─────────────────────────
 
 CRemoteDesktopPortal::CRemoteDesktopPortal(SP<CCZwlrVirtualPointerManagerV1> pointerMgr, SP<CCZwpVirtualKeyboardManagerV1> keyboardMgr) {
@@ -226,7 +233,7 @@ dbUasv CRemoteDesktopPortal::onStart(sdbus::ObjectPath requestHandle, sdbus::Obj
                             char tmpName[] = "/tmp/xdph-kb-XXXXXX";
                             int  kfd       = mkstemp(tmpName);
                             if (kfd >= 0) {
-                                size_t sz = strlen(kmStr);
+                                size_t sz = strlen(kmStr) + 1;
                                 if (write(kfd, kmStr, sz) == sc<ssize_t>(sz) && lseek(kfd, 0, SEEK_SET) >= 0) {
                                     PSESSION->virtualKeyboard->sendKeymap(1 /* WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1 */, kfd, sz);
                                     keymapSent = true;
@@ -417,7 +424,7 @@ void CRemoteDesktopPortal::onNotifyPointerAxisDiscrete(sdbus::ObjectPath session
         return;
 
     uint32_t time = currentTimeMs();
-    PSESSION->virtualPointer->sendAxisSource(2);
+    PSESSION->virtualPointer->sendAxisSource(0);
     PSESSION->virtualPointer->sendAxisDiscrete(time, axis, wl_fixed_from_int(steps * 15), steps);
     PSESSION->virtualPointer->sendFrame();
     wl_display_flush(g_pPortalManager->m_sWaylandConnection.display);
@@ -430,7 +437,7 @@ void CRemoteDesktopPortal::onNotifyKeyboardKeycode(sdbus::ObjectPath sessionHand
 
     PSESSION->virtualKeyboard->sendKey(currentTimeMs(), keycode, state);
     xkb_state_update_key(PSESSION->xkbState, keycode + 8, state == 1 ? XKB_KEY_DOWN : XKB_KEY_UP);
-    sendModifiers(PSESSION->virtualKeyboard.get(), PSESSION->xkbState);
+    sendModifiers(PSESSION->virtualKeyboard.get(), PSESSION->xkbState, activeKeysymModifiers(PSESSION->keysymModifiers));
     wl_display_flush(g_pPortalManager->m_sWaylandConnection.display);
 }
 
@@ -446,10 +453,14 @@ void CRemoteDesktopPortal::onNotifyKeyboardKeysym(sdbus::ObjectPath sessionHandl
     }
 
     if (state == 1)
-        sendModifiers(PSESSION->virtualKeyboard.get(), PSESSION->xkbState, KEY.modifiers);
+        PSESSION->keysymModifiers[keysym] = KEY.modifiers;
+
+    sendModifiers(PSESSION->virtualKeyboard.get(), PSESSION->xkbState, activeKeysymModifiers(PSESSION->keysymModifiers) | KEY.modifiers);
     PSESSION->virtualKeyboard->sendKey(currentTimeMs(), KEY.keycode, state);
     xkb_state_update_key(PSESSION->xkbState, KEY.keycode + 8, state == 1 ? XKB_KEY_DOWN : XKB_KEY_UP);
-    sendModifiers(PSESSION->virtualKeyboard.get(), PSESSION->xkbState);
+    if (state != 1)
+        PSESSION->keysymModifiers.erase(keysym);
+    sendModifiers(PSESSION->virtualKeyboard.get(), PSESSION->xkbState, activeKeysymModifiers(PSESSION->keysymModifiers));
     wl_display_flush(g_pPortalManager->m_sWaylandConnection.display);
 }
 
@@ -553,7 +564,7 @@ void CRemoteDesktopPortal::processEISEvents() {
                                             char tmpName[] = "/tmp/xdph-kb-XXXXXX";
                                             int  kfd       = mkstemp(tmpName);
                                             if (kfd >= 0) {
-                                                size_t sz = strlen(kmStr);
+                                                size_t sz = strlen(kmStr) + 1;
                                                 write(kfd, kmStr, sz);
                                                 lseek(kfd, 0, SEEK_SET);
                                                 // Use the libeis API: create keymap, add to device, release our ref
@@ -633,11 +644,11 @@ void CRemoteDesktopPortal::processEISEvents() {
                         s->discreteScrollX %= 120;
                         s->discreteScrollY %= 120;
                         if (STEPSY != 0) {
-                            s->virtualPointer->sendAxisSource(2);
+                            s->virtualPointer->sendAxisSource(0);
                             s->virtualPointer->sendAxisDiscrete(time, 0, wl_fixed_from_int(STEPSY * 15), STEPSY);
                         }
                         if (STEPSX != 0) {
-                            s->virtualPointer->sendAxisSource(2);
+                            s->virtualPointer->sendAxisSource(0);
                             s->virtualPointer->sendAxisDiscrete(time, 1, wl_fixed_from_int(STEPSX * 15), STEPSX);
                         }
                     }
@@ -659,7 +670,7 @@ void CRemoteDesktopPortal::processEISEvents() {
                         uint32_t state = eis_event_keyboard_get_key_is_press(event) ? 1 : 0;
                         s->virtualKeyboard->sendKey(time, key, state);
                         xkb_state_update_key(s->xkbState, key + 8, state == 1 ? XKB_KEY_DOWN : XKB_KEY_UP);
-                        sendModifiers(s->virtualKeyboard.get(), s->xkbState);
+                        sendModifiers(s->virtualKeyboard.get(), s->xkbState, activeKeysymModifiers(s->keysymModifiers));
                     }
                     break;
                 }
