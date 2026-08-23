@@ -804,8 +804,7 @@ void CScreencopyPortal::createRemoteDesktopSession(const std::string& appID, con
     if (getSession(sessionHandle))
         return;
 
-    if (g_pPortalManager->m_sHelpers.toplevel)
-        g_pPortalManager->m_sHelpers.toplevel->activate();
+    // No toplevel activation: window sources are unsupported for RemoteDesktop sessions.
     const Hyprutils::Memory::CWeakPointer<SSession> PSESSION = m_vSessions.emplace_back(Hyprutils::Memory::makeUnique<SSession>(appID, sdbus::ObjectPath{"/"}, sessionHandle));
     PSESSION->self                                           = PSESSION;
     PSESSION->remoteDesktop                                  = true;
@@ -818,8 +817,6 @@ void CScreencopyPortal::destroyRemoteDesktopSession(const sdbus::ObjectPath& ses
 
         if (session->sharingData.active)
             m_pPipewire->destroyStream(session.get());
-        if (g_pPortalManager->m_sHelpers.toplevel)
-            g_pPortalManager->m_sHelpers.toplevel->deactivate();
         return true;
     });
 }

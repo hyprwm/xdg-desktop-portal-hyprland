@@ -318,7 +318,7 @@ dbUasv CRemoteDesktopPortal::onStart(sdbus::ObjectPath requestHandle, sdbus::Obj
         return {2, {}};
     }
 
-    if (!promptForRemoteDesktopConsent(appID)) {
+    if (!promptForRemoteDesktopConsent(appID, PSESSION->deviceTypes)) {
         Debug::log(LOG, "[remotedesktop] user denied remote-control access");
         return {1, {}};
     }

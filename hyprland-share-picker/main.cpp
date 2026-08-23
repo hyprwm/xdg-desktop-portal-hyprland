@@ -44,10 +44,15 @@ static int runRemoteDesktopConsent(const CSharedPointer<IBackend>& backend) {
     LAYOUT->setMargin(20);
     BACKGROUND->addChild(LAYOUT);
 
-    const char* APPID = std::getenv("XDPH_REMOTE_DESKTOP_APP_ID");
-    const auto  APP   = escapeMarkup(APPID && *APPID ? APPID : "An application");
-    LAYOUT->addChild(
-        CTextBuilder::begin()->text(APP + " wants to control your pointer and keyboard.")->color([backend] { return backend->getPalette()->m_colors.text; })->commence());
+    const char* APPID        = std::getenv("XDPH_REMOTE_DESKTOP_APP_ID");
+    const char* DEVICES      = std::getenv("XDPH_REMOTE_DESKTOP_DEVICE_TYPES");
+    const auto  DEVICE_TYPES = DEVICES ? std::string_view{DEVICES} : std::string_view{};
+    const bool  POINTER      = DEVICE_TYPES.contains("pointer");
+    const bool  KEYBOARD     = DEVICE_TYPES.contains("keyboard");
+    const auto  WHAT         = POINTER && !KEYBOARD ? "pointer" : (KEYBOARD && !POINTER ? "keyboard" : "pointer and keyboard");
+    // App IDs are caller-controlled: escape markup to prevent spoofing the dialog.
+    const auto APP = escapeMarkup(APPID && *APPID ? APPID : "An application");
+    LAYOUT->addChild(CTextBuilder::begin()->text(APP + " wants to control your " + WHAT + ".")->color([backend] { return backend->getPalette()->m_colors.text; })->commence());
 
     const auto ACTIONS = CRowLayoutBuilder::begin()->gap(8)->commence();
     ACTIONS->addChild(CButtonBuilder::begin()->label("Deny")->onMainClick([&](CSharedPointer<CButtonElement>) { CLOSE(); })->commence());
