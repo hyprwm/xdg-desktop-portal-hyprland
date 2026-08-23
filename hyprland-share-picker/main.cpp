@@ -96,11 +96,28 @@ int main(int argc, char* argv[]) {
     pickerPtr = &picker;
 
     if (remoteDesktop) {
-        const char* APPID  = getenv("XDPH_REMOTE_DESKTOP_APP_ID");
-        const auto  APP    = APPID && *APPID ? QString::fromUtf8(APPID) : QStringLiteral("An application");
-        const auto  RESULT = QMessageBox::question(nullptr, QStringLiteral("Allow remote control?"), QStringLiteral("%1 wants to control your pointer and keyboard.").arg(APP),
-                                                   QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
-        if (RESULT != QMessageBox::Yes)
+        const char* APPID   = getenv("XDPH_REMOTE_DESKTOP_APP_ID");
+        const auto  APP     = APPID && *APPID ? QString::fromUtf8(APPID) : QStringLiteral("An application");
+        const char* DEVICES = getenv("XDPH_REMOTE_DESKTOP_DEVICE_TYPES");
+        const auto  DEVSTR  = DEVICES ? std::string{DEVICES} : std::string{};
+        const bool  POINTER  = DEVSTR.find("pointer") != std::string::npos;
+        const bool  KEYBOARD = DEVSTR.find("keyboard") != std::string::npos;
+
+        QString what;
+        if (POINTER && !KEYBOARD)
+            what = QStringLiteral("pointer");
+        else if (KEYBOARD && !POINTER)
+            what = QStringLiteral("keyboard");
+        else
+            what = QStringLiteral("pointer and keyboard");
+
+        // Force plain text: the app ID is caller-controlled, and Qt::AutoText would
+        // render HTML in it, letting a client spoof another application's name.
+        QMessageBox box(QMessageBox::Question, QStringLiteral("Allow remote control?"), QStringLiteral("%1 wants to control your %2.").arg(APP, what),
+                        QMessageBox::Yes | QMessageBox::No);
+        box.setTextFormat(Qt::PlainText);
+        box.setDefaultButton(QMessageBox::No);
+        if (box.exec() != QMessageBox::Yes)
             return 1;
 
         std::cout << "[AUTHORIZED]\n";

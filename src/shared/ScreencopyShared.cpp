@@ -128,15 +128,22 @@ SSelectionData promptForScreencopySelection(bool allowWindows) {
     return data;
 }
 
-bool promptForRemoteDesktopConsent(const std::string& appID) {
+bool promptForRemoteDesktopConsent(const std::string& appID, uint32_t deviceTypes) {
     const char* WAYLAND_DISPLAY = getenv("WAYLAND_DISPLAY");
     const char* XCURSOR_SIZE    = getenv("XCURSOR_SIZE");
 
-    CProcess    proc("hyprland-share-picker", {"--remote-desktop"});
+    std::string devices;
+    if (deviceTypes & 2)
+        devices = "pointer";
+    if (deviceTypes & 1)
+        devices += devices.empty() ? "keyboard" : ",keyboard";
+
+    CProcess proc("hyprland-share-picker", {"--remote-desktop"});
     proc.addEnv("WAYLAND_DISPLAY", WAYLAND_DISPLAY ? WAYLAND_DISPLAY : "");
     proc.addEnv("QT_QPA_PLATFORM", "wayland");
     proc.addEnv("XCURSOR_SIZE", XCURSOR_SIZE ? XCURSOR_SIZE : "24");
     proc.addEnv("XDPH_REMOTE_DESKTOP_APP_ID", appID);
+    proc.addEnv("XDPH_REMOTE_DESKTOP_DEVICE_TYPES", devices);
 
     return proc.runSync() && proc.stdOut().contains("[AUTHORIZED]");
 }
