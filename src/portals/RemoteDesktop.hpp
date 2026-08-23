@@ -88,6 +88,7 @@ class CRemoteDesktopPortal {
         struct eis*        eis              = nullptr;
         struct eis_seat*   eisSeat          = nullptr;
         struct eis_device* eisPointer       = nullptr;
+        struct eis_device* eisKeyboard      = nullptr;
         uint32_t           eisPointerWidth  = 0;
         uint32_t           eisPointerHeight = 0;
         int                eisFd            = -1; // fd to poll for EIS events
@@ -98,6 +99,8 @@ class CRemoteDesktopPortal {
     void      destroySession(const sdbus::ObjectPath& path);
     void      createEISPointerDevice(SSession* session);
     void      removeEISPointerDevice(SSession* session, bool notifyClient = true);
+    void      createEISKeyboardDevice(SSession* session);
+    void      removeEISKeyboardDevice(SSession* session, bool notifyClient = true);
 
     // Keysym → keycode conversion (via xkbcommon)
     SKeycode                               keycodeFromKeysym(uint32_t sym, xkb_layout_index_t preferredLayout);
