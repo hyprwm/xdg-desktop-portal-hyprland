@@ -10,7 +10,6 @@
 #include <unistd.h>
 
 #include <thread>
-#include <cstdio>
 
 SOutput::SOutput(SP<CCWlOutput> output_) : output(output_) {
     output->setName([this](CCWlOutput* o, const char* name_) {
@@ -364,9 +363,7 @@ void CPortalManager::init() {
 
     // Always register RemoteDesktop because the portal descriptor advertises it.
     // Missing input protocols are reported through AvailableDeviceTypes.
-    Debug::log(LOG, "[core] init check: vp={}, vk={}, pw={}", !!m_sWaylandConnection.virtualPointerMgr, !!m_sWaylandConnection.virtualKeyboardMgr, !!m_sPipewire.loop);
     m_sPortals.remoteDesktop = std::make_unique<CRemoteDesktopPortal>(m_sWaylandConnection.virtualPointerMgr, m_sWaylandConnection.virtualKeyboardMgr);
-    fflush(stdout);
 
     // Now that all D-Bus objects are registered, claim our service name.
     // The frontend portal introspects when it sees our name appear; if we claim
