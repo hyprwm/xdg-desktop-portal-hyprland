@@ -724,7 +724,7 @@ void CScreencopyPortal::destroyRemoteDesktopSession(const sdbus::ObjectPath& ses
     });
 }
 
-bool CScreencopyPortal::startRemoteDesktopSession(const sdbus::ObjectPath& sessionHandle, std::unordered_map<std::string, sdbus::Variant>& results) {
+bool CScreencopyPortal::startRemoteDesktopSession(const sdbus::ObjectPath& sessionHandle, bool persist, std::unordered_map<std::string, sdbus::Variant>& results) {
     const auto PSESSION = getSession(sessionHandle);
     if (!PSESSION || !PSESSION->remoteDesktop)
         return false;
@@ -734,7 +734,10 @@ bool CScreencopyPortal::startRemoteDesktopSession(const sdbus::ObjectPath& sessi
     if (!startSharing(PSESSION))
         return false;
 
-    results = buildStartResults(PSESSION);
+    // RemoteDesktop owns persistence for a combined session, so its consent
+    // decision controls whether the selected screen source is restorable.
+    PSESSION->selection.allowToken = persist;
+    results                        = buildStartResults(PSESSION);
     return true;
 }
 

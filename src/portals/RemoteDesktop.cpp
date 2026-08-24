@@ -1,19 +1,21 @@
 #include "RemoteDesktop.hpp"
 #include "../core/PortalManager.hpp"
 
+#include <array>
+#include <cerrno>
 #include <chrono>
-#include <unistd.h>
-#include <sys/socket.h>
+#include <cstdlib>
+#include <fcntl.h>
+#include <filesystem>
+#include <format>
 #include <libeis.h>
 #include <linux/input.h>
-#include <xkbcommon/xkbcommon.h>
-#include <cstdlib>
-#include <filesystem>
-#include <fstream>
-#include <format>
-#include <random>
 #include <sstream>
+#include <sys/random.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
+#include <unistd.h>
+#include <xkbcommon/xkbcommon.h>
 
 // Helper: get current time in ms for Wayland events
 static uint32_t currentTimeMs() {
@@ -43,9 +45,66 @@ static std::filesystem::path restoreTokenFile() {
 }
 
 static std::string newRestoreToken() {
-    std::random_device                      random;
-    std::uniform_int_distribution<uint64_t> distribution;
-    return std::format("{:016x}{:016x}", distribution(random), distribution(random));
+    std::array<unsigned char, 16> bytes;
+    size_t                        offset = 0;
+    while (offset < bytes.size()) {
+        const auto count = getrandom(bytes.data() + offset, bytes.size() - offset, 0);
+        if (count < 0) {
+            if (errno == EINTR)
+                continue;
+            return {};
+        }
+        offset += sc<size_t>(count);
+    }
+
+    constexpr char HEX[] = "0123456789abcdef";
+    std::string    token;
+    token.reserve(bytes.size() * 2);
+    for (const auto byte : bytes) {
+        token.push_back(HEX[byte >> 4]);
+        token.push_back(HEX[byte & 0xf]);
+    }
+    return token;
+}
+
+static bool readTokenStore(const std::filesystem::path& path, std::string& contents) {
+    const int fd = open(path.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+    if (fd < 0)
+        return false;
+
+    struct stat info;
+    if (fstat(fd, &info) != 0 || !S_ISREG(info.st_mode) || info.st_uid != getuid()) {
+        close(fd);
+        return false;
+    }
+
+    std::array<char, 4096> buffer;
+    while (true) {
+        const auto count = read(fd, buffer.data(), buffer.size());
+        if (count < 0 && errno == EINTR)
+            continue;
+        if (count < 0) {
+            close(fd);
+            return false;
+        }
+        if (count == 0)
+            break;
+        contents.append(buffer.data(), sc<size_t>(count));
+    }
+    return close(fd) == 0;
+}
+
+static bool writeAll(int fd, const std::string& contents) {
+    size_t offset = 0;
+    while (offset < contents.size()) {
+        const auto count = write(fd, contents.data() + offset, contents.size() - offset);
+        if (count < 0 && errno == EINTR)
+            continue;
+        if (count <= 0)
+            return false;
+        offset += sc<size_t>(count);
+    }
+    return true;
 }
 
 // Checking a token must not spend it: Start can still fail after this (no compositor
@@ -59,11 +118,12 @@ static bool validateRestoreToken(const std::string& token, const std::string& ap
     if (path.empty())
         return false;
 
-    std::ifstream input(path);
-    if (!input)
+    std::string contents;
+    if (!readTokenStore(path, contents))
         return false;
 
-    std::string line;
+    std::istringstream input(contents);
+    std::string        line;
     while (std::getline(input, line)) {
         std::istringstream fields(line);
         std::string        storedToken, storedAppID, storedDevices;
@@ -86,13 +146,14 @@ static bool revokeRestoreToken(const std::string& token) {
     if (path.empty())
         return false;
 
-    std::ifstream input(path);
-    if (!input)
+    std::string contents;
+    if (!readTokenStore(path, contents))
         return false;
 
-    std::vector<std::string> remaining;
-    std::string              line;
-    bool                     matched = false;
+    std::istringstream input(contents);
+    std::string        remaining;
+    std::string        line;
+    bool               matched = false;
     while (std::getline(input, line)) {
         std::istringstream fields(line);
         std::string        storedToken;
@@ -102,18 +163,34 @@ static bool revokeRestoreToken(const std::string& token) {
             matched = true;
             continue;
         }
-        remaining.push_back(line);
+        remaining += line + '\n';
     }
-    input.close();
 
     if (!matched)
         return false;
 
-    std::ofstream output(path, std::ios::trunc);
-    for (const auto& entry : remaining)
-        output << entry << '\n';
-    output.close(); // good() is meaningless while the stream is still buffered
-    return output.good();
+    const auto temporary = path.string() + ".tmp-" + newRestoreToken();
+    const int  fd        = open(temporary.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0600);
+    if (fd < 0)
+        return false;
+
+    const bool flushed = writeAll(fd, remaining) && fsync(fd) == 0;
+    const bool closed  = close(fd) == 0;
+    if (!flushed || !closed) {
+        unlink(temporary.c_str());
+        return false;
+    }
+    if (rename(temporary.c_str(), path.c_str()) != 0) {
+        unlink(temporary.c_str());
+        return false;
+    }
+
+    const int directory = open(path.parent_path().c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
+    if (directory < 0)
+        return false;
+    const bool durable = fsync(directory) == 0;
+    close(directory);
+    return durable;
 }
 
 static std::string issueRestoreToken(const std::string& appID, uint32_t deviceTypes) {
@@ -122,24 +199,45 @@ static std::string issueRestoreToken(const std::string& appID, uint32_t deviceTy
         return {};
     }
 
+    const auto token = newRestoreToken();
+    if (token.empty())
+        return {};
+
     const auto path = restoreTokenFile();
     if (path.empty())
         return {};
 
     std::error_code error;
     std::filesystem::create_directories(path.parent_path(), error);
-    if (error)
+    if (error || chmod(path.parent_path().c_str(), 0700) != 0)
         return {};
-    chmod(path.parent_path().c_str(), 0700);
 
-    const auto    token = newRestoreToken();
-    std::ofstream output(path, std::ios::app);
-    if (!output)
+    const int fd = open(path.c_str(), O_WRONLY | O_APPEND | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0600);
+    if (fd < 0)
         return {};
-    chmod(path.c_str(), 0600);
-    output << token << '\t' << appID << '\t' << deviceTypes << '\n';
-    output.close(); // good() is meaningless while the stream is still buffered
-    return output.good() ? token : std::string{};
+
+    struct stat info;
+    if (fstat(fd, &info) != 0 || !S_ISREG(info.st_mode) || info.st_uid != getuid() || fchmod(fd, 0600) != 0) {
+        close(fd);
+        return {};
+    }
+
+    const auto record = std::format("{}\t{}\t{}\n", token, appID, deviceTypes);
+    size_t     offset = 0;
+    while (offset < record.size()) {
+        const auto count = write(fd, record.data() + offset, record.size() - offset);
+        if (count < 0 && errno == EINTR)
+            continue;
+        if (count <= 0) {
+            close(fd);
+            return {};
+        }
+        offset += sc<size_t>(count);
+    }
+
+    const bool flushed = fsync(fd) == 0;
+    const bool closed  = close(fd) == 0;
+    return flushed && closed ? token : std::string{};
 }
 
 static void sendModifiers(CCZwpVirtualKeyboardV1* keyboard, xkb_state* state, xkb_mod_mask_t extraDepressed = 0, xkb_layout_index_t layout = XKB_LAYOUT_INVALID) {
@@ -430,6 +528,11 @@ dbUasv CRemoteDesktopPortal::onSelectDevices(sdbus::ObjectPath requestHandle, sd
         }
     }
 
+    if (PSESSION->persistMode == 1) {
+        Debug::log(WARN, "[remotedesktop] transient persistence is unsupported; downgrading to no persistence");
+        PSESSION->persistMode = 0;
+    }
+
     if (PSESSION->deviceTypes == 0)
         PSESSION->deviceTypes = availableDeviceTypes();
 
@@ -574,7 +677,8 @@ dbUasv CRemoteDesktopPortal::onStart(sdbus::ObjectPath requestHandle, sdbus::Obj
     }
 
     std::unordered_map<std::string, sdbus::Variant> results;
-    if (g_pPortalManager->m_sPortals.screencopy && !g_pPortalManager->m_sPortals.screencopy->startRemoteDesktopSession(sessionHandle, results)) {
+    const bool                                      persistSession = PSESSION->persistMode == 2 && persistAllowed;
+    if (g_pPortalManager->m_sPortals.screencopy && !g_pPortalManager->m_sPortals.screencopy->startRemoteDesktopSession(sessionHandle, persistSession, results)) {
         if (PSESSION->xkbState) {
             xkb_state_unref(PSESSION->xkbState);
             PSESSION->xkbState = nullptr;
@@ -589,11 +693,18 @@ dbUasv CRemoteDesktopPortal::onStart(sdbus::ObjectPath requestHandle, sdbus::Obj
     // Must be a string, not ObjectPath — frontend expects GVariant string type
     results["session_handle"] = sdbus::Variant{std::string{sessionHandle}};
     results["devices"]        = sdbus::Variant{PSESSION->deviceTypes};
-    if (PSESSION->persistMode != 2 && PSESSION->restored) {
+    if (!persistSession) {
+        results.erase("restore_data");
+        results.erase("persist_mode");
+    }
+
+    if (!persistSession && PSESSION->restored) {
         // The app restored a grant but no longer wants one kept; honour that.
-        revokeRestoreToken(PSESSION->restoreToken);
-        Debug::log(LOG, "[remotedesktop] revoked restore token, app asked for no persistence");
-    } else if (PSESSION->persistMode == 2 && persistAllowed) {
+        if (revokeRestoreToken(PSESSION->restoreToken))
+            Debug::log(LOG, "[remotedesktop] revoked restore token, app asked for no persistence");
+        else
+            Debug::log(WARN, "[remotedesktop] failed to revoke restore token");
+    } else if (persistSession) {
         // A restored grant is already in the store — hand the same one back rather than
         // appending a duplicate entry on every restore.
         const auto TOKEN = PSESSION->restored ? PSESSION->restoreToken : issueRestoreToken(appID, PSESSION->deviceTypes);

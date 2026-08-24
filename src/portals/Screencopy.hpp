@@ -118,7 +118,7 @@ class CScreencopyPortal {
     bool hasToplevelCapabilities();
     void createRemoteDesktopSession(const std::string& appID, const sdbus::ObjectPath& sessionHandle);
     void destroyRemoteDesktopSession(const sdbus::ObjectPath& sessionHandle);
-    bool startRemoteDesktopSession(const sdbus::ObjectPath& sessionHandle, std::unordered_map<std::string, sdbus::Variant>& results);
+    bool startRemoteDesktopSession(const sdbus::ObjectPath& sessionHandle, bool persist, std::unordered_map<std::string, sdbus::Variant>& results);
     bool mapRemoteDesktopCoordinates(const sdbus::ObjectPath& sessionHandle, uint32_t stream, double x, double y, uint32_t& mappedX, uint32_t& mappedY, uint32_t& extentW,
                                      uint32_t& extentH);
 
