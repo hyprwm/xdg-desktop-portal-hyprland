@@ -70,7 +70,10 @@ class CRemoteDesktopPortal {
         CWeakPointer<SSession>        self;
 
         uint32_t                      deviceTypes = 0; // bitmask: 1=keyboard, 2=pointer, 4=touchscreen
-        bool                          started     = false;
+        uint32_t                      persistMode = 0;
+        std::string                   restoreToken;
+        bool                          restored = false;
+        bool                          started  = false;
 
         // Wayland objects (created on Start)
         SP<CCZwlrVirtualPointerV1>                  virtualPointer;

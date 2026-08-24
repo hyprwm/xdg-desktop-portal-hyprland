@@ -3,6 +3,7 @@
 
 #include <hyprtoolkit/core/Backend.hpp>
 #include <hyprtoolkit/element/Button.hpp>
+#include <hyprtoolkit/element/Checkbox.hpp>
 #include <hyprtoolkit/element/ColumnLayout.hpp>
 #include <hyprtoolkit/element/Rectangle.hpp>
 #include <hyprtoolkit/element/RowLayout.hpp>
@@ -54,6 +55,18 @@ static int runRemoteDesktopConsent(const CSharedPointer<IBackend>& backend) {
     const auto APP = escapeMarkup(APPID && *APPID ? APPID : "An application");
     LAYOUT->addChild(CTextBuilder::begin()->text(APP + " wants to control your " + WHAT + ".")->color([backend] { return backend->getPalette()->m_colors.text; })->commence());
 
+    // Persistence is offered only when requested, and is never selected by default.
+    const char*                      PERSIST = std::getenv("XDPH_REMOTE_DESKTOP_PERSIST");
+    CSharedPointer<CCheckboxElement> persistBox;
+    if (PERSIST && *PERSIST == '1') {
+        const auto ROW = CRowLayoutBuilder::begin()->gap(8)->commence();
+        persistBox     = CCheckboxBuilder::begin()->toggled(false)->commence();
+        ROW->addChild(persistBox);
+        ROW->addChild(
+            CTextBuilder::begin()->text("Allow " + APP + " to skip this prompt in the future")->color([backend] { return backend->getPalette()->m_colors.text; })->commence());
+        LAYOUT->addChild(ROW);
+    }
+
     const auto ACTIONS = CRowLayoutBuilder::begin()->gap(8)->commence();
     ACTIONS->addChild(CButtonBuilder::begin()->label("Deny")->onMainClick([&](CSharedPointer<CButtonElement>) { CLOSE(); })->commence());
     ACTIONS->addChild(CButtonBuilder::begin()
@@ -70,7 +83,10 @@ static int runRemoteDesktopConsent(const CSharedPointer<IBackend>& backend) {
     if (!authorized)
         return 1;
 
-    std::cout << "[AUTHORIZED]\n";
+    std::cout << "[AUTHORIZED]";
+    if (persistBox && persistBox->state())
+        std::cout << "[PERSIST]";
+    std::cout << '\n';
     return 0;
 }
 
