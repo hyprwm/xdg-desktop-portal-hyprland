@@ -128,7 +128,10 @@ SSelectionData promptForScreencopySelection(bool allowWindows) {
     return data;
 }
 
-bool promptForRemoteDesktopConsent(const std::string& appID, uint32_t deviceTypes) {
+bool promptForRemoteDesktopConsent(const std::string& appID, uint32_t deviceTypes, bool persistRequested, bool* persistGranted) {
+    if (persistGranted)
+        *persistGranted = false;
+
     const char* WAYLAND_DISPLAY = getenv("WAYLAND_DISPLAY");
     const char* XCURSOR_SIZE    = getenv("XCURSOR_SIZE");
 
@@ -144,8 +147,15 @@ bool promptForRemoteDesktopConsent(const std::string& appID, uint32_t deviceType
     proc.addEnv("XCURSOR_SIZE", XCURSOR_SIZE ? XCURSOR_SIZE : "24");
     proc.addEnv("XDPH_REMOTE_DESKTOP_APP_ID", appID);
     proc.addEnv("XDPH_REMOTE_DESKTOP_DEVICE_TYPES", devices);
+    proc.addEnv("XDPH_REMOTE_DESKTOP_PERSIST", persistRequested ? "1" : "0");
 
-    return proc.runSync() && proc.stdOut().contains("[AUTHORIZED]");
+    if (!proc.runSync() || !proc.stdOut().contains("[AUTHORIZED]"))
+        return false;
+
+    if (persistGranted)
+        *persistGranted = persistRequested && proc.stdOut().contains("[PERSIST]");
+
+    return true;
 }
 
 wl_shm_format wlSHMFromDrmFourcc(uint32_t format) {

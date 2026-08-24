@@ -7,11 +7,141 @@
 #include <libeis.h>
 #include <linux/input.h>
 #include <xkbcommon/xkbcommon.h>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <format>
+#include <random>
+#include <sstream>
+#include <sys/stat.h>
 
 // Helper: get current time in ms for Wayland events
 static uint32_t currentTimeMs() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
 }
+
+// The impl-side portal interface exchanges persistence state as `restore_data` (suv):
+// vendor, version, private blob. xdg-desktop-portal is what turns that into the
+// `restore_token` the application sees. Keep the vendor/version in sync with the
+// screencopy portal: a combined RemoteDesktop+ScreenCast session shares one blob.
+using SRestoreData = sdbus::Struct<std::string, uint32_t, sdbus::Variant>;
+
+static constexpr const char* RESTORE_DATA_VENDOR    = "hyprland";
+static constexpr uint32_t    RESTORE_DATA_VERSION   = 3;
+static constexpr const char* RESTORE_DATA_TOKEN_KEY = "remoteDesktopToken";
+
+static std::filesystem::path restoreTokenFile() {
+    std::filesystem::path base;
+    if (const char* STATEHOME = std::getenv("XDG_STATE_HOME"); STATEHOME && *STATEHOME)
+        base = std::filesystem::path{STATEHOME};
+    else if (const char* HOME = std::getenv("HOME"); HOME && *HOME)
+        base = std::filesystem::path{HOME} / ".local/state";
+    else
+        return {}; // no home: never fall back to a relative path, we'd drop secrets in the cwd
+
+    return base / "xdg-desktop-portal-hyprland" / "remote-desktop-tokens";
+}
+
+static std::string newRestoreToken() {
+    std::random_device                      random;
+    std::uniform_int_distribution<uint64_t> distribution;
+    return std::format("{:016x}{:016x}", distribution(random), distribution(random));
+}
+
+// Checking a token must not spend it: Start can still fail after this (no compositor
+// protocols, keymap failure, screencast refused), and burning the user's grant on a
+// failed attempt would silently drop them back to the consent dialog next time.
+static bool validateRestoreToken(const std::string& token, const std::string& appID, uint32_t deviceTypes) {
+    if (token.empty())
+        return false;
+
+    const auto path = restoreTokenFile();
+    if (path.empty())
+        return false;
+
+    std::ifstream input(path);
+    if (!input)
+        return false;
+
+    std::string line;
+    while (std::getline(input, line)) {
+        std::istringstream fields(line);
+        std::string        storedToken, storedAppID, storedDevices;
+        if (!std::getline(fields, storedToken, '\t') || !std::getline(fields, storedAppID, '\t') || !std::getline(fields, storedDevices))
+            continue;
+        if (storedToken == token && storedAppID == appID && storedDevices == std::to_string(deviceTypes))
+            return true;
+    }
+
+    return false;
+}
+
+// Drops the grant, e.g. because the app restored it while asking for no further
+// persistence. Without this such an entry would sit in the store forever.
+static bool revokeRestoreToken(const std::string& token) {
+    if (token.empty())
+        return false;
+
+    const auto path = restoreTokenFile();
+    if (path.empty())
+        return false;
+
+    std::ifstream input(path);
+    if (!input)
+        return false;
+
+    std::vector<std::string> remaining;
+    std::string              line;
+    bool                     matched = false;
+    while (std::getline(input, line)) {
+        std::istringstream fields(line);
+        std::string        storedToken;
+        if (!std::getline(fields, storedToken, '\t'))
+            continue;
+        if (storedToken == token) {
+            matched = true;
+            continue;
+        }
+        remaining.push_back(line);
+    }
+    input.close();
+
+    if (!matched)
+        return false;
+
+    std::ofstream output(path, std::ios::trunc);
+    for (const auto& entry : remaining)
+        output << entry << '\n';
+    output.close(); // good() is meaningless while the stream is still buffered
+    return output.good();
+}
+
+static std::string issueRestoreToken(const std::string& appID, uint32_t deviceTypes) {
+    if (appID.find_first_of("\t\n") != std::string::npos) {
+        Debug::log(WARN, "[remotedesktop] refusing to persist a token for an app id containing record separators");
+        return {};
+    }
+
+    const auto path = restoreTokenFile();
+    if (path.empty())
+        return {};
+
+    std::error_code error;
+    std::filesystem::create_directories(path.parent_path(), error);
+    if (error)
+        return {};
+    chmod(path.parent_path().c_str(), 0700);
+
+    const auto    token = newRestoreToken();
+    std::ofstream output(path, std::ios::app);
+    if (!output)
+        return {};
+    chmod(path.c_str(), 0600);
+    output << token << '\t' << appID << '\t' << deviceTypes << '\n';
+    output.close(); // good() is meaningless while the stream is still buffered
+    return output.good() ? token : std::string{};
+}
+
 static void sendModifiers(CCZwpVirtualKeyboardV1* keyboard, xkb_state* state, xkb_mod_mask_t extraDepressed = 0, xkb_layout_index_t layout = XKB_LAYOUT_INVALID) {
     if (!keyboard || !state)
         return;
@@ -280,6 +410,23 @@ dbUasv CRemoteDesktopPortal::onSelectDevices(sdbus::ObjectPath requestHandle, sd
         if (k == "types") {
             PSESSION->deviceTypes = v.get<uint32_t>();
             Debug::log(LOG, "[remotedesktop] devices selected: {}", PSESSION->deviceTypes);
+        } else if (k == "persist_mode") {
+            PSESSION->persistMode = v.get<uint32_t>();
+            Debug::log(LOG, "[remotedesktop] persist mode selected: {}", PSESSION->persistMode);
+        } else if (k == "restore_data") {
+            // xdg-desktop-portal swaps the app-facing `restore_token` for our own
+            // `restore_data` blob before it reaches this backend, so this is the only
+            // key we ever get to see.
+            try {
+                const auto DATA = v.get<SRestoreData>();
+                if (DATA.get<0>() != RESTORE_DATA_VENDOR || DATA.get<1>() != RESTORE_DATA_VERSION)
+                    Debug::log(LOG, "[remotedesktop] ignoring foreign restore data from {} v{}", DATA.get<0>(), DATA.get<1>());
+                else {
+                    const auto MAP = DATA.get<2>().get<std::unordered_map<std::string, sdbus::Variant>>();
+                    if (const auto IT = MAP.find(RESTORE_DATA_TOKEN_KEY); IT != MAP.end())
+                        PSESSION->restoreToken = IT->second.get<std::string>();
+                }
+            } catch (const std::exception& e) { Debug::log(WARN, "[remotedesktop] malformed restore data: {}", e.what()); }
         }
     }
 
@@ -291,6 +438,13 @@ dbUasv CRemoteDesktopPortal::onSelectDevices(sdbus::ObjectPath requestHandle, sd
         Debug::log(ERR, "[remotedesktop] none of the requested device types are available");
         return {2, {}};
     }
+
+    // Deliberately not gated on persistMode: persist_mode describes how the *new*
+    // session should be remembered, and says nothing about whether the token the app
+    // just presented is good.
+    PSESSION->restored = validateRestoreToken(PSESSION->restoreToken, appID, PSESSION->deviceTypes);
+    if (PSESSION->restored)
+        Debug::log(LOG, "[remotedesktop] valid restore token, skipping consent dialog");
 
     return {0, {}};
 }
@@ -318,10 +472,16 @@ dbUasv CRemoteDesktopPortal::onStart(sdbus::ObjectPath requestHandle, sdbus::Obj
         return {2, {}};
     }
 
-    if (!promptForRemoteDesktopConsent(appID, PSESSION->deviceTypes)) {
-        Debug::log(LOG, "[remotedesktop] user denied remote-control access");
-        return {1, {}};
-    }
+    // Persisting is the user's call, not the app's: `persist_mode` only gets us as far
+    // as offering the checkbox in the consent dialog.
+    bool persistAllowed = false;
+    if (!PSESSION->restored) {
+        if (!promptForRemoteDesktopConsent(appID, PSESSION->deviceTypes, PSESSION->persistMode == 2, &persistAllowed)) {
+            Debug::log(LOG, "[remotedesktop] user denied remote-control access");
+            return {1, {}};
+        }
+    } else
+        persistAllowed = true; // the grant being restored was consented to already
 
     bool initialized = true;
 
@@ -429,6 +589,36 @@ dbUasv CRemoteDesktopPortal::onStart(sdbus::ObjectPath requestHandle, sdbus::Obj
     // Must be a string, not ObjectPath — frontend expects GVariant string type
     results["session_handle"] = sdbus::Variant{std::string{sessionHandle}};
     results["devices"]        = sdbus::Variant{PSESSION->deviceTypes};
+    if (PSESSION->persistMode != 2 && PSESSION->restored) {
+        // The app restored a grant but no longer wants one kept; honour that.
+        revokeRestoreToken(PSESSION->restoreToken);
+        Debug::log(LOG, "[remotedesktop] revoked restore token, app asked for no persistence");
+    } else if (PSESSION->persistMode == 2 && persistAllowed) {
+        // A restored grant is already in the store — hand the same one back rather than
+        // appending a duplicate entry on every restore.
+        const auto TOKEN = PSESSION->restored ? PSESSION->restoreToken : issueRestoreToken(appID, PSESSION->deviceTypes);
+        if (TOKEN.empty())
+            Debug::log(WARN, "[remotedesktop] failed to persist restore token");
+        else {
+            // The screencast half of a combined session may already have written its own
+            // blob into results; merge into it rather than clobbering it.
+            std::unordered_map<std::string, sdbus::Variant> restoreData;
+            if (const auto IT = results.find("restore_data"); IT != results.end()) {
+                try {
+                    const auto EXISTING = IT->second.get<SRestoreData>();
+                    if (EXISTING.get<0>() == RESTORE_DATA_VENDOR && EXISTING.get<1>() == RESTORE_DATA_VERSION)
+                        restoreData = EXISTING.get<2>().get<std::unordered_map<std::string, sdbus::Variant>>();
+                } catch (const std::exception& e) { Debug::log(WARN, "[remotedesktop] could not merge screencast restore data: {}", e.what()); }
+            }
+
+            restoreData[RESTORE_DATA_TOKEN_KEY] = sdbus::Variant{TOKEN};
+            results["restore_data"]             = sdbus::Variant{SRestoreData{RESTORE_DATA_VENDOR, RESTORE_DATA_VERSION, sdbus::Variant{restoreData}}};
+            if (!results.contains("persist_mode"))
+                results["persist_mode"] = sdbus::Variant{PSESSION->persistMode};
+
+            Debug::log(LOG, "[remotedesktop] {} restore token", PSESSION->restored ? "reused" : "issued");
+        }
+    }
 
     return {0, results};
 }
