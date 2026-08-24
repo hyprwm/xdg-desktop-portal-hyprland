@@ -169,7 +169,13 @@ static bool revokeRestoreToken(const std::string& token) {
     if (!matched)
         return false;
 
-    const auto temporary = path.string() + ".tmp-" + newRestoreToken();
+    // A non-unique suffix would let one leftover .tmp- file (crash between open and
+    // rename) block every future revocation, O_EXCL and all.
+    const auto suffix = newRestoreToken();
+    if (suffix.empty())
+        return false;
+
+    const auto temporary = path.string() + ".tmp-" + suffix;
     const int  fd        = open(temporary.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0600);
     if (fd < 0)
         return false;
@@ -185,7 +191,7 @@ static bool revokeRestoreToken(const std::string& token) {
         return false;
     }
 
-    const int directory = open(path.parent_path().c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
+    const int directory = open(path.parent_path().c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
     if (directory < 0)
         return false;
     const bool durable = fsync(directory) == 0;
@@ -222,22 +228,42 @@ static std::string issueRestoreToken(const std::string& appID, uint32_t deviceTy
         return {};
     }
 
-    const auto record = std::format("{}\t{}\t{}\n", token, appID, deviceTypes);
-    size_t     offset = 0;
+    const auto record  = std::format("{}\t{}\t{}\n", token, appID, deviceTypes);
+    size_t     offset  = 0;
+    bool       written = true;
     while (offset < record.size()) {
         const auto count = write(fd, record.data() + offset, record.size() - offset);
         if (count < 0 && errno == EINTR)
             continue;
         if (count <= 0) {
-            close(fd);
-            return {};
+            written = false;
+            break;
         }
         offset += sc<size_t>(count);
     }
 
-    const bool flushed = fsync(fd) == 0;
-    const bool closed  = close(fd) == 0;
-    return flushed && closed ? token : std::string{};
+    // A half-written record has no trailing newline, so the next append would glue
+    // itself onto it and take that token down too. Roll back to what we found.
+    if (!written || fsync(fd) != 0) {
+        if (ftruncate(fd, info.st_size) != 0)
+            Debug::log(WARN, "[remotedesktop] could not roll back a partial token record");
+        close(fd);
+        return {};
+    }
+
+    if (close(fd) != 0)
+        return {};
+
+    // fsync on the file does not make a freshly created file's directory entry
+    // durable, and the revoke path already pays for this.
+    const int directory = open(path.parent_path().c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    if (directory >= 0) {
+        if (fsync(directory) != 0)
+            Debug::log(WARN, "[remotedesktop] could not flush the token store directory");
+        close(directory);
+    }
+
+    return token;
 }
 
 static void sendModifiers(CCZwpVirtualKeyboardV1* keyboard, xkb_state* state, xkb_mod_mask_t extraDepressed = 0, xkb_layout_index_t layout = XKB_LAYOUT_INVALID) {
