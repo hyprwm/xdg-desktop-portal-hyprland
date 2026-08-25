@@ -498,7 +498,7 @@ void CRemoteDesktopPortal::updateEISPointerRegions() {
 
 dbUasv CRemoteDesktopPortal::onCreateSession(sdbus::ObjectPath requestHandle, sdbus::ObjectPath sessionHandle, std::string appID,
                                              std::unordered_map<std::string, sdbus::Variant> opts) {
-    Debug::log(LOG, "[remotedesktop] New session: appid={} req={} sess={}", appID, requestHandle, sessionHandle);
+    Debug::log(LOG, "[remotedesktop] New session: appid={} req={} sess={}", appID, std::string(requestHandle), std::string(sessionHandle));
 
     const auto PSESSION = m_vSessions.emplace_back(std::make_unique<SSession>(appID, requestHandle, sessionHandle)).get();
 
