@@ -135,6 +135,17 @@ void CPortalManager::onGlobal(uint32_t name, const char* interface, uint32_t ver
 
     else if (INTERFACE == wl_seat_interface.name) {
         m_sWaylandConnection.seat = makeShared<CCWlSeat>((wl_proxy*)wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &wl_seat_interface, version));
+        m_sWaylandConnection.keyboard = makeShared<CCWlKeyboard>(m_sWaylandConnection.seat->sendGetKeyboard());
+        m_sWaylandConnection.keyboard->setKeymap([this](CCWlKeyboard*, wl_keyboard_keymap_format format, int32_t fd, uint32_t size) {
+            if (format != WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1)
+                return;
+
+            if (m_sKeymap.fd >= 0)
+                close(m_sKeymap.fd);
+
+            m_sKeymap = {.format = format, .fd = dup(fd), .size = size};
+            close(fd);
+        });
     }
 
     else if (INTERFACE == zwp_linux_dmabuf_v1_interface.name) {

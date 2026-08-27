@@ -57,7 +57,7 @@ pkg_check_modules(
   deps
   REQUIRED
   IMPORTED_TARGET
-  dbus-1
+  libeis-1.0
   wayland-client
   wayland-protocols
   libpipewire-0.3>=1.1.82
@@ -85,12 +85,11 @@ else()
   set(HYPRLAND_PROTOCOLS "${CMAKE_SOURCE_DIR}/subprojects/hyprland-protocols")
 endif()
 
-pkg_search_module(UUID REQUIRED uuid)
 file(GLOB_RECURSE SRCFILES CONFIGURE_DEPENDS "src/*.cpp")
 add_executable(xdg-desktop-portal-hyprland ${SRCFILES})
 target_link_libraries(
   xdg-desktop-portal-hyprland PRIVATE rt PkgConfig::SDBUS Threads::Threads
-                                      PkgConfig::deps ${UUID_LIBRARIES})
+                                      PkgConfig::deps)
 
 # protocols
 pkg_get_variable(WAYLAND_PROTOCOLS_DIR wayland-protocols pkgdatadir)

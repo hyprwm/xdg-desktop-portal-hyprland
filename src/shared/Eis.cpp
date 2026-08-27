@@ -3,6 +3,7 @@
 #include "../helpers/MiscFunctions.hpp"
 #include "src/helpers/Log.hpp"
 #include <alloca.h>
+#include <cmath>
 #include <libeis.h>
 #include <sys/mman.h>
 #include <unistd.h>
@@ -233,8 +234,14 @@ void EmulatedInputServer::ensurePointer() {
     for (auto& o : g_pPortalManager->getAllOutputs()) {
         eis_region* r = eis_device_new_region(pointer);
 
-        eis_region_set_offset(r, o->x, o->y);
-        eis_region_set_size(r, o->width, o->height);
+        const auto scale = o->scale > 0.0 ? o->scale : 1.0;
+        const auto x     = o->logicalPositionValid ? o->logicalX : o->x;
+        const auto y     = o->logicalPositionValid ? o->logicalY : o->y;
+        const auto width = o->logicalSizeValid ? o->logicalWidth : std::max(1, static_cast<int32_t>(std::lround(o->width / scale)));
+        const auto height = o->logicalSizeValid ? o->logicalHeight : std::max(1, static_cast<int32_t>(std::lround(o->height / scale)));
+
+        eis_region_set_offset(r, x, y);
+        eis_region_set_size(r, width, height);
         eis_region_set_physical_scale(r, o->scale);
         eis_region_add(r);
         eis_region_unref(r);

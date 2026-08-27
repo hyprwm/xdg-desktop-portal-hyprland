@@ -29,50 +29,50 @@ CRemoteDesktopPortal::CRemoteDesktopPortal() {
                     return onStart(o1, o2, s1, s2, m);
                 }),
             sdbus::registerMethod("NotifyPointerMotion")
-                .implementedAs([this](sdbus::ObjectPath o, double d1, double d2, std::unordered_map<std::string, sdbus::Variant> m) {
+                .implementedAs([this](sdbus::ObjectPath o, std::unordered_map<std::string, sdbus::Variant> m, double d1, double d2) {
                     return onNotifyPointerMotion(o, d1, d2, m);
                 }),
             sdbus::registerMethod("NotifyPointerMotionAbsolute")
-                .implementedAs([this](sdbus::ObjectPath o, unsigned int u, double d1, double d2, std::unordered_map<std::string, sdbus::Variant> m) {
+                .implementedAs([this](sdbus::ObjectPath o, std::unordered_map<std::string, sdbus::Variant> m, unsigned int u, double d1, double d2) {
                     return onNotifyPointerMotionAbsolute(o, u, d1, d2, m);
                 }),
             sdbus::registerMethod("NotifyPointerButton")
-                .implementedAs([this](sdbus::ObjectPath o, int i, unsigned int u, std::unordered_map<std::string, sdbus::Variant> m) {
+                .implementedAs([this](sdbus::ObjectPath o, std::unordered_map<std::string, sdbus::Variant> m, int i, unsigned int u) {
                     return onNotifyPointerButton(o, i, u, m);
                 }),
             sdbus::registerMethod("NotifyPointerAxis")
-                .implementedAs([this](sdbus::ObjectPath o, double d1, double d2, std::unordered_map<std::string, sdbus::Variant> m) {
+                .implementedAs([this](sdbus::ObjectPath o, std::unordered_map<std::string, sdbus::Variant> m, double d1, double d2) {
                     return onNotifyPointerAxis(o, d1, d2, m);
                 }),
             sdbus::registerMethod("NotifyPointerAxisDiscrete")
-                .implementedAs([this](sdbus::ObjectPath o, unsigned int u, int i, std::unordered_map<std::string, sdbus::Variant> m) {
+                .implementedAs([this](sdbus::ObjectPath o, std::unordered_map<std::string, sdbus::Variant> m, unsigned int u, int i) {
                     return onNotifyPointerAxisDiscrete(o, u, i, m);
                 }),
             sdbus::registerMethod("NotifyKeyboardKeycode")
-                .implementedAs([this](sdbus::ObjectPath o, int i, unsigned int u, std::unordered_map<std::string, sdbus::Variant> m) {
+                .implementedAs([this](sdbus::ObjectPath o, std::unordered_map<std::string, sdbus::Variant> m, int i, unsigned int u) {
                     return onNotifyKeyboardKeycode(o, i, u, m);
                 }),
             sdbus::registerMethod("NotifyKeyboardKeysym")
-                .implementedAs([this](sdbus::ObjectPath o, int i, unsigned int u, std::unordered_map<std::string, sdbus::Variant> m) {
+                .implementedAs([this](sdbus::ObjectPath o, std::unordered_map<std::string, sdbus::Variant> m, int i, unsigned int u) {
                     return onNotifyKeyboardKeysym(o, i, u, m);
                 }),
             sdbus::registerMethod("NotifyTouchDown")
-                .implementedAs([this](sdbus::ObjectPath o, unsigned int u1, unsigned int u2, double d1, double d2, std::unordered_map<std::string, sdbus::Variant> m) {
+                .implementedAs([this](sdbus::ObjectPath o, std::unordered_map<std::string, sdbus::Variant> m, unsigned int u1, unsigned int u2, double d1, double d2) {
                     return onNotifyTouchDown(o, u1, u2, d1, d2, m);
                 }),
             sdbus::registerMethod("NotifyTouchMotion")
-                .implementedAs([this](sdbus::ObjectPath o, unsigned int u1, unsigned int u2, double d1, double d2, std::unordered_map<std::string, sdbus::Variant> m) {
+                .implementedAs([this](sdbus::ObjectPath o, std::unordered_map<std::string, sdbus::Variant> m, unsigned int u1, unsigned int u2, double d1, double d2) {
                     return onNotifyTouchMotion(o, u1, u2, d1, d2, m);
                 }),
             sdbus::registerMethod("NotifyTouchUp")
-                .implementedAs([this](sdbus::ObjectPath o, unsigned int u, std::unordered_map<std::string, sdbus::Variant> m) {
+                .implementedAs([this](sdbus::ObjectPath o, std::unordered_map<std::string, sdbus::Variant> m, unsigned int u) {
                     return onNotifyTouchUp(o, u, m);
                 }),
             sdbus::registerMethod("ConnectToEIS").implementedAs([this](sdbus::ObjectPath o, std::string s, std::unordered_map<std::string, sdbus::Variant> m) {
                 return onConnectToEIS(o, s, m);
             }),
             sdbus::registerProperty("AvailableDeviceTypes").withGetter([] { return (uint32_t)(1 | 2); }),
-            sdbus::registerProperty("version").withGetter([] { return (uint32_t)(1); }))
+            sdbus::registerProperty("version").withGetter([] { return (uint32_t)(2); }))
         .forInterface(INTERFACE_NAME);
 
 }

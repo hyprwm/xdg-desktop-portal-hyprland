@@ -75,9 +75,9 @@ class CPortalManager {
     std::vector<std::unique_ptr<SOutput>> const& getAllOutputs();
 
     struct {
-        enum wl_keyboard_keymap_format format;
-        int32_t                        fd;
-        uint32_t                       size;
+        enum wl_keyboard_keymap_format format = WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1;
+        int32_t                         fd     = -1;
+        uint32_t                        size   = 0;
     } m_sKeymap;
 
     struct {
@@ -100,6 +100,7 @@ class CPortalManager {
     struct {
         wl_display*                           display = nullptr;
         SP<CCWlSeat>                          seat;
+        SP<CCWlKeyboard>                      keyboard;
         SP<CCWlRegistry>                      registry;
         SP<CCHyprlandToplevelExportManagerV1> hyprlandToplevelMgr;
         SP<CCZwpLinuxDmabufV1>                linuxDmabuf;
