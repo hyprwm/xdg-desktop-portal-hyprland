@@ -484,11 +484,22 @@ void CPortalManager::startEventLoop() {
     m_sPortals.screencopy.reset();
     m_sPortals.screenshot.reset();
     m_sHelpers.toplevel.reset();
+    m_sHelpers.toplevelMapping.reset();
     m_sPortals.inputCapture.reset();
 
     m_pConnection.reset();
     pw_loop_destroy(m_sPipewire.loop);
+
+    m_vOutputs.clear();
+    m_sWaylandConnection.linuxDmabufFeedback.reset();
+    m_sWaylandConnection.linuxDmabuf.reset();
+    m_sWaylandConnection.xdgOutputManager.reset();
+    m_sWaylandConnection.hyprlandToplevelMgr.reset();
+    m_sWaylandConnection.shm.reset();
+    m_sWaylandConnection.registry.reset();
+
     wl_display_disconnect(m_sWaylandConnection.display);
+    m_sWaylandConnection.display = nullptr;
 
     m_sTimersThread.thread.release();
     pollThr.join(); // wait for poll to exit
