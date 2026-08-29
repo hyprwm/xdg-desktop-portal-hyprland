@@ -915,8 +915,28 @@ static void pwStreamParamChanged(void* data, uint32_t id, const spa_pod* param) 
     Debug::log(TRACE, "[pw]  | framerate {}", PSTREAM->pSession->sharingData.framerate);
 
     uint32_t blocks = 1;
+    uint32_t size   = PSTREAM->pSession->sharingData.frameInfoSHM.size;
+    uint32_t stride = PSTREAM->pSession->sharingData.frameInfoSHM.stride;
 
-    params[0] = build_buffer(&dynBuilder[0].b, blocks, PSTREAM->pSession->sharingData.frameInfoSHM.size, PSTREAM->pSession->sharingData.frameInfoSHM.stride, data_type);
+    if (data_type == (1 << SPA_DATA_DmaBuf)) {
+        // Unused for dma buf, set to 0 to exclude them from the buffer
+        size   = 0;
+        stride = 0;
+
+        if (PSTREAM->pwVideoInfo.modifier != DRM_FORMAT_MOD_INVALID) {
+            const int PLANES = gbm_device_get_format_modifier_plane_count(g_pPortalManager->m_sWaylandConnection.gbmDevice,
+                                                                          PSTREAM->pSession->sharingData.frameInfoDMA.fmt, PSTREAM->pwVideoInfo.modifier);
+            if (PLANES > 0)
+                blocks = PLANES;
+            else
+                Debug::log(WARN, "[pw] gbm doesn't know the plane count of fmt {} mod {}, assuming 1", PSTREAM->pSession->sharingData.frameInfoDMA.fmt,
+                           PSTREAM->pwVideoInfo.modifier);
+        }
+    }
+
+    Debug::log(TRACE, "[pw]  | blocks {}", blocks);
+
+    params[0] = build_buffer(&dynBuilder[0].b, blocks, size, stride, data_type);
 
     params[1] = (const spa_pod*)spa_pod_builder_add_object(&dynBuilder[1].b, SPA_TYPE_OBJECT_ParamMeta, SPA_PARAM_Meta, SPA_PARAM_META_type, SPA_POD_Id(SPA_META_Header),
                                                            SPA_PARAM_META_size, SPA_POD_Int(sizeof(struct spa_meta_header)));
@@ -956,14 +976,28 @@ static void pwStreamAddBuffer(void* data, pw_buffer* buffer) {
         return;
     }
 
-    const auto PBUFFER = PSTREAM->buffers.emplace_back(g_pPortalManager->m_sPortals.screencopy->m_pPipewire->createBuffer(PSTREAM, type == SPA_DATA_DmaBuf)).get();
+    auto newBuffer = g_pPortalManager->m_sPortals.screencopy->m_pPipewire->createBuffer(PSTREAM, type == SPA_DATA_DmaBuf);
+
+    if (!newBuffer) {
+        Debug::log(ERR, "[pw] createBuffer failed in addbuffer");
+        return;
+    }
+
+    const auto PBUFFER = PSTREAM->buffers.emplace_back(std::move(newBuffer)).get();
 
     PBUFFER->pwBuffer = buffer;
     buffer->user_data = PBUFFER;
 
-    Debug::log(TRACE, "[pw] buffer datas {}", buffer->buffer->n_datas);
+    Debug::log(TRACE, "[pw] buffer datas {}, buffer planes {}", buffer->buffer->n_datas, PBUFFER->planeCount);
 
-    for (uint32_t plane = 0; plane < buffer->buffer->n_datas; plane++) {
+    // the bo we got may not have the plane count we negotiated blocks for. never touch more spa_datas
+    // than we have planes for, the rest of PBUFFER's plane arrays is uninitialized.
+    const uint32_t PLANES = std::min(buffer->buffer->n_datas, (uint32_t)PBUFFER->planeCount);
+
+    if (PLANES != buffer->buffer->n_datas)
+        Debug::log(ERR, "[pw] plane count mismatch: pw wants {} blocks, buffer has {} planes. Frames will be corrupt.", buffer->buffer->n_datas, PBUFFER->planeCount);
+
+    for (uint32_t plane = 0; plane < PLANES; plane++) {
         spaData[plane].type          = type;
         spaData[plane].maxsize       = PBUFFER->size[plane];
         spaData[plane].mapoffset     = 0;
@@ -978,6 +1012,14 @@ static void pwStreamAddBuffer(void* data, pw_buffer* buffer) {
         if (PBUFFER->isDMABUF && spaData[plane].chunk->size == 0) {
             spaData[plane].chunk->size = 9; // This was choosen by a fair d20.
         }
+    }
+
+    for (uint32_t plane = PLANES; plane < buffer->buffer->n_datas; plane++) {
+        spaData[plane].type      = type;
+        spaData[plane].fd        = -1;
+        spaData[plane].data      = NULL;
+        spaData[plane].maxsize   = 0;
+        spaData[plane].mapoffset = 0;
     }
 }
 
