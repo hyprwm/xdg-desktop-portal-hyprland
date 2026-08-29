@@ -57,6 +57,7 @@ pkg_check_modules(
   deps
   REQUIRED
   IMPORTED_TARGET
+  libeis-1.0
   wayland-client
   wayland-protocols
   libpipewire-0.3>=1.1.82
@@ -127,6 +128,8 @@ protocolwayland()
 protocolnew("${CMAKE_SOURCE_DIR}/protocols"
             "wlr-foreign-toplevel-management-unstable-v1" true)
 protocolnew("${CMAKE_SOURCE_DIR}/protocols" "wlr-screencopy-unstable-v1" true)
+protocolnew("${CMAKE_SOURCE_DIR}/protocols" "wlr-virtual-pointer-unstable-v1" true)
+protocolnew("${CMAKE_SOURCE_DIR}/protocols" "virtual-keyboard-unstable-v1" true)
 protocolnew("${HYPRLAND_PROTOCOLS}/protocols" "hyprland-global-shortcuts-v1"
             true)
 protocolnew("${HYPRLAND_PROTOCOLS}/protocols" "hyprland-toplevel-export-v1"
