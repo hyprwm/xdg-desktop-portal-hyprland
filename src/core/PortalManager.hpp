@@ -74,6 +74,18 @@ class CPortalManager {
     SOutput*                                     getOutputFromName(const std::string& name);
     std::vector<std::unique_ptr<SOutput>> const& getAllOutputs();
 
+    // A mirror of the keymap the compositor is currently using, taken from the seat's
+    // wl_keyboard. Emulated input has to speak the same layout the user actually types
+    // in, so a Dvorak/Colemak/custom XKB config keeps working instead of silently
+    // falling back to a generated `us` map. The fd is replaced whenever the compositor
+    // reports a new keymap, so consumers that need to keep one take their own copy.
+    struct SCompositorKeymap {
+        int      fd   = -1;
+        uint32_t size = 0;
+    };
+
+    const SCompositorKeymap& getCompositorKeymap() const;
+
     struct {
         pw_loop* loop = nullptr;
     } m_sPipewire;
@@ -100,6 +112,7 @@ class CPortalManager {
         SP<CCZxdgOutputManagerV1>             xdgOutputManager;
         SP<CCWlShm>                           shm;
         SP<CCWlSeat>                          seat;
+        SP<CCWlKeyboard>                      keyboard;
         SP<CCZwlrVirtualPointerManagerV1>     virtualPointerMgr;
         SP<CCZwpVirtualKeyboardManagerV1>     virtualKeyboardMgr;
         gbm_bo*                               gbm       = nullptr;
@@ -136,6 +149,9 @@ class CPortalManager {
   private:
     void              startEventLoop();
     void              setupXDGOutput(SOutput* output);
+    void              setupSeatKeyboard();
+
+    SCompositorKeymap m_sCompositorKeymap;
 
     std::atomic<bool> m_bTerminate = false;
     pid_t             m_iPID       = 0;

@@ -5,12 +5,14 @@
 #include <cerrno>
 #include <chrono>
 #include <cstdlib>
+#include <cstring>
 #include <fcntl.h>
 #include <filesystem>
 #include <format>
 #include <libeis.h>
 #include <linux/input.h>
 #include <sstream>
+#include <sys/mman.h>
 #include <sys/random.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -288,10 +290,8 @@ CRemoteDesktopPortal::CRemoteDesktopPortal(SP<CCZwlrVirtualPointerManagerV1> poi
     m_sState.pointer  = pointerMgr;
     m_sState.keyboard = keyboardMgr;
 
-    // Initialize xkbcommon for keysym → keycode conversion
+    // Sessions compile their own keymap out of this context on Start.
     m_xkbCtx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
-    if (m_xkbCtx)
-        m_xkbKeymap = xkb_keymap_new_from_names(m_xkbCtx, nullptr, XKB_KEYMAP_COMPILE_NO_FLAGS);
 
     m_pObject = sdbus::createObject(*g_pPortalManager->getConnection(), OBJECT_PATH);
 
@@ -338,8 +338,6 @@ CRemoteDesktopPortal::CRemoteDesktopPortal(SP<CCZwlrVirtualPointerManagerV1> poi
 }
 
 CRemoteDesktopPortal::~CRemoteDesktopPortal() {
-    if (m_xkbKeymap)
-        xkb_keymap_unref(m_xkbKeymap);
     if (m_xkbCtx)
         xkb_context_unref(m_xkbCtx);
 }
@@ -349,6 +347,7 @@ CRemoteDesktopPortal::~CRemoteDesktopPortal() {
 CRemoteDesktopPortal::SSession::~SSession() {
     if (xkbState)
         xkb_state_unref(xkbState);
+    releaseKeymap(keymap);
     if (eisFd >= 0)
         g_pPortalManager->removeFdFromEventLoop(eisFd);
     if (eisPointer) {
@@ -427,6 +426,13 @@ void CRemoteDesktopPortal::createEISKeyboardDevice(SSession* session) {
     if (!session->eisSeat)
         return;
 
+    // The client needs a keymap to make sense of the keycodes it sends; without one,
+    // ei_device_keyboard_get_keymap() hands it NULL and it typically crashes.
+    if (session->keymap.fd < 0) {
+        Debug::log(ERR, "[remotedesktop] session has no keymap, withholding the EIS keyboard device");
+        return;
+    }
+
     auto* dev = eis_seat_new_device(session->eisSeat);
     if (!dev)
         return;
@@ -435,46 +441,16 @@ void CRemoteDesktopPortal::createEISKeyboardDevice(SSession* session) {
     eis_device_configure_name(dev, "Hyprland virtual keyboard");
     eis_device_configure_capability(dev, EIS_DEVICE_CAP_KEYBOARD);
 
-    // Provide an XKB keymap so the EIS client can process keyboard events.
-    // Without this, ei_device_keyboard_get_keymap() returns NULL on the client,
-    // causing a crash.
-    bool keymapAdded = false;
-    {
-        auto* ctx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
-        if (ctx) {
-            auto* km = xkb_keymap_new_from_names(ctx, nullptr, XKB_KEYMAP_COMPILE_NO_FLAGS);
-            if (km) {
-                char* kmStr = xkb_keymap_get_as_string(km, XKB_KEYMAP_FORMAT_TEXT_V1);
-                if (kmStr) {
-                    char tmpName[] = "/tmp/xdph-kb-XXXXXX";
-                    int  kfd       = mkstemp(tmpName);
-                    if (kfd >= 0) {
-                        size_t sz = strlen(kmStr) + 1;
-                        if (write(kfd, kmStr, sz) == sc<ssize_t>(sz) && lseek(kfd, 0, SEEK_SET) >= 0) {
-                            // Use the libeis API: create keymap, add to device, release our ref
-                            auto* eisKm = eis_device_new_keymap(dev, EIS_KEYMAP_TYPE_XKB, kfd, sz);
-                            if (eisKm) {
-                                eis_keymap_add(eisKm);
-                                eis_keymap_unref(eisKm);
-                                keymapAdded = true;
-                            }
-                        }
-                        close(kfd);
-                        unlink(tmpName);
-                    }
-                    free(kmStr);
-                }
-                xkb_keymap_unref(km);
-            }
-            xkb_context_unref(ctx);
-        }
-    }
-
-    if (!keymapAdded) {
+    // libeis takes its own copy of the fd, so the session keeps ownership of it.
+    auto* eisKm = eis_device_new_keymap(dev, EIS_KEYMAP_TYPE_XKB, session->keymap.fd, session->keymap.size);
+    if (!eisKm) {
         Debug::log(ERR, "[remotedesktop] failed to create EIS keyboard keymap, withholding device");
         eis_device_unref(dev);
         return;
     }
+
+    eis_keymap_add(eisKm);
+    eis_keymap_unref(eisKm);
 
     eis_device_add(dev);
     eis_device_resume(dev);
@@ -494,6 +470,100 @@ void CRemoteDesktopPortal::updateEISPointerRegions() {
         removeEISPointerDevice(session.get());
         createEISPointerDevice(session.get());
     }
+}
+
+bool CRemoteDesktopPortal::acquireKeymap(SKeymap& keymap) {
+    releaseKeymap(keymap);
+
+    if (!m_xkbCtx)
+        return false;
+
+    const auto& SOURCE = g_pPortalManager->getCompositorKeymap();
+    if (SOURCE.fd >= 0 && SOURCE.size > 0) {
+        // wl_keyboard only allows a private mapping of this fd, and we want our own
+        // descriptor regardless: the mirror is replaced whenever the user's layout
+        // changes, and a session has to keep emulating the map it was started with.
+        void* data = mmap(nullptr, SOURCE.size, PROT_READ, MAP_PRIVATE, SOURCE.fd, 0);
+        if (data == MAP_FAILED)
+            Debug::log(WARN, "[remotedesktop] could not map the compositor keymap: {}", strerror(errno));
+        else {
+            std::string text{sc<const char*>(data), SOURCE.size};
+            munmap(data, SOURCE.size);
+
+            // The keymap arrives NUL-terminated; xkbcommon wants the text without it.
+            if (const auto NUL = text.find('\0'); NUL != std::string::npos)
+                text.resize(NUL);
+
+            auto*     compiled = xkb_keymap_new_from_string(m_xkbCtx, text.c_str(), XKB_KEYMAP_FORMAT_TEXT_V1, XKB_KEYMAP_COMPILE_NO_FLAGS);
+            const int FD       = fcntl(SOURCE.fd, F_DUPFD_CLOEXEC, 0);
+            if (compiled && FD >= 0) {
+                keymap.fd     = FD;
+                keymap.size   = SOURCE.size;
+                keymap.keymap = compiled;
+                Debug::log(LOG, "[remotedesktop] session emulating with the compositor keymap ({} bytes)", SOURCE.size);
+                return true;
+            }
+
+            if (compiled)
+                xkb_keymap_unref(compiled);
+            if (FD >= 0)
+                close(FD);
+            Debug::log(WARN, "[remotedesktop] could not adopt the compositor keymap, falling back to a generated one");
+        }
+    }
+
+    auto* generated = xkb_keymap_new_from_names(m_xkbCtx, nullptr, XKB_KEYMAP_COMPILE_NO_FLAGS);
+    if (!generated) {
+        Debug::log(ERR, "[remotedesktop] could not generate a default keymap");
+        return false;
+    }
+
+    char* serialized = xkb_keymap_get_as_string(generated, XKB_KEYMAP_FORMAT_TEXT_V1);
+    if (!serialized) {
+        xkb_keymap_unref(generated);
+        Debug::log(ERR, "[remotedesktop] could not serialize the generated keymap");
+        return false;
+    }
+
+    // Keep the trailing NUL: both the compositor and libeis expect the size to cover it.
+    const std::string TEXT{serialized, strlen(serialized) + 1};
+    free(serialized);
+
+    // Everything that reads this fd mmaps it, so the file can go straight after
+    // creation rather than sitting in /tmp for the life of the session.
+    char      tmpName[] = "/tmp/xdph-kb-XXXXXX";
+    const int FD        = mkstemp(tmpName);
+    if (FD < 0) {
+        xkb_keymap_unref(generated);
+        Debug::log(ERR, "[remotedesktop] could not create a keymap file: {}", strerror(errno));
+        return false;
+    }
+    unlink(tmpName);
+
+    if (!writeAll(FD, TEXT)) {
+        close(FD);
+        xkb_keymap_unref(generated);
+        Debug::log(ERR, "[remotedesktop] could not write the generated keymap");
+        return false;
+    }
+
+    keymap.fd     = FD;
+    keymap.size   = sc<uint32_t>(TEXT.size());
+    keymap.keymap = generated;
+    Debug::log(LOG, "[remotedesktop] no compositor keymap available, session emulating with a generated default");
+    return true;
+}
+
+void CRemoteDesktopPortal::releaseKeymap(SKeymap& keymap) {
+    if (keymap.keymap) {
+        xkb_keymap_unref(keymap.keymap);
+        keymap.keymap = nullptr;
+    }
+    if (keymap.fd >= 0) {
+        close(keymap.fd);
+        keymap.fd = -1;
+    }
+    keymap.size = 0;
 }
 
 dbUasv CRemoteDesktopPortal::onCreateSession(sdbus::ObjectPath requestHandle, sdbus::ObjectPath sessionHandle, std::string appID,
@@ -647,45 +717,23 @@ dbUasv CRemoteDesktopPortal::onStart(sdbus::ObjectPath requestHandle, sdbus::Obj
             wl_proxy* vkProxy   = m_sState.keyboard->sendCreateVirtualKeyboard(seatProxy);
             if (vkProxy) {
                 PSESSION->virtualKeyboard = makeShared<CCZwpVirtualKeyboardV1>(vkProxy);
-                bool keymapSent           = false;
 
-                // Send a keymap to the compositor. Required before any key events,
-                // otherwise the compositor sends a protocol error:
-                //   "Key event received before a keymap was set"
-                auto* ctx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
-                if (ctx) {
-                    auto* km = xkb_keymap_new_from_names(ctx, nullptr, XKB_KEYMAP_COMPILE_NO_FLAGS);
-                    if (km) {
-                        char* kmStr = xkb_keymap_get_as_string(km, XKB_KEYMAP_FORMAT_TEXT_V1);
-                        if (kmStr) {
-                            char tmpName[] = "/tmp/xdph-kb-XXXXXX";
-                            int  kfd       = mkstemp(tmpName);
-                            if (kfd >= 0) {
-                                size_t sz = strlen(kmStr) + 1;
-                                if (write(kfd, kmStr, sz) == sc<ssize_t>(sz) && lseek(kfd, 0, SEEK_SET) >= 0) {
-                                    PSESSION->virtualKeyboard->sendKeymap(1 /* WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1 */, kfd, sz);
-                                    keymapSent = true;
-                                }
-                                close(kfd);
-                                unlink(tmpName);
-                            }
-                            free(kmStr);
-                        }
-                        xkb_keymap_unref(km);
-                    }
-                    xkb_context_unref(ctx);
-                }
-
-                if (keymapSent) {
-                    PSESSION->xkbState = xkb_state_new(m_xkbKeymap);
+                // The compositor needs a keymap before any key event, otherwise it kills
+                // us with "Key event received before a keymap was set". Handing it the
+                // map it is already using keeps emulated keycodes meaning what the user's
+                // own layout says they mean.
+                if (!acquireKeymap(PSESSION->keymap))
+                    initialized = false;
+                else {
+                    PSESSION->virtualKeyboard->sendKeymap(WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1, PSESSION->keymap.fd, PSESSION->keymap.size);
+                    PSESSION->xkbState = xkb_state_new(PSESSION->keymap.keymap);
                     if (!PSESSION->xkbState)
                         initialized = false;
                     else {
                         wl_display_flush(display);
                         Debug::log(LOG, "[remotedesktop] virtual keyboard created with keymap");
                     }
-                } else
-                    initialized = false;
+                }
             } else
                 initialized = false;
         }
@@ -696,6 +744,7 @@ dbUasv CRemoteDesktopPortal::onStart(sdbus::ObjectPath requestHandle, sdbus::Obj
             xkb_state_unref(PSESSION->xkbState);
             PSESSION->xkbState = nullptr;
         }
+        releaseKeymap(PSESSION->keymap);
         PSESSION->virtualPointer.reset();
         PSESSION->virtualKeyboard.reset();
         Debug::log(ERR, "[remotedesktop] failed to initialize all requested devices");
@@ -709,6 +758,7 @@ dbUasv CRemoteDesktopPortal::onStart(sdbus::ObjectPath requestHandle, sdbus::Obj
             xkb_state_unref(PSESSION->xkbState);
             PSESSION->xkbState = nullptr;
         }
+        releaseKeymap(PSESSION->keymap);
         PSESSION->virtualPointer.reset();
         PSESSION->virtualKeyboard.reset();
         Debug::log(ERR, "[remotedesktop] failed to start the selected screencast");
@@ -921,7 +971,7 @@ void CRemoteDesktopPortal::onNotifyKeyboardKeysym(sdbus::ObjectPath sessionHandl
     const auto PRESSED = PSESSION->keysymKeycodes.find(keysym);
     const auto KEY     = state != 1 && PRESSED != PSESSION->keysymKeycodes.end() ?
         PRESSED->second :
-        keycodeFromKeysym(keysym, xkb_state_serialize_layout(PSESSION->xkbState, XKB_STATE_LAYOUT_EFFECTIVE));
+        keycodeFromKeysym(PSESSION->keymap.keymap, keysym, xkb_state_serialize_layout(PSESSION->xkbState, XKB_STATE_LAYOUT_EFFECTIVE));
     if (!KEY.keycode) {
         Debug::log(WARN, "[remotedesktop] keysym 0x{:x} not found in keymap", keysym);
         return;
@@ -1147,28 +1197,28 @@ void CRemoteDesktopPortal::processEISEvents() {
 
 // ─── Keysym → keycode conversion ─────────────────────────────────
 
-CRemoteDesktopPortal::SKeycode CRemoteDesktopPortal::keycodeFromKeysym(uint32_t sym, xkb_layout_index_t preferredLayout) {
-    if (!m_xkbKeymap)
+CRemoteDesktopPortal::SKeycode CRemoteDesktopPortal::keycodeFromKeysym(struct xkb_keymap* keymap, uint32_t sym, xkb_layout_index_t preferredLayout) {
+    if (!keymap)
         return {};
 
-    const auto FINDINLAYOUT = [this, sym](xkb_layout_index_t layout) -> SKeycode {
-        const auto MIN = xkb_keymap_min_keycode(m_xkbKeymap);
-        const auto MAX = xkb_keymap_max_keycode(m_xkbKeymap);
+    const auto FINDINLAYOUT = [keymap, sym](xkb_layout_index_t layout) -> SKeycode {
+        const auto MIN = xkb_keymap_min_keycode(keymap);
+        const auto MAX = xkb_keymap_max_keycode(keymap);
 
         for (xkb_keycode_t code = MIN; code <= MAX; code++) {
-            if (layout >= xkb_keymap_num_layouts_for_key(m_xkbKeymap, code))
+            if (layout >= xkb_keymap_num_layouts_for_key(keymap, code))
                 continue;
 
-            const auto LEVELS = xkb_keymap_num_levels_for_key(m_xkbKeymap, code, layout);
+            const auto LEVELS = xkb_keymap_num_levels_for_key(keymap, code, layout);
             for (xkb_level_index_t level = 0; level < LEVELS; level++) {
                 const xkb_keysym_t* syms;
-                const int           NSYMS = xkb_keymap_key_get_syms_by_level(m_xkbKeymap, code, layout, level, &syms);
+                const int           NSYMS = xkb_keymap_key_get_syms_by_level(keymap, code, layout, level, &syms);
                 for (int i = 0; i < NSYMS; i++) {
                     if (syms[i] != sc<xkb_keysym_t>(sym))
                         continue;
 
                     xkb_mod_mask_t masks[8]  = {0};
-                    const auto     MASKCOUNT = xkb_keymap_key_get_mods_for_level(m_xkbKeymap, code, layout, level, masks, std::size(masks));
+                    const auto     MASKCOUNT = xkb_keymap_key_get_mods_for_level(keymap, code, layout, level, masks, std::size(masks));
                     return {
                         .keycode   = code - 8,
                         .modifiers = MASKCOUNT > 0 ? masks[0] : 0,
@@ -1181,7 +1231,7 @@ CRemoteDesktopPortal::SKeycode CRemoteDesktopPortal::keycodeFromKeysym(uint32_t 
         return {};
     };
 
-    const auto LAYOUTCOUNT = xkb_keymap_num_layouts(m_xkbKeymap);
+    const auto LAYOUTCOUNT = xkb_keymap_num_layouts(keymap);
     if (preferredLayout < LAYOUTCOUNT) {
         const auto KEY = FINDINLAYOUT(preferredLayout);
         if (KEY.keycode)

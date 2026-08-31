@@ -67,6 +67,40 @@ void CPortalManager::setupXDGOutput(SOutput* output) {
     });
 }
 
+void CPortalManager::setupSeatKeyboard() {
+    if (!m_sWaylandConnection.seat || m_sWaylandConnection.keyboard)
+        return;
+
+    const auto PROXY = m_sWaylandConnection.seat->sendGetKeyboard();
+    if (!PROXY) {
+        Debug::log(ERR, "[core] could not get a wl_keyboard; emulated input will fall back to a generated keymap");
+        return;
+    }
+
+    m_sWaylandConnection.keyboard = makeShared<CCWlKeyboard>(PROXY);
+    m_sWaylandConnection.keyboard->setKeymap([this](CCWlKeyboard* r, uint32_t format, int32_t fd, uint32_t size) {
+        if (format != WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1 || size == 0) {
+            Debug::log(WARN, "[core] ignoring compositor keymap in unusable format {} ({} bytes)", format, size);
+            close(fd);
+            return;
+        }
+
+        // libwayland hands us the only reference to this fd, so keep it rather than
+        // duping: consumers take their own copy when they need one.
+        if (m_sCompositorKeymap.fd >= 0)
+            close(m_sCompositorKeymap.fd);
+
+        m_sCompositorKeymap.fd   = fd;
+        m_sCompositorKeymap.size = size;
+
+        Debug::log(LOG, "[core] compositor keymap mirrored ({} bytes)", size);
+    });
+}
+
+const CPortalManager::SCompositorKeymap& CPortalManager::getCompositorKeymap() const {
+    return m_sCompositorKeymap;
+}
+
 CPortalManager::CPortalManager() {
     const auto XDG_CONFIG_HOME = getenv("XDG_CONFIG_HOME");
     const auto HOME            = getenv("HOME");
@@ -119,8 +153,18 @@ void CPortalManager::onGlobal(uint32_t name, const char* interface, uint32_t ver
     }
 
     else if (INTERFACE == wl_seat_interface.name) {
+        m_sWaylandConnection.keyboard.reset();
         m_sWaylandConnection.seat =
             makeShared<CCWlSeat>((wl_proxy*)wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &wl_seat_interface, std::min(version, 7u)));
+
+        // Track the seat's keyboard purely to mirror its keymap; asking for one on a
+        // seat that has no keyboard capability is a protocol error.
+        m_sWaylandConnection.seat->setCapabilities([this](CCWlSeat* r, uint32_t caps) {
+            if (caps & WL_SEAT_CAPABILITY_KEYBOARD)
+                setupSeatKeyboard();
+            else
+                m_sWaylandConnection.keyboard.reset();
+        });
     }
 
     else if (INTERFACE == zwlr_virtual_pointer_manager_v1_interface.name) {
@@ -587,6 +631,11 @@ void CPortalManager::startEventLoop() {
     m_pConnection.reset();
     pw_loop_destroy(m_sPipewire.loop);
     wl_display_disconnect(m_sWaylandConnection.display);
+
+    if (m_sCompositorKeymap.fd >= 0) {
+        close(m_sCompositorKeymap.fd);
+        m_sCompositorKeymap.fd = -1;
+    }
 
     m_sTimersThread.thread.release();
     pollThr.join(); // wait for poll to exit

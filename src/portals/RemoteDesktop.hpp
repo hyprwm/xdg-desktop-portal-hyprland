@@ -56,6 +56,15 @@ class CRemoteDesktopPortal {
         xkb_layout_index_t layout    = XKB_LAYOUT_INVALID;
     };
 
+    // The keymap a session emulates with: the compositor's own whenever we can read it,
+    // a generated default otherwise. Sessions hold their own copy so a keymap change
+    // mid-session can't desync keycode lookups from what the compositor was handed.
+    struct SKeymap {
+        int                fd     = -1;
+        uint32_t           size   = 0;
+        struct xkb_keymap* keymap = nullptr;
+    };
+
     struct SSession {
         SSession(const std::string& app, const sdbus::ObjectPath& req, const sdbus::ObjectPath& sess) : appid(app), requestHandle(req), sessionHandle(sess) {}
         ~SSession();
@@ -87,6 +96,8 @@ class CRemoteDesktopPortal {
         std::unordered_map<int32_t, xkb_mod_mask_t> keysymModifiers;
         std::unordered_map<int32_t, SKeycode>       keysymKeycodes;
 
+        SKeymap                                     keymap;
+
         // EIS/libei state (created by ConnectToEIS)
         struct eis*        eis              = nullptr;
         struct eis_seat*   eisSeat          = nullptr;
@@ -105,8 +116,12 @@ class CRemoteDesktopPortal {
     void      createEISKeyboardDevice(SSession* session);
     void      removeEISKeyboardDevice(SSession* session, bool notifyClient = true);
 
+    // Take a private copy of the keymap emulated input should speak.
+    bool        acquireKeymap(SKeymap& keymap);
+    static void releaseKeymap(SKeymap& keymap);
+
     // Keysym → keycode conversion (via xkbcommon)
-    SKeycode                               keycodeFromKeysym(uint32_t sym, xkb_layout_index_t preferredLayout);
+    static SKeycode                        keycodeFromKeysym(struct xkb_keymap* keymap, uint32_t sym, xkb_layout_index_t preferredLayout);
 
     std::unique_ptr<sdbus::IObject>        m_pObject;
     std::vector<std::unique_ptr<SSession>> m_vSessions;
@@ -116,9 +131,8 @@ class CRemoteDesktopPortal {
         SP<CCZwpVirtualKeyboardManagerV1> keyboard;
     } m_sState;
 
-    // XKB state for keysym → keycode conversion
-    struct xkb_context*        m_xkbCtx    = nullptr;
-    struct xkb_keymap*         m_xkbKeymap = nullptr;
+    // XKB context used to compile the keymaps handed to sessions
+    struct xkb_context*        m_xkbCtx = nullptr;
 
     const sdbus::InterfaceName INTERFACE_NAME = sdbus::InterfaceName{"org.freedesktop.impl.portal.RemoteDesktop"};
     const sdbus::ObjectPath    OBJECT_PATH    = sdbus::ObjectPath{"/org/freedesktop/portal/desktop"};
