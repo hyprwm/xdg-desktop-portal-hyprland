@@ -27,7 +27,7 @@ std::string sanitizeNameForWindowList(const std::string& name) {
 
 std::string buildWindowList() {
     std::string result = "";
-    if (!g_pPortalManager->m_sPortals.screencopy->hasToplevelCapabilities())
+    if (!g_pPortalManager->m_sPortals.screencopy || !g_pPortalManager->m_sPortals.screencopy->hasToplevelCapabilities())
         return result;
 
     for (auto& e : g_pPortalManager->m_sHelpers.toplevel->m_vToplevels) {
@@ -39,7 +39,7 @@ std::string buildWindowList() {
     return result;
 }
 
-SSelectionData promptForScreencopySelection() {
+SSelectionData promptForScreencopySelection(bool allowWindows) {
     SSelectionData      data;
 
     const char*         WAYLAND_DISPLAY             = getenv("WAYLAND_DISPLAY");
@@ -59,7 +59,8 @@ SSelectionData promptForScreencopySelection() {
     proc.addEnv("QT_QPA_PLATFORM", "wayland");
     proc.addEnv("XCURSOR_SIZE", XCURSOR_SIZE ? XCURSOR_SIZE : "24");
     proc.addEnv("HYPRLAND_INSTANCE_SIGNATURE", HYPRLAND_INSTANCE_SIGNATURE ? HYPRLAND_INSTANCE_SIGNATURE : "0");
-    proc.addEnv("XDPH_WINDOW_SHARING_LIST", buildWindowList()); // buildWindowList will sanitize any shell stuff in case the picker (qt) does something funky? It shouldn't.
+    proc.addEnv("XDPH_WINDOW_SHARING_LIST",
+                allowWindows ? buildWindowList() : ""); // buildWindowList will sanitize any shell stuff in case the picker (qt) does something funky? It shouldn't.
 
     if (!proc.runSync())
         return data;
@@ -125,6 +126,36 @@ SSelectionData promptForScreencopySelection() {
     }
 
     return data;
+}
+
+bool promptForRemoteDesktopConsent(const std::string& appID, uint32_t deviceTypes, bool persistRequested, bool* persistGranted) {
+    if (persistGranted)
+        *persistGranted = false;
+
+    const char* WAYLAND_DISPLAY = getenv("WAYLAND_DISPLAY");
+    const char* XCURSOR_SIZE    = getenv("XCURSOR_SIZE");
+
+    std::string devices;
+    if (deviceTypes & 2)
+        devices = "pointer";
+    if (deviceTypes & 1)
+        devices += devices.empty() ? "keyboard" : ",keyboard";
+
+    CProcess proc("hyprland-share-picker", {"--remote-desktop"});
+    proc.addEnv("WAYLAND_DISPLAY", WAYLAND_DISPLAY ? WAYLAND_DISPLAY : "");
+    proc.addEnv("QT_QPA_PLATFORM", "wayland");
+    proc.addEnv("XCURSOR_SIZE", XCURSOR_SIZE ? XCURSOR_SIZE : "24");
+    proc.addEnv("XDPH_REMOTE_DESKTOP_APP_ID", appID);
+    proc.addEnv("XDPH_REMOTE_DESKTOP_DEVICE_TYPES", devices);
+    proc.addEnv("XDPH_REMOTE_DESKTOP_PERSIST", persistRequested ? "1" : "0");
+
+    if (!proc.runSync() || !proc.stdOut().contains("[AUTHORIZED]"))
+        return false;
+
+    if (persistGranted)
+        *persistGranted = persistRequested && proc.stdOut().contains("[PERSIST]");
+
+    return true;
 }
 
 wl_shm_format wlSHMFromDrmFourcc(uint32_t format) {

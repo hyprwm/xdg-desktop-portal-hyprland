@@ -9,6 +9,7 @@
 #include "../portals/Screenshot.hpp"
 #include "../portals/GlobalShortcuts.hpp"
 #include "../portals/InputCapture.hpp"
+#include "../portals/RemoteDesktop.hpp"
 #include "../helpers/Timer.hpp"
 #include "../shared/ToplevelManager.hpp"
 #include "../shared/ToplevelMappingManager.hpp"
@@ -21,6 +22,8 @@
 #include "linux-dmabuf-v1.hpp"
 #include "wlr-foreign-toplevel-management-unstable-v1.hpp"
 #include "wlr-screencopy-unstable-v1.hpp"
+#include "wlr-virtual-pointer-unstable-v1.hpp"
+#include "virtual-keyboard-unstable-v1.hpp"
 
 #include "../includes.hpp"
 #include "../dbusDefines.hpp"
@@ -51,6 +54,11 @@ struct SOutput {
     int32_t             logicalHeight        = 0;
     bool                logicalPositionValid = false;
     bool                logicalSizeValid     = false;
+
+    // Geometry in the compositor's logical coordinate space, as reported by xdg-output.
+    bool logicalGeometry(int32_t& x_, int32_t& y_, int32_t& w_, int32_t& h_) const;
+    // The same, derived from wl_output, for when xdg-output hasn't reported yet.
+    bool fallbackGeometry(int32_t& x_, int32_t& y_, int32_t& w_, int32_t& h_) const;
 };
 
 struct SDMABUFModifier {
@@ -71,6 +79,18 @@ class CPortalManager {
     SOutput*                                     getOutputFromName(const std::string& name);
     std::vector<std::unique_ptr<SOutput>> const& getAllOutputs();
 
+    // A mirror of the keymap the compositor is currently using, taken from the seat's
+    // wl_keyboard. Emulated input has to speak the same layout the user actually types
+    // in, so a Dvorak/Colemak/custom XKB config keeps working instead of silently
+    // falling back to a generated `us` map. The fd is replaced whenever the compositor
+    // reports a new keymap, so consumers that need to keep one take their own copy.
+    struct SCompositorKeymap {
+        int      fd   = -1;
+        uint32_t size = 0;
+    };
+
+    const SCompositorKeymap& getCompositorKeymap() const;
+
     struct {
         pw_loop* loop = nullptr;
     } m_sPipewire;
@@ -80,6 +100,7 @@ class CPortalManager {
         std::unique_ptr<CScreenshotPortal>      screenshot;
         std::unique_ptr<CGlobalShortcutsPortal> globalShortcuts;
         std::unique_ptr<CInputCapturePortal>    inputCapture;
+        std::unique_ptr<CRemoteDesktopPortal>   remoteDesktop;
     } m_sPortals;
 
     struct {
@@ -95,6 +116,10 @@ class CPortalManager {
         SP<CCZwpLinuxDmabufFeedbackV1>        linuxDmabufFeedback;
         SP<CCZxdgOutputManagerV1>             xdgOutputManager;
         SP<CCWlShm>                           shm;
+        SP<CCWlSeat>                          seat;
+        SP<CCWlKeyboard>                      keyboard;
+        SP<CCZwlrVirtualPointerManagerV1>     virtualPointerMgr;
+        SP<CCZwpVirtualKeyboardManagerV1>     virtualKeyboardMgr;
         gbm_bo*                               gbm       = nullptr;
         gbm_device*                           gbmDevice = nullptr;
         struct {
@@ -118,23 +143,33 @@ class CPortalManager {
     void                         addFdToEventLoop(int fd, short events, std::function<void()> callback);
     void                         removeFdFromEventLoop(int fd);
 
+    // Get the logical coordinate extents from the active output(s).
+    // Falls back to physical dimensions if logical not yet computed.
+    void getOutputExtents(uint32_t& w, uint32_t& h);
+    void getOutputLayout(int32_t& x, int32_t& y, uint32_t& w, uint32_t& h);
+
     // terminate after the event loop has been created. Before we can exit()
     void terminate();
 
   private:
-    void  startEventLoop();
-    void  setupXDGOutput(SOutput* output);
+    void              startEventLoop();
+    void              setupXDGOutput(SOutput* output);
+    void              setupSeatKeyboard();
 
-    bool  m_bTerminate = false;
-    pid_t m_iPID       = 0;
+    SCompositorKeymap m_sCompositorKeymap;
+
+    std::atomic<bool> m_bTerminate = false;
+    pid_t             m_iPID       = 0;
 
     struct {
         std::condition_variable              loopSignal;
         std::mutex                           loopMutex;
         std::atomic<bool>                    shouldProcess = false;
         std::mutex                           loopRequestMutex;
+        std::mutex                           pollMutex;
         std::vector<pollfd>                  pollFds;
         std::map<int, std::function<void()>> pollCallbacks;
+        int                                  wakeFd = -1;
     } m_sEventLoopInternals;
 
     struct {

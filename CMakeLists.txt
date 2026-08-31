@@ -64,6 +64,8 @@ pkg_check_modules(
   libdrm
   uuid
   gbm
+  xkbcommon
+  libeis-1.0
   hyprlang>=0.2.0
   hyprutils>=0.2.6
   hyprwayland-scanner>=0.4.2)
@@ -138,6 +140,8 @@ protocolnew("${HYPRLAND_PROTOCOLS}/protocols" "hyprland-input-capture-v1"
 protocolnew("stable/linux-dmabuf" "linux-dmabuf-v1" false)
 protocolnew("unstable/xdg-output" "xdg-output-unstable-v1" false)
 protocolnew("staging/ext-foreign-toplevel-list" "ext-foreign-toplevel-list-v1" false)
+protocolnew("${CMAKE_SOURCE_DIR}/protocols" "wlr-virtual-pointer-unstable-v1" true)
+protocolnew("${CMAKE_SOURCE_DIR}/protocols" "virtual-keyboard-unstable-v1" true)
 
 # Installation
 install(TARGETS hyprland-share-picker)

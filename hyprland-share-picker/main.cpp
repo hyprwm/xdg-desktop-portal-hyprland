@@ -63,7 +63,7 @@ std::vector<SWindowEntry> getWindows(const char* env) {
 
         // window address
         const auto WINDOWSEPPOS = rolling.find("[HA>]");
-        const auto WINDOWADDR = rolling.substr(TITLESEPPOS + 5, WINDOWSEPPOS - 5 - TITLESEPPOS);
+        const auto WINDOWADDR   = rolling.substr(TITLESEPPOS + 5, WINDOWSEPPOS - 5 - TITLESEPPOS);
 
         try {
             result.push_back({TITLESTR, CLASSSTR, std::stoull(IDSTR)});
@@ -81,9 +81,12 @@ int main(int argc, char* argv[]) {
     qputenv("QT_LOGGING_RULES", "qml=false");
 
     bool allowTokenByDefault = false;
+    bool remoteDesktop       = false;
     for (int i = 1; i < argc; ++i) {
         if (argv[i] == std::string{"--allow-token"})
             allowTokenByDefault = true;
+        else if (argv[i] == std::string{"--remote-desktop"})
+            remoteDesktop = true;
     }
 
     const char*  WINDOWLISTSTR = getenv("XDPH_WINDOW_SHARING_LIST");
@@ -91,6 +94,50 @@ int main(int argc, char* argv[]) {
 
     QApplication picker(argc, argv);
     pickerPtr = &picker;
+
+    if (remoteDesktop) {
+        const char* APPID    = getenv("XDPH_REMOTE_DESKTOP_APP_ID");
+        const auto  APP      = APPID && *APPID ? QString::fromUtf8(APPID) : QStringLiteral("An application");
+        const char* DEVICES  = getenv("XDPH_REMOTE_DESKTOP_DEVICE_TYPES");
+        const auto  DEVSTR   = DEVICES ? std::string{DEVICES} : std::string{};
+        const bool  POINTER  = DEVSTR.find("pointer") != std::string::npos;
+        const bool  KEYBOARD = DEVSTR.find("keyboard") != std::string::npos;
+
+        QString     what;
+        if (POINTER && !KEYBOARD)
+            what = QStringLiteral("pointer");
+        else if (KEYBOARD && !POINTER)
+            what = QStringLiteral("keyboard");
+        else
+            what = QStringLiteral("pointer and keyboard");
+
+        // Force plain text: the app ID is caller-controlled, and Qt::AutoText would
+        // render HTML in it, letting a client spoof another application's name.
+        QMessageBox box(QMessageBox::Question, QStringLiteral("Allow remote control?"), QStringLiteral("%1 wants to control your %2.").arg(APP, what),
+                        QMessageBox::Yes | QMessageBox::No);
+        box.setTextFormat(Qt::PlainText);
+        box.setDefaultButton(QMessageBox::No);
+
+        // Only offer to remember the grant when the app actually asked to persist.
+        // Left unchecked by default: an indefinite keyboard and pointer grant is not
+        // something to hand out unless the user deliberately asks for it.
+        const char* PERSIST    = getenv("XDPH_REMOTE_DESKTOP_PERSIST");
+        QCheckBox*  persistBox = nullptr;
+        if (PERSIST && *PERSIST == '1') {
+            persistBox = new QCheckBox(QStringLiteral("Allow %1 to skip this prompt in the future").arg(APP));
+            box.setCheckBox(persistBox); // takes ownership
+        }
+
+        if (box.exec() != QMessageBox::Yes)
+            return 1;
+
+        std::cout << "[AUTHORIZED]";
+        if (persistBox && persistBox->isChecked())
+            std::cout << "[PERSIST]";
+        std::cout << "\n";
+        return 0;
+    }
+
     MainPicker w;
     mainPickerPtr = &w;
 
