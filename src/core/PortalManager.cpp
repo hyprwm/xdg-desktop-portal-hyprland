@@ -43,6 +43,33 @@ SOutput::SOutput(SP<CCWlOutput> output_) : output(output_) {
     });
 }
 
+bool SOutput::logicalGeometry(int32_t& x_, int32_t& y_, int32_t& w_, int32_t& h_) const {
+    if (!logicalPositionValid || !logicalSizeValid || logicalWidth <= 0 || logicalHeight <= 0)
+        return false;
+
+    x_ = logicalX;
+    y_ = logicalY;
+    w_ = logicalWidth;
+    h_ = logicalHeight;
+    return true;
+}
+
+bool SOutput::fallbackGeometry(int32_t& x_, int32_t& y_, int32_t& w_, int32_t& h_) const {
+    if (width == 0 || height == 0)
+        return false;
+
+    auto WIDTH  = sc<int32_t>(width / std::max(scale, 1.0));
+    auto HEIGHT = sc<int32_t>(height / std::max(scale, 1.0));
+    if (transform == WL_OUTPUT_TRANSFORM_90 || transform == WL_OUTPUT_TRANSFORM_270 || transform == WL_OUTPUT_TRANSFORM_FLIPPED_90 || transform == WL_OUTPUT_TRANSFORM_FLIPPED_270)
+        std::swap(WIDTH, HEIGHT);
+
+    x_ = x;
+    y_ = y;
+    w_ = WIDTH;
+    h_ = HEIGHT;
+    return true;
+}
+
 void CPortalManager::setupXDGOutput(SOutput* output) {
     if (!m_sWaylandConnection.xdgOutputManager || !output || output->xdgOutput)
         return;
@@ -707,52 +734,32 @@ void CPortalManager::getOutputExtents(uint32_t& w, uint32_t& h) {
 }
 
 void CPortalManager::getOutputLayout(int32_t& x, int32_t& y, uint32_t& w, uint32_t& h) {
-    int32_t minX = 0, minY = 0, maxX = 0, maxY = 0;
-    bool    found = false;
+    // Logical geometry first; only fall back to wl_output geometry when xdg-output has
+    // reported for none of the outputs, so the layout never mixes the two spaces.
+    for (const bool LOGICAL : {true, false}) {
+        int32_t minX = 0, minY = 0, maxX = 0, maxY = 0;
+        bool    found = false;
 
-    for (auto& o : m_vOutputs) {
-        if (!o->logicalPositionValid || !o->logicalSizeValid || o->logicalWidth <= 0 || o->logicalHeight <= 0)
+        for (auto& o : m_vOutputs) {
+            int32_t oX = 0, oY = 0, oW = 0, oH = 0;
+            if (!(LOGICAL ? o->logicalGeometry(oX, oY, oW, oH) : o->fallbackGeometry(oX, oY, oW, oH)))
+                continue;
+
+            minX  = found ? std::min(minX, oX) : oX;
+            minY  = found ? std::min(minY, oY) : oY;
+            maxX  = found ? std::max(maxX, oX + oW) : oX + oW;
+            maxY  = found ? std::max(maxY, oY + oH) : oY + oH;
+            found = true;
+        }
+
+        if (!found)
             continue;
 
-        minX  = found ? std::min(minX, o->logicalX) : o->logicalX;
-        minY  = found ? std::min(minY, o->logicalY) : o->logicalY;
-        maxX  = found ? std::max(maxX, o->logicalX + o->logicalWidth) : o->logicalX + o->logicalWidth;
-        maxY  = found ? std::max(maxY, o->logicalY + o->logicalHeight) : o->logicalY + o->logicalHeight;
-        found = true;
-    }
-
-    if (found) {
         x = minX;
         y = minY;
         w = maxX - minX;
         h = maxY - minY;
         return;
-    }
-
-    // Fallback to wl_output geometry and scaled physical dimensions when
-    // xdg-output has not supplied logical geometry yet.
-    found = false;
-    for (auto& o : m_vOutputs) {
-        if (o->width == 0 || o->height == 0)
-            continue;
-
-        auto WIDTH  = sc<int32_t>(o->width / std::max(o->scale, 1.0));
-        auto HEIGHT = sc<int32_t>(o->height / std::max(o->scale, 1.0));
-        if (o->transform == WL_OUTPUT_TRANSFORM_90 || o->transform == WL_OUTPUT_TRANSFORM_270 || o->transform == WL_OUTPUT_TRANSFORM_FLIPPED_90 ||
-            o->transform == WL_OUTPUT_TRANSFORM_FLIPPED_270)
-            std::swap(WIDTH, HEIGHT);
-        minX  = found ? std::min(minX, o->x) : o->x;
-        minY  = found ? std::min(minY, o->y) : o->y;
-        maxX  = found ? std::max(maxX, o->x + WIDTH) : o->x + WIDTH;
-        maxY  = found ? std::max(maxY, o->y + HEIGHT) : o->y + HEIGHT;
-        found = true;
-    }
-
-    if (found) {
-        x = minX;
-        y = minY;
-        w = maxX - minX;
-        h = maxY - minY;
     }
 }
 

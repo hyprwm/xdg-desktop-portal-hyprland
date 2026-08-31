@@ -54,6 +54,11 @@ struct SOutput {
     int32_t             logicalHeight        = 0;
     bool                logicalPositionValid = false;
     bool                logicalSizeValid     = false;
+
+    // Geometry in the compositor's logical coordinate space, as reported by xdg-output.
+    bool logicalGeometry(int32_t& x_, int32_t& y_, int32_t& w_, int32_t& h_) const;
+    // The same, derived from wl_output, for when xdg-output hasn't reported yet.
+    bool fallbackGeometry(int32_t& x_, int32_t& y_, int32_t& w_, int32_t& h_) const;
 };
 
 struct SDMABUFModifier {

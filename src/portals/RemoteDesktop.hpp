@@ -56,6 +56,21 @@ class CRemoteDesktopPortal {
         xkb_layout_index_t layout    = XKB_LAYOUT_INVALID;
     };
 
+    // One EIS region per output, in the layout's logical coordinate space with the
+    // layout's top-left at the origin (EIS offsets are unsigned, so a monitor left of
+    // or above 0,0 could not be expressed otherwise). Advertising the outputs
+    // individually rather than one bounding box keeps a client's absolute pointer out
+    // of the dead space an L-shaped or staggered layout leaves between screens.
+    struct SEISRegion {
+        int32_t  x     = 0;
+        int32_t  y     = 0;
+        uint32_t w     = 0;
+        uint32_t h     = 0;
+        double   scale = 1.0;
+
+        bool     operator==(const SEISRegion& other) const = default;
+    };
+
     // The keymap a session emulates with: the compositor's own whenever we can read it,
     // a generated default otherwise. Sessions hold their own copy so a keymap change
     // mid-session can't desync keycode lookups from what the compositor was handed.
@@ -99,22 +114,22 @@ class CRemoteDesktopPortal {
         SKeymap                                     keymap;
 
         // EIS/libei state (created by ConnectToEIS)
-        struct eis*        eis              = nullptr;
-        struct eis_seat*   eisSeat          = nullptr;
-        struct eis_device* eisPointer       = nullptr;
-        struct eis_device* eisKeyboard      = nullptr;
-        uint32_t           eisPointerWidth  = 0;
-        uint32_t           eisPointerHeight = 0;
-        int                eisFd            = -1; // fd to poll for EIS events
-        bool               eisReady         = false;
+        struct eis*             eis         = nullptr;
+        struct eis_seat*        eisSeat     = nullptr;
+        struct eis_device*      eisPointer  = nullptr;
+        struct eis_device*      eisKeyboard = nullptr;
+        std::vector<SEISRegion> eisPointerRegions;
+        int                     eisFd    = -1; // fd to poll for EIS events
+        bool                    eisReady = false;
     };
 
-    SSession* getSession(const sdbus::ObjectPath& path);
-    void      destroySession(const sdbus::ObjectPath& path);
-    void      createEISPointerDevice(SSession* session);
-    void      removeEISPointerDevice(SSession* session, bool notifyClient = true);
-    void      createEISKeyboardDevice(SSession* session);
-    void      removeEISKeyboardDevice(SSession* session, bool notifyClient = true);
+    SSession*               getSession(const sdbus::ObjectPath& path);
+    void                    destroySession(const sdbus::ObjectPath& path);
+    void                    createEISPointerDevice(SSession* session);
+    void                    removeEISPointerDevice(SSession* session, bool notifyClient = true);
+    void                    createEISKeyboardDevice(SSession* session);
+    void                    removeEISKeyboardDevice(SSession* session, bool notifyClient = true);
+    std::vector<SEISRegion> pointerRegions();
 
     // Take a private copy of the keymap emulated input should speak.
     bool        acquireKeymap(SKeymap& keymap);

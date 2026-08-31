@@ -1,6 +1,7 @@
 #include "RemoteDesktop.hpp"
 #include "../core/PortalManager.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cerrno>
 #include <chrono>
@@ -367,6 +368,47 @@ CRemoteDesktopPortal::SSession::~SSession() {
     eisFd = -1;
 }
 
+// Regions are advertised per output rather than as one bounding box, so a client can
+// tell where the screens actually are. Coordinates stay in the layout's logical space,
+// shifted so its top-left is the origin: EIS offsets are unsigned, and the absolute
+// motion we forward is normalised against the very same layout box.
+std::vector<CRemoteDesktopPortal::SEISRegion> CRemoteDesktopPortal::pointerRegions() {
+    std::vector<SEISRegion> regions;
+
+    int32_t                 originX = 0, originY = 0;
+    uint32_t                layoutW = 3840, layoutH = 2160;
+    g_pPortalManager->getOutputLayout(originX, originY, layoutW, layoutH);
+
+    // Mirror getOutputLayout's preference: logical geometry for every output, or
+    // wl_output geometry for every output, never a mix of the two spaces.
+    for (const bool LOGICAL : {true, false}) {
+        for (const auto& OUTPUT : g_pPortalManager->getAllOutputs()) {
+            int32_t x = 0, y = 0, w = 0, h = 0;
+            if (!(LOGICAL ? OUTPUT->logicalGeometry(x, y, w, h) : OUTPUT->fallbackGeometry(x, y, w, h)))
+                continue;
+
+            if (w <= 0 || h <= 0) // a region without a size is invalid to EIS
+                continue;
+
+            regions.emplace_back(SEISRegion{
+                .x     = x - originX,
+                .y     = y - originY,
+                .w     = sc<uint32_t>(w),
+                .h     = sc<uint32_t>(h),
+                .scale = OUTPUT->scale > 0.0 ? OUTPUT->scale : 1.0,
+            });
+        }
+
+        if (!regions.empty())
+            return regions;
+    }
+
+    // No usable output geometry yet. A pointer with no region at all would lose absolute
+    // motion entirely, so fall back to the layout box we normalise against anyway.
+    regions.emplace_back(SEISRegion{.w = layoutW, .h = layoutH});
+    return regions;
+}
+
 void CRemoteDesktopPortal::removeEISPointerDevice(SSession* session, bool notifyClient) {
     if (!session->eisPointer)
         return;
@@ -374,9 +416,8 @@ void CRemoteDesktopPortal::removeEISPointerDevice(SSession* session, bool notify
     if (notifyClient)
         eis_device_remove(session->eisPointer);
     eis_device_unref(session->eisPointer);
-    session->eisPointer       = nullptr;
-    session->eisPointerWidth  = 0;
-    session->eisPointerHeight = 0;
+    session->eisPointer = nullptr;
+    session->eisPointerRegions.clear();
 }
 
 void CRemoteDesktopPortal::createEISPointerDevice(SSession* session) {
@@ -394,22 +435,24 @@ void CRemoteDesktopPortal::createEISPointerDevice(SSession* session) {
     eis_device_configure_capability(dev, EIS_DEVICE_CAP_BUTTON);
     eis_device_configure_capability(dev, EIS_DEVICE_CAP_SCROLL);
 
-    uint32_t extentW = 3840, extentH = 2160;
-    if (g_pPortalManager)
-        g_pPortalManager->getOutputExtents(extentW, extentH);
-    if (auto* region = eis_device_new_region(dev)) {
-        eis_region_set_offset(region, 0, 0);
-        eis_region_set_size(region, extentW, extentH);
+    auto regions = pointerRegions();
+    for (const auto& REGION : regions) {
+        auto* region = eis_device_new_region(dev);
+        if (!region)
+            continue;
+
+        eis_region_set_offset(region, sc<uint32_t>(REGION.x), sc<uint32_t>(REGION.y));
+        eis_region_set_size(region, REGION.w, REGION.h);
+        eis_region_set_physical_scale(region, REGION.scale);
         eis_region_add(region);
         eis_region_unref(region);
     }
 
     eis_device_add(dev);
     eis_device_resume(dev);
-    session->eisPointer       = dev;
-    session->eisPointerWidth  = extentW;
-    session->eisPointerHeight = extentH;
-    Debug::log(LOG, "[remotedesktop] EIS pointer device added & resumed with region {}x{}", extentW, extentH);
+    session->eisPointer        = dev;
+    session->eisPointerRegions = std::move(regions);
+    Debug::log(LOG, "[remotedesktop] EIS pointer device added & resumed with {} region(s)", session->eisPointerRegions.size());
 }
 
 void CRemoteDesktopPortal::removeEISKeyboardDevice(SSession* session, bool notifyClient) {
@@ -459,14 +502,13 @@ void CRemoteDesktopPortal::createEISKeyboardDevice(SSession* session) {
 }
 
 void CRemoteDesktopPortal::updateEISPointerRegions() {
-    uint32_t extentW = 3840, extentH = 2160;
-    if (g_pPortalManager)
-        g_pPortalManager->getOutputExtents(extentW, extentH);
+    const auto REGIONS = pointerRegions();
 
     for (auto& session : m_vSessions) {
-        if (!session->eisPointer || (session->eisPointerWidth == extentW && session->eisPointerHeight == extentH))
+        if (!session->eisPointer || session->eisPointerRegions == REGIONS)
             continue;
 
+        // Regions are immutable once added, so a layout change means a new device.
         removeEISPointerDevice(session.get());
         createEISPointerDevice(session.get());
     }
@@ -1094,13 +1136,18 @@ void CRemoteDesktopPortal::processEISEvents() {
                 }
                 case EIS_EVENT_POINTER_MOTION_ABSOLUTE: {
                     if (s->virtualPointer) {
-                        double   x = eis_event_pointer_get_absolute_x(event);
-                        double   y = eis_event_pointer_get_absolute_y(event);
-
+                        // Regions are advertised relative to the layout's top-left, so the
+                        // coordinates arrive in that same space and only need the extents.
                         uint32_t extentW = 3840, extentH = 2160; // fallback
                         if (g_pPortalManager)
                             g_pPortalManager->getOutputExtents(extentW, extentH);
-                        s->virtualPointer->sendMotionAbsolute(time, (uint32_t)x, (uint32_t)y, extentW, extentH);
+
+                        // A client should stay inside a region, but the gaps between them
+                        // are reachable coordinates; clamp rather than wrap on the cast.
+                        const double X = std::clamp(eis_event_pointer_get_absolute_x(event), 0.0, sc<double>(extentW));
+                        const double Y = std::clamp(eis_event_pointer_get_absolute_y(event), 0.0, sc<double>(extentH));
+
+                        s->virtualPointer->sendMotionAbsolute(time, sc<uint32_t>(X), sc<uint32_t>(Y), extentW, extentH);
                     }
                     break;
                 }
