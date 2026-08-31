@@ -657,7 +657,17 @@ void CPortalManager::startEventLoop() {
 
     m_pConnection.reset();
     pw_loop_destroy(m_sPipewire.loop);
+
+    // libwayland requires every proxy to be gone before the display is disconnected. The globals
+    // bound for emulated input are held here rather than by a session, so drop them explicitly;
+    // otherwise their destructors run at static destruction and touch the freed display.
+    m_sWaylandConnection.virtualKeyboardMgr.reset();
+    m_sWaylandConnection.virtualPointerMgr.reset();
+    m_sWaylandConnection.keyboard.reset();
+    m_sWaylandConnection.seat.reset();
+
     wl_display_disconnect(m_sWaylandConnection.display);
+    m_sWaylandConnection.display = nullptr;
 
     if (m_sCompositorKeymap.fd >= 0) {
         close(m_sCompositorKeymap.fd);
