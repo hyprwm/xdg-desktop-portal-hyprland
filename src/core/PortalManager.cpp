@@ -832,6 +832,11 @@ void CPortalManager::releaseWayland() {
     m_sWaylandConnection.hyprlandToplevelMgr.reset();
     m_sWaylandConnection.xdgOutputManager.reset();
     m_sWaylandConnection.shm.reset();
+    // Input proxies must also be destroyed before disconnecting the display.
+    m_sWaylandConnection.virtualKeyboardMgr.reset();
+    m_sWaylandConnection.virtualPointerMgr.reset();
+    m_sWaylandConnection.keyboard.reset();
+    m_sWaylandConnection.seat.reset();
     m_sWaylandConnection.registry.reset();
 
     if (!m_sWaylandConnection.display)
