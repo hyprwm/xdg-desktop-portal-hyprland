@@ -9,6 +9,7 @@
 #include <unistd.h>
 
 #include <thread>
+#include <cstdio>
 
 SOutput::SOutput(SP<CCWlOutput> output_) : output(output_) {
     output->setName([this](CCWlOutput* o, const char* name_) {
@@ -108,6 +109,21 @@ void CPortalManager::onGlobal(uint32_t name, const char* interface, uint32_t ver
     } else if (INTERFACE == hyprland_toplevel_export_manager_v1_interface.name) {
         m_sWaylandConnection.hyprlandToplevelMgr = makeShared<CCHyprlandToplevelExportManagerV1>(
             (wl_proxy*)wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &hyprland_toplevel_export_manager_v1_interface, version));
+    }
+
+    else if (INTERFACE == wl_seat_interface.name) {
+        m_sWaylandConnection.seat = makeShared<CCWlSeat>(
+            (wl_proxy*)wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &wl_seat_interface, std::min(version, 7u)));
+    }
+
+    else if (INTERFACE == zwlr_virtual_pointer_manager_v1_interface.name) {
+        m_sWaylandConnection.virtualPointerMgr = makeShared<CCZwlrVirtualPointerManagerV1>(
+            (wl_proxy*)wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &zwlr_virtual_pointer_manager_v1_interface, version));
+    }
+
+    else if (INTERFACE == zwp_virtual_keyboard_manager_v1_interface.name) {
+        m_sWaylandConnection.virtualKeyboardMgr = makeShared<CCZwpVirtualKeyboardManagerV1>(
+            (wl_proxy*)wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &zwp_virtual_keyboard_manager_v1_interface, version));
     }
 
     else if (INTERFACE == wl_output_interface.name) {
@@ -267,8 +283,12 @@ void CPortalManager::onGlobalRemoved(uint32_t name) {
 void CPortalManager::init() {
     m_iPID = getpid();
 
+    // Create a D-Bus connection WITHOUT claiming the service name yet.
+    // We need the RemoteDesktop D-Bus object to be registered BEFORE the service
+    // name appears on the bus, otherwise the frontend portal (xdg-desktop-portal)
+    // will introspect us, see no RemoteDesktop interface, and skip us.
     try {
-        m_pConnection = sdbus::createSessionBusConnection(sdbus::ServiceName{"org.freedesktop.impl.portal.desktop.hyprland"});
+        m_pConnection = sdbus::createSessionBusConnection();
     } catch (std::exception& e) {
         Debug::log(CRIT, "Couldn't create the dbus connection ({})", e.what());
         exit(1);
@@ -332,6 +352,27 @@ void CPortalManager::init() {
             Debug::log(INFO, "hyprpicker not found. We suggest to use hyprpicker for color picking to be less meh.");
     }
 
+    // Initialize RemoteDesktop portal if protocols are available
+    
+    Debug::log(LOG, "[core] init check: vp={}, vk={}, pw={}", !!m_sWaylandConnection.virtualPointerMgr, !!m_sWaylandConnection.virtualKeyboardMgr, !!m_sPipewire.loop);
+    if (!m_sWaylandConnection.virtualPointerMgr || !m_sWaylandConnection.virtualKeyboardMgr) {
+        
+        Debug::log(WARN, "RemoteDesktop not started: compositor doesn't support virtual pointer/keyboard");
+    } else
+        m_sPortals.remoteDesktop = std::make_unique<CRemoteDesktopPortal>(m_sWaylandConnection.virtualPointerMgr, m_sWaylandConnection.virtualKeyboardMgr);
+    fflush(stdout);
+
+    // Now that all D-Bus objects are registered, claim our service name.
+    // The frontend portal introspects when it sees our name appear; if we claim
+    // the name too early (before RemoteDesktop object is registered), the
+    // frontend will see an empty interface set and skip us for RemoteDesktop.
+    
+    try {
+        m_pConnection->requestName(sdbus::ServiceName{"org.freedesktop.impl.portal.desktop.hyprland"});
+    } catch (std::exception& e) {
+        Debug::log(ERR, "Couldn't request service name ({})", e.what());
+    }
+
     wl_display_roundtrip(m_sWaylandConnection.display);
 
     startEventLoop();
@@ -344,16 +385,51 @@ void CPortalManager::startEventLoop() {
 
     std::thread pollThr([this]() {
         while (1) {
+            // Build combined pollfds: core fds + extra (EIS) fds
+            const int     MAX_FDS = 16;
+            pollfd        combinedPfds[MAX_FDS];
+            int           totalNfds = 0;
 
-            int ret = poll(m_sEventLoopInternals.pollFds.data(), m_sEventLoopInternals.pollFds.size(), 5000 /* 5 seconds, reasonable. It's because we might need to terminate */);
+            // Core fds are registered once before this thread starts and are never mutated afterwards
+            for (auto const& p : m_sEventLoopInternals.pollFds) {
+                if (totalNfds < MAX_FDS)
+                    combinedPfds[totalNfds++] = p;
+            }
+            const int coreCount = totalNfds;
+
+            // Extra fds (EIS sockets) are added/removed dynamically under m_mExtraPollMutex
+            {
+                std::lock_guard<std::mutex> lg(m_mExtraPollMutex);
+                for (int fd : m_vExtraPollFds) {
+                    if (totalNfds < MAX_FDS) {
+                        combinedPfds[totalNfds] = {.fd = fd, .events = POLLIN};
+                        totalNfds++;
+                    } else
+                        Debug::log(ERR, "[core] too many extra poll fds, dropping");
+                }
+            }
+
+            int ret = poll(combinedPfds, totalNfds, 5000);
+
+            // Copy revents for core fds back into the shared vector
+            for (int i = 0; i < coreCount; i++)
+                m_sEventLoopInternals.pollFds[i].revents = combinedPfds[i].revents;
+
+            // Store revents for extra fds
+            {
+                std::lock_guard<std::mutex> lg(m_mExtraPollMutex);
+                m_vExtraPollRevents.clear();
+                for (int i = coreCount; i < totalNfds; i++)
+                    m_vExtraPollRevents.push_back(combinedPfds[i].revents);
+            }
             if (ret < 0) {
                 Debug::log(CRIT, "[core] Polling fds failed with {}", strerror(errno));
                 g_pPortalManager->terminate();
                 break;
             }
 
-            for (size_t i = 0; i < m_sEventLoopInternals.pollFds.size(); ++i) {
-                if (!(m_sEventLoopInternals.pollFds[i].revents & (POLLHUP | POLLERR | POLLNVAL)))
+            for (int i = 0; i < totalNfds; ++i) {
+                if (!(combinedPfds[i].revents & (POLLHUP | POLLERR | POLLNVAL)))
                     continue;
 
                 Debug::log(CRIT, "[core] Disconnected from pollfd id {}", i);
@@ -450,6 +526,18 @@ void CPortalManager::startEventLoop() {
             }
         }
 
+        // Process EIS events from extra poll fds
+        {
+            std::lock_guard<std::mutex> lg(m_mExtraPollMutex);
+            for (short rev : m_vExtraPollRevents) {
+                if (rev & (POLLIN | POLLHUP | POLLERR)) {
+                    if (m_sPortals.remoteDesktop)
+                        m_sPortals.remoteDesktop->processEISEvents();
+                    break;
+                }
+            }
+        }
+
         for (pollfd p : m_sEventLoopInternals.pollFds) {
             if (p.revents & POLLIN && m_sEventLoopInternals.pollCallbacks.contains(p.fd)) {
                 m_sEventLoopInternals.pollCallbacks[p.fd]();
@@ -485,6 +573,7 @@ void CPortalManager::startEventLoop() {
     m_sPortals.screenshot.reset();
     m_sHelpers.toplevel.reset();
     m_sPortals.inputCapture.reset();
+    m_sPortals.remoteDesktop.reset();
 
     m_pConnection.reset();
     pw_loop_destroy(m_sPipewire.loop);
@@ -496,6 +585,21 @@ void CPortalManager::startEventLoop() {
 
 sdbus::IConnection* CPortalManager::getConnection() {
     return m_pConnection.get();
+}
+
+void CPortalManager::addExtraPollFd(int fd) {
+    if (fd < 0)
+        return;
+    std::lock_guard<std::mutex> lg(m_mExtraPollMutex);
+    if (std::find(m_vExtraPollFds.begin(), m_vExtraPollFds.end(), fd) == m_vExtraPollFds.end())
+        m_vExtraPollFds.push_back(fd);
+}
+
+void CPortalManager::removeExtraPollFd(int fd) {
+    if (fd < 0)
+        return;
+    std::lock_guard<std::mutex> lg(m_mExtraPollMutex);
+    std::erase(m_vExtraPollFds, fd);
 }
 
 SOutput* CPortalManager::getOutputFromName(const std::string& name) {
@@ -550,6 +654,24 @@ gbm_device* CPortalManager::createGBMDevice(drmDevice* dev) {
 
     free(renderNode);
     return gbm_create_device(fd);
+}
+
+void CPortalManager::getOutputExtents(uint32_t& w, uint32_t& h) {
+    for (auto& o : m_vOutputs) {
+        if (o->logicalSizeValid && o->logicalWidth > 0 && o->logicalHeight > 0) {
+            w = o->logicalWidth;
+            h = o->logicalHeight;
+            return;
+        }
+    }
+    // Fallback: mode dimensions if logical not yet computed
+    for (auto& o : m_vOutputs) {
+        if (o->width > 0 && o->height > 0) {
+            w = o->width;
+            h = o->height;
+            return;
+        }
+    }
 }
 
 void CPortalManager::addTimer(const CTimer& timer) {
