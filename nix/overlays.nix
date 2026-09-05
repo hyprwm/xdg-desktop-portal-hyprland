@@ -22,10 +22,13 @@ in
   default = self.overlays.xdg-desktop-portal-hyprland;
 
   xdg-desktop-portal-hyprland-with-deps = lib.composeManyExtensions [
+    inputs.aquamarine.overlays.default
+    inputs.hyprgraphics.overlays.default
     inputs.hyprland-protocols.overlays.default
     inputs.hyprwayland-scanner.overlays.default
     inputs.hyprlang.overlays.default
     inputs.hyprutils.overlays.default
+    inputs.hyprtoolkit.overlays.default
     self.overlays.sdbus-cpp_2
     self.overlays.xdg-desktop-portal-hyprland
   ];

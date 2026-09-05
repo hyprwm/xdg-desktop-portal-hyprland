@@ -9,6 +9,13 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 
+#include <algorithm>
+#include <charconv>
+#include <cmath>
+#include <limits>
+#include <optional>
+#include <string_view>
+
 #include <hyprutils/os/Process.hpp>
 using namespace Hyprutils::OS;
 
@@ -39,9 +46,121 @@ std::string buildWindowList() {
     return result;
 }
 
-SSelectionData promptForScreencopySelection() {
-    SSelectionData      data;
+static int32_t logicalOutputSize(uint32_t size, double scale) {
+    if (scale <= 0.0)
+        return static_cast<int32_t>(size);
 
+    return std::max(1, static_cast<int32_t>(std::lround(static_cast<double>(size) / scale)));
+}
+
+static std::string buildOutputList() {
+    std::string result;
+
+    for (const auto& output : g_pPortalManager->getAllOutputs()) {
+        const bool XDG_GEOMETRY = output->logicalPositionValid && output->logicalSizeValid;
+        const auto X            = XDG_GEOMETRY ? output->logicalX : output->x;
+        const auto Y            = XDG_GEOMETRY ? output->logicalY : output->y;
+        const auto WIDTH        = XDG_GEOMETRY ? output->logicalWidth : logicalOutputSize(output->width, output->scale);
+        const auto HEIGHT       = XDG_GEOMETRY ? output->logicalHeight : logicalOutputSize(output->height, output->scale);
+
+        if (output->name.empty() || WIDTH <= 0 || HEIGHT <= 0)
+            continue;
+
+        result += std::format("{}:{}:{}:{}:{}:{};", output->name.size(), output->name, X, Y, WIDTH, HEIGHT);
+    }
+
+    return result;
+}
+
+static bool parseUint32(std::string_view value, uint32_t& result) {
+    if (value.empty())
+        return false;
+
+    const auto PARSED = std::from_chars(value.data(), value.data() + value.size(), result);
+    return PARSED.ec == std::errc{} && PARSED.ptr == value.data() + value.size();
+}
+
+static std::optional<std::string_view> takeUntil(std::string_view& value, char separator) {
+    const auto POS = value.find(separator);
+    if (POS == std::string_view::npos)
+        return std::nullopt;
+
+    const auto RESULT = value.substr(0, POS);
+    value.remove_prefix(POS + 1);
+    return RESULT;
+}
+
+static SSelectionData parsePickerSelection(const std::string& output) {
+    SSelectionData data;
+
+    const auto     MARKER = output.find("[SELECTION]");
+    if (MARKER == std::string::npos)
+        return data;
+
+    std::string_view selection{output.data() + MARKER + 11, output.size() - MARKER - 11};
+    const auto       LINE_END = selection.find_first_of("\r\n");
+    if (LINE_END != std::string_view::npos)
+        selection = selection.substr(0, LINE_END);
+
+    const auto FLAGS = takeUntil(selection, '/');
+    if (!FLAGS)
+        return data;
+
+    for (const auto FLAG : *FLAGS) {
+        if (FLAG == 'r')
+            data.allowToken = true;
+        else
+            Debug::log(LOG, "[screencopy] unknown flag from share-picker: {}", FLAG);
+    }
+
+    if (selection.starts_with("screen:")) {
+        data.output = selection.substr(7);
+        if (data.output.empty() || !g_pPortalManager->getOutputFromName(data.output))
+            return {};
+
+        data.type = TYPE_OUTPUT;
+        return data;
+    }
+
+    if (selection.starts_with("window:")) {
+        uint32_t handleLo = 0;
+        if (!parseUint32(selection.substr(7), handleLo))
+            return {};
+
+        const auto HANDLE = g_pPortalManager->m_sHelpers.toplevel->handleFromHandleLower(handleLo);
+        if (!HANDLE)
+            return {};
+
+        data.type         = TYPE_WINDOW;
+        data.windowHandle = HANDLE->handle;
+        data.windowClass  = HANDLE->windowClass;
+        return data;
+    }
+
+    if (!selection.starts_with("region:"))
+        return {};
+
+    selection.remove_prefix(7);
+    const auto OUTPUT = takeUntil(selection, '@');
+    const auto X      = takeUntil(selection, ',');
+    const auto Y      = takeUntil(selection, ',');
+    const auto WIDTH  = takeUntil(selection, ',');
+    if (!OUTPUT || !X || !Y || !WIDTH || OUTPUT->empty() || !g_pPortalManager->getOutputFromName(std::string{*OUTPUT}))
+        return {};
+
+    if (!parseUint32(*X, data.x) || !parseUint32(*Y, data.y) || !parseUint32(*WIDTH, data.w) || !parseUint32(selection, data.h) || data.w == 0 || data.h == 0)
+        return {};
+
+    constexpr auto MAX_REGION_VALUE = static_cast<uint32_t>(std::numeric_limits<int32_t>::max());
+    if (data.x > MAX_REGION_VALUE || data.y > MAX_REGION_VALUE || data.w > MAX_REGION_VALUE || data.h > MAX_REGION_VALUE)
+        return {};
+
+    data.type   = TYPE_GEOMETRY;
+    data.output = *OUTPUT;
+    return data;
+}
+
+SSelectionData promptForScreencopySelection() {
     const char*         WAYLAND_DISPLAY             = getenv("WAYLAND_DISPLAY");
     const char*         XCURSOR_SIZE                = getenv("XCURSOR_SIZE");
     const char*         HYPRLAND_INSTANCE_SIGNATURE = getenv("HYPRLAND_INSTANCE_SIGNATURE");
@@ -54,77 +173,36 @@ SSelectionData promptForScreencopySelection() {
     if (**PALLOWTOKENBYDEFAULT)
         args.emplace_back("--allow-token");
 
-    CProcess proc(std::string{*PCUSTOMPICKER}.empty() ? "hyprland-share-picker" : *PCUSTOMPICKER, args);
+    const bool CUSTOM_PICKER = !std::string{*PCUSTOMPICKER}.empty();
+    CProcess   proc(CUSTOM_PICKER ? *PCUSTOMPICKER : "hyprland-share-picker", args);
     proc.addEnv("WAYLAND_DISPLAY", WAYLAND_DISPLAY ? WAYLAND_DISPLAY : "");
-    proc.addEnv("QT_QPA_PLATFORM", "wayland");
+    if (CUSTOM_PICKER)
+        proc.addEnv("QT_QPA_PLATFORM", "wayland");
     proc.addEnv("XCURSOR_SIZE", XCURSOR_SIZE ? XCURSOR_SIZE : "24");
     proc.addEnv("HYPRLAND_INSTANCE_SIGNATURE", HYPRLAND_INSTANCE_SIGNATURE ? HYPRLAND_INSTANCE_SIGNATURE : "0");
-    proc.addEnv("XDPH_WINDOW_SHARING_LIST", buildWindowList()); // buildWindowList will sanitize any shell stuff in case the picker (qt) does something funky? It shouldn't.
+    proc.addEnv("XDPH_WINDOW_SHARING_LIST", buildWindowList());
+    proc.addEnv("XDPH_OUTPUT_SHARING_LIST", buildOutputList());
 
     if (!proc.runSync())
-        return data;
+        return {};
 
     const auto RETVAL    = proc.stdOut();
     const auto RETVALERR = proc.stdErr();
 
     if (!RETVAL.contains("[SELECTION]")) {
-        // failed
         constexpr const char* QPA_ERR = "qt.qpa.plugin: Could not find the Qt platform plugin";
+        constexpr const char* HT_ERR  = "[XDPH_PICKER_ERROR]";
 
-        if (RETVAL.contains(QPA_ERR) || RETVALERR.contains(QPA_ERR)) {
-            // prompt the user to install qt5-wayland and qt6-wayland
+        if (CUSTOM_PICKER && (RETVAL.contains(QPA_ERR) || RETVALERR.contains(QPA_ERR)))
             addHyprlandNotification("3", 7000, "0", "[xdph] Could not open the picker: qt5-wayland or qt6-wayland doesn't seem to be installed.");
-        }
+        else if (!CUSTOM_PICKER && (RETVAL.contains(HT_ERR) || RETVALERR.contains(HT_ERR)))
+            addHyprlandNotification("3", 7000, "0", "[xdph] Could not open the share picker.");
 
-        return data;
+        return {};
     }
 
-    const auto SELECTION = RETVAL.substr(RETVAL.find("[SELECTION]") + 11);
-
-    Debug::log(LOG, "[sc] Selection: {}", SELECTION);
-
-    const auto FLAGS = SELECTION.substr(0, SELECTION.find_first_of('/'));
-    const auto SEL   = SELECTION.substr(SELECTION.find_first_of('/') + 1);
-
-    for (auto& flag : FLAGS) {
-        if (flag == 'r')
-            data.allowToken = true;
-        else
-            Debug::log(LOG, "[screencopy] unknown flag from share-picker: {}", flag);
-    }
-
-    if (SEL.find("screen:") == 0) {
-        data.type   = TYPE_OUTPUT;
-        data.output = SEL.substr(7);
-
-        data.output.pop_back();
-    } else if (SEL.find("window:") == 0) {
-        data.type         = TYPE_WINDOW;
-        uint32_t handleLo = std::stoull(SEL.substr(7));
-        data.windowHandle = nullptr;
-
-        const auto HANDLE = g_pPortalManager->m_sHelpers.toplevel->handleFromHandleLower(handleLo);
-        if (HANDLE) {
-            data.windowHandle = HANDLE->handle;
-            data.windowClass  = HANDLE->windowClass;
-        }
-    } else if (SEL.find("region:") == 0) {
-        std::string running = SEL;
-        running             = running.substr(7);
-        data.type           = TYPE_GEOMETRY;
-        data.output         = running.substr(0, running.find_first_of('@'));
-        running             = running.substr(running.find_first_of('@') + 1);
-
-        data.x  = std::stoi(running.substr(0, running.find_first_of(',')));
-        running = running.substr(running.find_first_of(',') + 1);
-        data.y  = std::stoi(running.substr(0, running.find_first_of(',')));
-        running = running.substr(running.find_first_of(',') + 1);
-        data.w  = std::stoi(running.substr(0, running.find_first_of(',')));
-        running = running.substr(running.find_first_of(',') + 1);
-        data.h  = std::stoi(running);
-    }
-
-    return data;
+    Debug::log(LOG, "[sc] Selection output: {}", RETVAL);
+    return parsePickerSelection(RETVAL);
 }
 
 wl_shm_format wlSHMFromDrmFourcc(uint32_t format) {

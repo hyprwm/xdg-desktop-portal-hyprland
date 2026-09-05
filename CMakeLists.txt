@@ -8,6 +8,8 @@ project(
   DESCRIPTION "An XDG-Destop-Portal backend for Hyprland (and wlroots)"
   VERSION ${VER})
 
+include(CTest)
+
 set(CMAKE_MESSAGE_LOG_LEVEL "STATUS")
 set(SYSTEMD_SERVICES
     ON
@@ -140,7 +142,6 @@ protocolnew("unstable/xdg-output" "xdg-output-unstable-v1" false)
 protocolnew("staging/ext-foreign-toplevel-list" "ext-foreign-toplevel-list-v1" false)
 
 # Installation
-install(TARGETS hyprland-share-picker)
 install(TARGETS xdg-desktop-portal-hyprland
         DESTINATION ${CMAKE_INSTALL_LIBEXECDIR})
 
