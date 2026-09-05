@@ -8,11 +8,13 @@
 #include "../portals/Screencopy.hpp"
 #include "../portals/Screenshot.hpp"
 #include "../portals/GlobalShortcuts.hpp"
+#include "../portals/InputCapture.hpp"
 #include "../portals/RemoteDesktop.hpp"
 #include "../helpers/Timer.hpp"
 #include "../shared/ToplevelManager.hpp"
 #include "../shared/ToplevelMappingManager.hpp"
 #include <gbm.h>
+#include <poll.h>
 #include <xf86drm.h>
 
 #include "hyprland-toplevel-export-v1.hpp"
@@ -30,22 +32,28 @@
 
 struct pw_loop;
 
+class CCZxdgOutputManagerV1;
+class CCZxdgOutputV1;
+
 struct SOutput {
     SOutput(SP<CCWlOutput>);
     std::string         name;
-    SP<CCWlOutput>      output      = nullptr;
-    uint32_t            id          = 0;
-    float               refreshRate = 60.0;
-    wl_output_transform transform   = WL_OUTPUT_TRANSFORM_NORMAL;
-
-    // Physical mode dimensions (from wl_output.mode event)
-    int32_t             physicalW   = 0;
-    int32_t             physicalH   = 0;
-    // Scale factor (from wl_output.scale event)
-    int32_t             scale       = 1;
-    // Logical dimensions = physical / scale (computed in setDone)
-    int32_t             logicalW    = 0;
-    int32_t             logicalH    = 0;
+    SP<CCWlOutput>      output               = nullptr;
+    SP<CCZxdgOutputV1>  xdgOutput            = nullptr;
+    uint32_t            id                   = 0;
+    float               refreshRate          = 60.0;
+    wl_output_transform transform            = WL_OUTPUT_TRANSFORM_NORMAL;
+    uint32_t            width                = 0;
+    uint32_t            height               = 0;
+    int32_t             x                    = 0;
+    int32_t             y                    = 0;
+    double              scale                = 1.0;
+    int32_t             logicalX             = 0;
+    int32_t             logicalY             = 0;
+    int32_t             logicalWidth         = 0;
+    int32_t             logicalHeight        = 0;
+    bool                logicalPositionValid = false;
+    bool                logicalSizeValid     = false;
 };
 
 struct SDMABUFModifier {
@@ -57,13 +65,14 @@ class CPortalManager {
   public:
     CPortalManager();
 
-    void                init();
+    void                                         init();
 
-    void                onGlobal(uint32_t name, const char* interface, uint32_t version);
-    void                onGlobalRemoved(uint32_t name);
+    void                                         onGlobal(uint32_t name, const char* interface, uint32_t version);
+    void                                         onGlobalRemoved(uint32_t name);
 
-    sdbus::IConnection* getConnection();
-    SOutput*            getOutputFromName(const std::string& name);
+    sdbus::IConnection*                          getConnection();
+    SOutput*                                     getOutputFromName(const std::string& name);
+    std::vector<std::unique_ptr<SOutput>> const& getAllOutputs();
 
     struct {
         pw_loop* loop = nullptr;
@@ -73,6 +82,7 @@ class CPortalManager {
         std::unique_ptr<CScreencopyPortal>      screencopy;
         std::unique_ptr<CScreenshotPortal>      screenshot;
         std::unique_ptr<CGlobalShortcutsPortal> globalShortcuts;
+        std::unique_ptr<CInputCapturePortal>    inputCapture;
         std::unique_ptr<CRemoteDesktopPortal>   remoteDesktop;
     } m_sPortals;
 
@@ -87,6 +97,7 @@ class CPortalManager {
         SP<CCHyprlandToplevelExportManagerV1> hyprlandToplevelMgr;
         SP<CCZwpLinuxDmabufV1>                linuxDmabuf;
         SP<CCZwpLinuxDmabufFeedbackV1>        linuxDmabufFeedback;
+        SP<CCZxdgOutputManagerV1>             xdgOutputManager;
         SP<CCWlShm>                           shm;
         SP<CCWlSeat>                          seat;
         SP<CCZwlrVirtualPointerManagerV1>     virtualPointerMgr;
@@ -114,6 +125,9 @@ class CPortalManager {
     void                         addExtraPollFd(int fd);
     void                         removeExtraPollFd(int fd);
 
+    void                         addFdToEventLoop(int fd, short events, std::function<void()> callback);
+    void                         removeFdFromEventLoop(int fd);
+
     // Get the logical coordinate extents from the active output(s).
     // Falls back to physical dimensions if logical not yet computed.
     void                         getOutputExtents(uint32_t& w, uint32_t& h);
@@ -123,6 +137,7 @@ class CPortalManager {
 
   private:
     void  startEventLoop();
+    void  setupXDGOutput(SOutput* output);
 
     bool  m_bTerminate = false;
     pid_t m_iPID       = 0;
@@ -132,10 +147,12 @@ class CPortalManager {
     std::vector<short>      m_vExtraPollRevents;
 
     struct {
-        std::condition_variable loopSignal;
-        std::mutex              loopMutex;
-        std::atomic<bool>       shouldProcess = false;
-        std::mutex              loopRequestMutex;
+        std::condition_variable              loopSignal;
+        std::mutex                           loopMutex;
+        std::atomic<bool>                    shouldProcess = false;
+        std::mutex                           loopRequestMutex;
+        std::vector<pollfd>                  pollFds;
+        std::map<int, std::function<void()>> pollCallbacks;
     } m_sEventLoopInternals;
 
     struct {

@@ -62,6 +62,7 @@ pkg_check_modules(
   libpipewire-0.3>=1.1.82
   libspa-0.2
   libdrm
+  uuid
   gbm
   xkbcommon
   libeis-1.0
@@ -134,7 +135,10 @@ protocolnew("${HYPRLAND_PROTOCOLS}/protocols" "hyprland-toplevel-export-v1"
             true)
 protocolnew("${HYPRLAND_PROTOCOLS}/protocols" "hyprland-toplevel-mapping-v1"
         true)
+protocolnew("${HYPRLAND_PROTOCOLS}/protocols" "hyprland-input-capture-v1"
+            true)
 protocolnew("stable/linux-dmabuf" "linux-dmabuf-v1" false)
+protocolnew("unstable/xdg-output" "xdg-output-unstable-v1" false)
 protocolnew("staging/ext-foreign-toplevel-list" "ext-foreign-toplevel-list-v1" false)
 protocolnew("${CMAKE_SOURCE_DIR}/protocols" "wlr-virtual-pointer-unstable-v1" true)
 protocolnew("${CMAKE_SOURCE_DIR}/protocols" "virtual-keyboard-unstable-v1" true)

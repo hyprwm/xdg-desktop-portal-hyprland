@@ -4,6 +4,7 @@
 #include "hyprland-toplevel-mapping-v1.hpp"
 #include "wlr-foreign-toplevel-management-unstable-v1.hpp"
 #include <memory>
+#include <vector>
 #include "../includes.hpp"
 
 class CToplevelMappingManager {

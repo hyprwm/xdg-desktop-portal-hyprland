@@ -9,6 +9,9 @@
 #include <pipewire/pipewire.h>
 #include "linux-dmabuf-v1.hpp"
 #include <unistd.h>
+#include <hyprutils/math/Vector2D.hpp>
+
+using namespace Hyprutils::Math;
 
 constexpr static int MAX_RETRIES        = 10;
 constexpr static int MAX_DMABUF_RETRIES = 2;
@@ -76,12 +79,18 @@ dbUasv CScreencopyPortal::onSelectSources(sdbus::ObjectPath requestHandle, sdbus
     Debug::log(LOG, "[screencopy]  | {}", sessionHandle.c_str());
     Debug::log(LOG, "[screencopy]  | appid: {}", appID);
 
-    const auto PSESSION = getSession(sessionHandle);
+    const auto          PSESSION    = getSession(sessionHandle);
+    static auto* const* PCURSORMODE = (Hyprlang::INT* const*)g_pPortalManager->m_sConfig.config->getConfigValuePtr("screencopy:cursor_mode")->getDataStaticPtr();
 
     if (!PSESSION) {
         Debug::log(ERR, "[screencopy] SelectSources: no session found??");
         throw sdbus::Error{sdbus::Error::Name{"NOSESSION"}, "No session found"};
         return {1, {}};
+    }
+
+    if (**PCURSORMODE == HIDDEN || **PCURSORMODE == EMBEDDED) {
+        PSESSION->cursorMode = **PCURSORMODE;
+        Debug::log(LOG, "[screencopy] default cursor_mode to {}", PSESSION->cursorMode);
     }
 
     struct {
@@ -102,8 +111,14 @@ dbUasv CScreencopyPortal::onSelectSources(sdbus::ObjectPath requestHandle, sdbus
     for (auto& [key, val] : options) {
 
         if (key == "cursor_mode") {
-            PSESSION->cursorMode = val.get<uint32_t>();
-            Debug::log(LOG, "[screencopy] option cursor_mode to {}", PSESSION->cursorMode);
+            auto mode = val.get<uint32_t>();
+            if (mode == METADATA) {
+                // the portal spec actually says to kill the session here, but what's the point
+                Debug::log(LOG, "[screencopy] unsupported cursor_mode {}, fallback to {}", mode, PSESSION->cursorMode);
+            } else {
+                PSESSION->cursorMode = mode;
+                Debug::log(LOG, "[screencopy] option cursor_mode to {}", PSESSION->cursorMode);
+            }
         } else if (key == "restore_data") {
             // suv
             // v -> r(susbt) -> v2
@@ -173,7 +188,6 @@ dbUasv CScreencopyPortal::onSelectSources(sdbus::ObjectPath requestHandle, sdbus
                 Debug::log(LOG, "[screencopy] Restore token v3 {} with data: {} {} {} {} {}", restoreData.token, restoreData.windowHandle, restoreData.windowClass,
                            restoreData.output, restoreData.withCursor, restoreData.timeIssued);
             }
-
         } else if (key == "persist_mode") {
             PSESSION->persistMode = val.get<uint32_t>();
             Debug::log(LOG, "[screencopy] option persist_mode to {}", PSESSION->persistMode);
@@ -356,11 +370,20 @@ void CScreencopyPortal::SSession::startCopy() {
     if (selection.type == TYPE_GEOMETRY) {
         sharingData.frameCallback = makeShared<CCZwlrScreencopyFrameV1>(g_pPortalManager->m_sPortals.screencopy->m_sState.screencopy->sendCaptureOutputRegion(
             OVERLAYCURSOR, POUTPUT->output->resource(), selection.x, selection.y, selection.w, selection.h));
-        sharingData.transform     = POUTPUT->transform;
+        sharingData.transform     = WL_OUTPUT_TRANSFORM_NORMAL;
     } else if (selection.type == TYPE_OUTPUT) {
         sharingData.frameCallback =
             makeShared<CCZwlrScreencopyFrameV1>(g_pPortalManager->m_sPortals.screencopy->m_sState.screencopy->sendCaptureOutput(OVERLAYCURSOR, POUTPUT->output->resource()));
-        sharingData.transform = POUTPUT->transform;
+
+        // Since Hyprland#15714, hyprland will no longer (wrongly) send transformed buffers. If the buffer size matches, let's send normal.
+        // this is not perfect (180 will be wrong on old hl) but it's the best we can do
+        // always fall back to new.
+        const auto SIZE = sharingData.frameInfoSHM.w > 0 ? Vector2D{sc<float>(sharingData.frameInfoSHM.w), sc<float>(sharingData.frameInfoSHM.h)} :
+                                                           Vector2D{sc<float>(sharingData.frameInfoDMA.w), sc<float>(sharingData.frameInfoDMA.h)};
+        if (SIZE.x == POUTPUT->height && SIZE.y == POUTPUT->width)
+            sharingData.transform = POUTPUT->transform;
+        else
+            sharingData.transform = WL_OUTPUT_TRANSFORM_NORMAL;
     } else if (selection.type == TYPE_WINDOW) {
         if (!selection.windowHandle) {
             Debug::log(ERR, "[screencopy] selected invalid window?");
@@ -465,11 +488,11 @@ void CScreencopyPortal::SSession::initCallbacks() {
             if ((PSTREAM->pwVideoInfo.format != pwFromDrmFourcc(FMT) && PSTREAM->pwVideoInfo.format != pwStripAlpha(pwFromDrmFourcc(FMT))) ||
                 (PSTREAM->pwVideoInfo.size.width != sharingData.frameInfoDMA.w || PSTREAM->pwVideoInfo.size.height != sharingData.frameInfoDMA.h)) {
                 Debug::log(LOG, "[sc] Incompatible formats, renegotiate stream");
-                sharingData.status = FRAME_RENEG;
-                g_pPortalManager->m_sPortals.screencopy->m_pPipewire->updateStreamParam(PSTREAM);
-                g_pPortalManager->m_sPortals.screencopy->queueNextShareFrame(this);
+                const auto EXPIRED = std::move(sharingData.frameCallback);
                 sharingData.status = FRAME_NONE;
-                sharingData.frameCallback.reset();
+                g_pPortalManager->m_sPortals.screencopy->m_pPipewire->updateStreamParam(PSTREAM);
+                if (!sharingData.frameCallback)
+                    g_pPortalManager->m_sPortals.screencopy->queueNextShareFrame(this);
                 return;
             }
 
@@ -481,11 +504,14 @@ void CScreencopyPortal::SSession::initCallbacks() {
             if (!PSTREAM->currentPWBuffer) {
                 Debug::log(LOG, "[screencopy/pipewire] Out of buffers");
                 sharingData.status = FRAME_NONE;
-                if (sharingData.copyRetries++ < MAX_RETRIES) {
+                // Renegotiating cannot produce a buffer and breaks the session:
+                // pw_stream_update_params() re-enters STREAMING synchronously, so
+                // pwStreamStateChange() calls startFrameCopy() and installs a new frame
+                // callback. The reset() below then destroys it, leaving the session with
+                // no callback and nothing queued.
+                if (sharingData.copyRetries++ < MAX_RETRIES)
                     Debug::log(LOG, "[sc] Retrying screencopy ({}/{})", sharingData.copyRetries, MAX_RETRIES);
-                    g_pPortalManager->m_sPortals.screencopy->m_pPipewire->updateStreamParam(PSTREAM);
-                    g_pPortalManager->m_sPortals.screencopy->queueNextShareFrame(this);
-                }
+                g_pPortalManager->m_sPortals.screencopy->queueNextShareFrame(this);
                 sharingData.frameCallback.reset();
                 return;
             }
@@ -580,11 +606,11 @@ void CScreencopyPortal::SSession::initCallbacks() {
             if ((PSTREAM->pwVideoInfo.format != pwFromDrmFourcc(FMT) && PSTREAM->pwVideoInfo.format != pwStripAlpha(pwFromDrmFourcc(FMT))) ||
                 (PSTREAM->pwVideoInfo.size.width != sharingData.frameInfoDMA.w || PSTREAM->pwVideoInfo.size.height != sharingData.frameInfoDMA.h)) {
                 Debug::log(LOG, "[sc] Incompatible formats, renegotiate stream");
-                sharingData.status = FRAME_RENEG;
-                g_pPortalManager->m_sPortals.screencopy->m_pPipewire->updateStreamParam(PSTREAM);
-                g_pPortalManager->m_sPortals.screencopy->queueNextShareFrame(this);
+                const auto EXPIRED = std::move(sharingData.windowFrameCallback);
                 sharingData.status = FRAME_NONE;
-                sharingData.windowFrameCallback.reset();
+                g_pPortalManager->m_sPortals.screencopy->m_pPipewire->updateStreamParam(PSTREAM);
+                if (!sharingData.windowFrameCallback)
+                    g_pPortalManager->m_sPortals.screencopy->queueNextShareFrame(this);
                 return;
             }
 
@@ -596,11 +622,14 @@ void CScreencopyPortal::SSession::initCallbacks() {
             if (!PSTREAM->currentPWBuffer) {
                 Debug::log(LOG, "[screencopy/pipewire] Out of buffers");
                 sharingData.status = FRAME_NONE;
-                if (sharingData.copyRetries++ < MAX_RETRIES) {
+                // Renegotiating cannot produce a buffer and breaks the session:
+                // pw_stream_update_params() re-enters STREAMING synchronously, so
+                // pwStreamStateChange() calls startFrameCopy() and installs a new frame
+                // callback. The reset() below then destroys it, leaving the session with
+                // no callback and nothing queued.
+                if (sharingData.copyRetries++ < MAX_RETRIES)
                     Debug::log(LOG, "[sc] Retrying screencopy ({}/{})", sharingData.copyRetries, MAX_RETRIES);
-                    g_pPortalManager->m_sPortals.screencopy->m_pPipewire->updateStreamParam(PSTREAM);
-                    g_pPortalManager->m_sPortals.screencopy->queueNextShareFrame(this);
-                }
+                g_pPortalManager->m_sPortals.screencopy->queueNextShareFrame(this);
                 sharingData.windowFrameCallback.reset();
                 return;
             }
@@ -631,7 +660,7 @@ void CScreencopyPortal::queueNextShareFrame(CScreencopyPortal::SSession* pSessio
         {std::clamp(MSTILNEXTREFRESH - 1.0 /* safezone */, 6.0, 1000.0), [pSession]() { g_pPortalManager->m_sPortals.screencopy->startFrameCopy(pSession); }});
 }
 bool CScreencopyPortal::hasToplevelCapabilities() {
-    return m_sState.toplevel;
+    return !!m_sState.toplevel;
 }
 
 CScreencopyPortal::SSession* CScreencopyPortal::getSession(sdbus::ObjectPath& path) {
@@ -724,9 +753,9 @@ static uint64_t readObjectSerial(pw_stream* stream) {
     const char* serial_str = pw_properties_get(props, PW_KEY_OBJECT_SERIAL);
     if (!serial_str)
         return 0;
-    char*    end = nullptr;
-    errno        = 0;
-    uint64_t s   = std::strtoull(serial_str, &end, 10);
+    char* end  = nullptr;
+    errno      = 0;
+    uint64_t s = std::strtoull(serial_str, &end, 10);
     if (errno != 0 || end == serial_str)
         return 0;
     return s;
@@ -886,8 +915,28 @@ static void pwStreamParamChanged(void* data, uint32_t id, const spa_pod* param) 
     Debug::log(TRACE, "[pw]  | framerate {}", PSTREAM->pSession->sharingData.framerate);
 
     uint32_t blocks = 1;
+    uint32_t size   = PSTREAM->pSession->sharingData.frameInfoSHM.size;
+    uint32_t stride = PSTREAM->pSession->sharingData.frameInfoSHM.stride;
 
-    params[0] = build_buffer(&dynBuilder[0].b, blocks, PSTREAM->pSession->sharingData.frameInfoSHM.size, PSTREAM->pSession->sharingData.frameInfoSHM.stride, data_type);
+    if (data_type == (1 << SPA_DATA_DmaBuf)) {
+        // Unused for dma buf, set to 0 to exclude them from the buffer
+        size   = 0;
+        stride = 0;
+
+        if (PSTREAM->pwVideoInfo.modifier != DRM_FORMAT_MOD_INVALID) {
+            const int PLANES = gbm_device_get_format_modifier_plane_count(g_pPortalManager->m_sWaylandConnection.gbmDevice,
+                                                                          PSTREAM->pSession->sharingData.frameInfoDMA.fmt, PSTREAM->pwVideoInfo.modifier);
+            if (PLANES > 0)
+                blocks = PLANES;
+            else
+                Debug::log(WARN, "[pw] gbm doesn't know the plane count of fmt {} mod {}, assuming 1", PSTREAM->pSession->sharingData.frameInfoDMA.fmt,
+                           PSTREAM->pwVideoInfo.modifier);
+        }
+    }
+
+    Debug::log(TRACE, "[pw]  | blocks {}", blocks);
+
+    params[0] = build_buffer(&dynBuilder[0].b, blocks, size, stride, data_type);
 
     params[1] = (const spa_pod*)spa_pod_builder_add_object(&dynBuilder[1].b, SPA_TYPE_OBJECT_ParamMeta, SPA_PARAM_Meta, SPA_PARAM_META_type, SPA_POD_Id(SPA_META_Header),
                                                            SPA_PARAM_META_size, SPA_POD_Int(sizeof(struct spa_meta_header)));
@@ -927,14 +976,28 @@ static void pwStreamAddBuffer(void* data, pw_buffer* buffer) {
         return;
     }
 
-    const auto PBUFFER = PSTREAM->buffers.emplace_back(g_pPortalManager->m_sPortals.screencopy->m_pPipewire->createBuffer(PSTREAM, type == SPA_DATA_DmaBuf)).get();
+    auto newBuffer = g_pPortalManager->m_sPortals.screencopy->m_pPipewire->createBuffer(PSTREAM, type == SPA_DATA_DmaBuf);
+
+    if (!newBuffer) {
+        Debug::log(ERR, "[pw] createBuffer failed in addbuffer");
+        return;
+    }
+
+    const auto PBUFFER = PSTREAM->buffers.emplace_back(std::move(newBuffer)).get();
 
     PBUFFER->pwBuffer = buffer;
     buffer->user_data = PBUFFER;
 
-    Debug::log(TRACE, "[pw] buffer datas {}", buffer->buffer->n_datas);
+    Debug::log(TRACE, "[pw] buffer datas {}, buffer planes {}", buffer->buffer->n_datas, PBUFFER->planeCount);
 
-    for (uint32_t plane = 0; plane < buffer->buffer->n_datas; plane++) {
+    // the bo we got may not have the plane count we negotiated blocks for. never touch more spa_datas
+    // than we have planes for, the rest of PBUFFER's plane arrays is uninitialized.
+    const uint32_t PLANES = std::min(buffer->buffer->n_datas, (uint32_t)PBUFFER->planeCount);
+
+    if (PLANES != buffer->buffer->n_datas)
+        Debug::log(ERR, "[pw] plane count mismatch: pw wants {} blocks, buffer has {} planes. Frames will be corrupt.", buffer->buffer->n_datas, PBUFFER->planeCount);
+
+    for (uint32_t plane = 0; plane < PLANES; plane++) {
         spaData[plane].type          = type;
         spaData[plane].maxsize       = PBUFFER->size[plane];
         spaData[plane].mapoffset     = 0;
@@ -949,6 +1012,14 @@ static void pwStreamAddBuffer(void* data, pw_buffer* buffer) {
         if (PBUFFER->isDMABUF && spaData[plane].chunk->size == 0) {
             spaData[plane].chunk->size = 9; // This was choosen by a fair d20.
         }
+    }
+
+    for (uint32_t plane = PLANES; plane < buffer->buffer->n_datas; plane++) {
+        spaData[plane].type      = type;
+        spaData[plane].fd        = -1;
+        spaData[plane].data      = NULL;
+        spaData[plane].maxsize   = 0;
+        spaData[plane].mapoffset = 0;
     }
 }
 

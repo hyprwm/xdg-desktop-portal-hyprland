@@ -1,9 +1,9 @@
 #include "PortalManager.hpp"
 #include "../helpers/Log.hpp"
 #include "../helpers/MiscFunctions.hpp"
+#include "xdg-output-unstable-v1.hpp"
 
 #include <pipewire/pipewire.h>
-#include <poll.h>
 #include <sys/mman.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -20,26 +20,43 @@ SOutput::SOutput(SP<CCWlOutput> output_) : output(output_) {
 
         Debug::log(LOG, "Found output name {}", name);
     });
-    output->setMode([this](CCWlOutput* r, uint32_t flags, int32_t width, int32_t height, int32_t refresh) { //
-        if (flags & WL_OUTPUT_MODE_CURRENT) {
-            physicalW = width;
-            physicalH = height;
-        }
+    output->setMode([this](CCWlOutput* r, uint32_t flags, int32_t width_, int32_t height_, int32_t refresh) {
         refreshRate = refresh;
+        width       = width_;
+        height      = height_;
     });
-    output->setGeometry([this](CCWlOutput* r, int32_t x, int32_t y, int32_t physical_width, int32_t physical_height, int32_t subpixel, const char* make, const char* model,
-                               int32_t transform_) { //
-        transform = (wl_output_transform)transform_;
+    output->setGeometry(
+        [this](CCWlOutput* r, int32_t x_, int32_t y_, int32_t physical_width, int32_t physical_height, int32_t subpixel, const char* make, const char* model, int32_t transform_) {
+            transform = (wl_output_transform)transform_;
+            x         = x_;
+            y         = y_;
+        });
+    output->setScale([this](CCWlOutput* r, uint32_t factor_) { scale = factor_; });
+    output->setDone([](CCWlOutput* r) {
+        if (g_pPortalManager->m_sPortals.inputCapture != nullptr)
+            g_pPortalManager->m_sPortals.inputCapture->zonesChanged();
     });
-    output->setScale([this](CCWlOutput* r, int32_t s) { //
-        scale = s;
+}
+
+void CPortalManager::setupXDGOutput(SOutput* output) {
+    if (!m_sWaylandConnection.xdgOutputManager || !output || output->xdgOutput)
+        return;
+
+    output->xdgOutput = makeShared<CCZxdgOutputV1>(m_sWaylandConnection.xdgOutputManager->sendGetXdgOutput(output->output->resource()));
+
+    output->xdgOutput->setLogicalPosition([output](CCZxdgOutputV1* r, int32_t x, int32_t y) {
+        output->logicalX             = x;
+        output->logicalY             = y;
+        output->logicalPositionValid = true;
     });
-    output->setDone([this](CCWlOutput* r) {
-        if (physicalW > 0 && physicalH > 0 && scale > 0) {
-            logicalW = physicalW / scale;
-            logicalH = physicalH / scale;
-        }
-        Debug::log(LOG, "Output {} done: physical={}x{} scale={} logical={}x{}", name, physicalW, physicalH, scale, logicalW, logicalH);
+    output->xdgOutput->setLogicalSize([output](CCZxdgOutputV1* r, int32_t width, int32_t height) {
+        output->logicalWidth     = width;
+        output->logicalHeight    = height;
+        output->logicalSizeValid = true;
+    });
+    output->xdgOutput->setDone([](CCZxdgOutputV1* r) {
+        if (g_pPortalManager->m_sPortals.inputCapture != nullptr)
+            g_pPortalManager->m_sPortals.inputCapture->zonesChanged();
     });
 }
 
@@ -60,6 +77,7 @@ CPortalManager::CPortalManager() {
     m_sConfig.config->addConfigValue("screencopy:allow_token_by_default", Hyprlang::INT{0L});
     m_sConfig.config->addConfigValue("screencopy:custom_picker_binary", Hyprlang::STRING{""});
     m_sConfig.config->addConfigValue("screencopy:force_shm", Hyprlang::INT{0L});
+    m_sConfig.config->addConfigValue("screencopy:cursor_mode", Hyprlang::INT{0L});
 
     m_sConfig.config->commence();
     m_sConfig.config->parse();
@@ -79,8 +97,16 @@ void CPortalManager::onGlobal(uint32_t name, const char* interface, uint32_t ver
         m_sPortals.globalShortcuts = std::make_unique<CGlobalShortcutsPortal>(makeShared<CCHyprlandGlobalShortcutsManagerV1>(
             (wl_proxy*)wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &hyprland_global_shortcuts_manager_v1_interface, version)));
     }
+    if (INTERFACE == hyprland_input_capture_manager_v1_interface.name)
+        m_sPortals.inputCapture = std::make_unique<CInputCapturePortal>(makeShared<CCHyprlandInputCaptureManagerV1>(
+            (wl_proxy*)wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &hyprland_input_capture_manager_v1_interface, version)));
+    else if (INTERFACE == zxdg_output_manager_v1_interface.name) {
+        m_sWaylandConnection.xdgOutputManager = makeShared<CCZxdgOutputManagerV1>(
+            (wl_proxy*)wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &zxdg_output_manager_v1_interface, std::min(version, 3u)));
 
-    else if (INTERFACE == hyprland_toplevel_export_manager_v1_interface.name) {
+        for (auto& output : m_vOutputs)
+            setupXDGOutput(output.get());
+    } else if (INTERFACE == hyprland_toplevel_export_manager_v1_interface.name) {
         m_sWaylandConnection.hyprlandToplevelMgr = makeShared<CCHyprlandToplevelExportManagerV1>(
             (wl_proxy*)wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &hyprland_toplevel_export_manager_v1_interface, version));
     }
@@ -105,7 +131,8 @@ void CPortalManager::onGlobal(uint32_t name, const char* interface, uint32_t ver
                                  .emplace_back(std::make_unique<SOutput>(makeShared<CCWlOutput>(
                                      (wl_proxy*)wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &wl_output_interface, version))))
                                  .get();
-        POUTPUT->id = name;
+        POUTPUT->id        = name;
+        setupXDGOutput(POUTPUT);
     }
 
     else if (INTERFACE == zwp_linux_dmabuf_v1_interface.name) {
@@ -302,6 +329,9 @@ void CPortalManager::init() {
     Debug::log(LOG, "Gathering exported interfaces");
 
     wl_display_roundtrip(m_sWaylandConnection.display);
+    // A second roundtrip lets per-output protocol objects created from registry
+    // globals, such as xdg_output, receive their initial state.
+    wl_display_roundtrip(m_sWaylandConnection.display);
 
     if (!m_sPortals.screencopy)
         Debug::log(WARN, "Screencopy not started: compositor doesn't support zwlr_screencopy_v1 or pw refused a loop");
@@ -349,31 +379,25 @@ void CPortalManager::init() {
 }
 
 void CPortalManager::startEventLoop() {
+    addFdToEventLoop(m_pConnection->getEventLoopPollData().fd, POLLIN, nullptr);
+    addFdToEventLoop(wl_display_get_fd(m_sWaylandConnection.display), POLLIN, nullptr);
+    addFdToEventLoop(pw_loop_get_fd(m_sPipewire.loop), POLLIN, nullptr);
 
-    pollfd pollfds[] = {
-        {
-            .fd     = m_pConnection->getEventLoopPollData().fd,
-            .events = POLLIN,
-        },
-        {
-            .fd     = wl_display_get_fd(m_sWaylandConnection.display),
-            .events = POLLIN,
-        },
-        {
-            .fd     = pw_loop_get_fd(m_sPipewire.loop),
-            .events = POLLIN,
-        },
-    };
-
-    std::thread pollThr([this, &pollfds]() {
+    std::thread pollThr([this]() {
         while (1) {
-            // Build combined pollfds: 3 static fds + extra EIS fds
+            // Build combined pollfds: core fds + extra (EIS) fds
             const int     MAX_FDS = 16;
             pollfd        combinedPfds[MAX_FDS];
-            for (int i = 0; i < 3; i++)
-                combinedPfds[i] = pollfds[i];
+            int           totalNfds = 0;
 
-            int totalNfds = 3;
+            // Core fds are registered once before this thread starts and are never mutated afterwards
+            for (auto const& p : m_sEventLoopInternals.pollFds) {
+                if (totalNfds < MAX_FDS)
+                    combinedPfds[totalNfds++] = p;
+            }
+            const int coreCount = totalNfds;
+
+            // Extra fds (EIS sockets) are added/removed dynamically under m_mExtraPollMutex
             {
                 std::lock_guard<std::mutex> lg(m_mExtraPollMutex);
                 for (int fd : m_vExtraPollFds) {
@@ -387,28 +411,30 @@ void CPortalManager::startEventLoop() {
 
             int ret = poll(combinedPfds, totalNfds, 5000);
 
-            // Copy revents for static fds back to the stack array
-            for (int i = 0; i < 3; i++)
-                pollfds[i].revents = combinedPfds[i].revents;
+            // Copy revents for core fds back into the shared vector
+            for (int i = 0; i < coreCount; i++)
+                m_sEventLoopInternals.pollFds[i].revents = combinedPfds[i].revents;
 
             // Store revents for extra fds
             {
                 std::lock_guard<std::mutex> lg(m_mExtraPollMutex);
                 m_vExtraPollRevents.clear();
-                for (int i = 3; i < totalNfds; i++)
+                for (int i = coreCount; i < totalNfds; i++)
                     m_vExtraPollRevents.push_back(combinedPfds[i].revents);
             }
-
             if (ret < 0) {
                 Debug::log(CRIT, "[core] Polling fds failed with {}", strerror(errno));
                 g_pPortalManager->terminate();
+                break;
             }
 
             for (int i = 0; i < totalNfds; ++i) {
-                if (combinedPfds[i].revents & POLLHUP) {
-                    Debug::log(CRIT, "[core] Disconnected from pollfd id {}", i);
-                    g_pPortalManager->terminate();
-                }
+                if (!(combinedPfds[i].revents & (POLLHUP | POLLERR | POLLNVAL)))
+                    continue;
+
+                Debug::log(CRIT, "[core] Disconnected from pollfd id {}", i);
+                g_pPortalManager->terminate();
+                break;
             }
 
             if (m_bTerminate)
@@ -478,13 +504,13 @@ void CPortalManager::startEventLoop() {
 
         m_mEventLock.lock();
 
-        if (pollfds[0].revents & POLLIN /* dbus */) {
+        if (m_sEventLoopInternals.pollFds[0].revents & POLLIN /* dbus */) {
             while (m_pConnection->processPendingEvent()) {
                 ;
             }
         }
 
-        if (pollfds[1].revents & POLLIN /* wl */) {
+        if (m_sEventLoopInternals.pollFds[1].revents & POLLIN /* wl */) {
             wl_display_flush(m_sWaylandConnection.display);
             if (wl_display_prepare_read(m_sWaylandConnection.display) == 0) {
                 wl_display_read_events(m_sWaylandConnection.display);
@@ -494,7 +520,7 @@ void CPortalManager::startEventLoop() {
             }
         }
 
-        if (pollfds[2].revents & POLLIN /* pw */) {
+        if (m_sEventLoopInternals.pollFds[2].revents & POLLIN /* pw */) {
             while (pw_loop_iterate(m_sPipewire.loop, 0) != 0) {
                 ;
             }
@@ -509,6 +535,12 @@ void CPortalManager::startEventLoop() {
                         m_sPortals.remoteDesktop->processEISEvents();
                     break;
                 }
+            }
+        }
+
+        for (pollfd p : m_sEventLoopInternals.pollFds) {
+            if (p.revents & POLLIN && m_sEventLoopInternals.pollCallbacks.contains(p.fd)) {
+                m_sEventLoopInternals.pollCallbacks[p.fd]();
             }
         }
 
@@ -540,6 +572,8 @@ void CPortalManager::startEventLoop() {
     m_sPortals.screencopy.reset();
     m_sPortals.screenshot.reset();
     m_sHelpers.toplevel.reset();
+    m_sPortals.inputCapture.reset();
+    m_sPortals.remoteDesktop.reset();
 
     m_pConnection.reset();
     pw_loop_destroy(m_sPipewire.loop);
@@ -574,6 +608,10 @@ SOutput* CPortalManager::getOutputFromName(const std::string& name) {
             return o.get();
     }
     return nullptr;
+}
+
+std::vector<std::unique_ptr<SOutput>> const& CPortalManager::getAllOutputs() {
+    return m_vOutputs;
 }
 
 static char* gbm_find_render_node(drmDevice* device) {
@@ -620,17 +658,17 @@ gbm_device* CPortalManager::createGBMDevice(drmDevice* dev) {
 
 void CPortalManager::getOutputExtents(uint32_t& w, uint32_t& h) {
     for (auto& o : m_vOutputs) {
-        if (o->logicalW > 0 && o->logicalH > 0) {
-            w = o->logicalW;
-            h = o->logicalH;
+        if (o->logicalSizeValid && o->logicalWidth > 0 && o->logicalHeight > 0) {
+            w = o->logicalWidth;
+            h = o->logicalHeight;
             return;
         }
     }
-    // Fallback: physical dimensions if logical not yet computed
+    // Fallback: mode dimensions if logical not yet computed
     for (auto& o : m_vOutputs) {
-        if (o->physicalW > 0 && o->physicalH > 0) {
-            w = o->physicalW;
-            h = o->physicalH;
+        if (o->width > 0 && o->height > 0) {
+            w = o->width;
+            h = o->height;
             return;
         }
     }
@@ -641,6 +679,20 @@ void CPortalManager::addTimer(const CTimer& timer) {
     m_sTimersThread.timers.emplace_back(std::make_unique<CTimer>(timer));
     m_sTimersThread.shouldProcess = true;
     m_sTimersThread.loopSignal.notify_all();
+}
+
+void CPortalManager::addFdToEventLoop(int fd, short events, std::function<void()> callback) {
+    m_sEventLoopInternals.pollFds.emplace_back(pollfd{.fd = fd, .events = events});
+
+    if (callback == nullptr)
+        return;
+
+    m_sEventLoopInternals.pollCallbacks[fd] = callback;
+}
+
+void CPortalManager::removeFdFromEventLoop(int fd) {
+    std::erase_if(m_sEventLoopInternals.pollFds, [fd](const pollfd& p) { return p.fd == fd; });
+    m_sEventLoopInternals.pollCallbacks.erase(fd);
 }
 
 void CPortalManager::terminate() {

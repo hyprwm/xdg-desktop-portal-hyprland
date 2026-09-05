@@ -56,7 +56,7 @@ void CToplevelManager::activate() {
 
     wl_display_roundtrip(g_pPortalManager->m_sWaylandConnection.display);
 
-    Debug::log(LOG, "[toplevel] Activated, bound to {:x}, toplevels: {}", (uintptr_t)m_pManager, m_vToplevels.size());
+    Debug::log(LOG, "[toplevel] Activated, bound to {:x}, toplevels: {}", (uintptr_t)m_pManager.get(), m_vToplevels.size());
 }
 
 void CToplevelManager::deactivate() {
