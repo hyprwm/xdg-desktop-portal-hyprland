@@ -4,15 +4,18 @@
   cmake,
   makeWrapper,
   pkg-config,
-  hyprland,
+  aquamarine,
+  hyprgraphics,
   hyprland-protocols,
   hyprlang,
   hyprutils,
+  hyprtoolkit,
   hyprwayland-scanner,
   libdrm,
   libgbm,
+  libuuid,
+  libxdmcp,
   pipewire,
-  qt6,
   sdbus-cpp_2,
   slurp,
   systemd,
@@ -37,20 +40,21 @@ stdenv.mkDerivation {
     cmake
     makeWrapper
     pkg-config
-    qt6.wrapQtAppsHook
     hyprwayland-scanner
   ];
 
   buildInputs = [
+    aquamarine
+    hyprgraphics
     hyprland-protocols
     hyprlang
     hyprutils
+    hyprtoolkit
     libdrm
     libgbm
+    libuuid
+    libxdmcp
     pipewire
-    qt6.qtbase
-    qt6.qttools
-    qt6.qtwayland
     sdbus-cpp_2
     systemd
     wayland
@@ -62,15 +66,11 @@ stdenv.mkDerivation {
 
   dontStrip = true;
 
-  dontWrapQtApps = true;
-
   postInstall = ''
     wrapProgramShell $out/bin/hyprland-share-picker \
-      "''${qtWrapperArgs[@]}" \
       --prefix PATH ":" ${
         lib.makeBinPath [
           slurp
-          hyprland
         ]
       }
 
