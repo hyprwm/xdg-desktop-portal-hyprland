@@ -471,9 +471,32 @@ void CRemoteDesktopPortal::processEISEvents() {
                         eis_device_configure_capability(dev, EIS_DEVICE_CAP_POINTER_ABSOLUTE);
                         eis_device_configure_capability(dev, EIS_DEVICE_CAP_BUTTON);
                         eis_device_configure_capability(dev, EIS_DEVICE_CAP_SCROLL);
+
+                        // A virtual device advertising POINTER_ABSOLUTE must have at least
+                        // one region (the desktop area its absolute coordinates map onto),
+                        // otherwise libei discards every absolute motion event.
+                        {
+                            uint32_t extentW = 3840, extentH = 2160; // fallback, no outputs yet
+                            if (g_pPortalManager)
+                                g_pPortalManager->getOutputExtents(extentW, extentH);
+                            if (auto* region = eis_device_new_region(dev)) {
+                                eis_region_set_offset(region, 0, 0);
+                                eis_region_set_size(region, extentW, extentH);
+                                eis_region_set_physical_scale(region, 1.0);
+                                eis_region_add(region);
+                                eis_region_unref(region);
+                            }
+                        }
+
                         eis_device_add(dev);
-                        eis_device_start_emulating(dev, 0);
-                        Debug::log(LOG, "[remotedesktop] EIS pointer device added & emulating");
+                        // Sender clients (ei_new_sender, e.g. KDE Connect remote input) own
+                        // the start-emulating handshake: eis_device_add() leaves the device
+                        // paused, and the client only begins emulating after receiving
+                        // EI_EVENT_DEVICE_RESUMED (emitted by eis_device_resume()).
+                        // eis_device_start_emulating() is receiver-side API and must not be
+                        // called for a sender client.
+                        eis_device_resume(dev);
+                        Debug::log(LOG, "[remotedesktop] EIS pointer device added & resumed");
                     }
                 }
                 if (eis_event_seat_has_capability(event, EIS_DEVICE_CAP_KEYBOARD)) {
@@ -515,8 +538,8 @@ void CRemoteDesktopPortal::processEISEvents() {
                             }
                         }
                         eis_device_add(dev);
-                        eis_device_start_emulating(dev, 0);
-                        Debug::log(LOG, "[remotedesktop] EIS keyboard device added & emulating");
+                        eis_device_resume(dev);
+                        Debug::log(LOG, "[remotedesktop] EIS keyboard device added & resumed");
                     }
                 }
                 break;
