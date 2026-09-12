@@ -16,6 +16,7 @@
 #include <string>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <unistd.h>
 #include <unordered_map>
 #include <vector>
 #include <wayland-client-core.h>
@@ -192,6 +193,9 @@ static bool isBarrierValid(int x1, int y1, int x2, int y2) {
     return isHorizontalBarrierOnExteriorBoundary(y1, x1, x2);
 }
 
+// sending destroy to a pre-v2 compositor is an unknown opcode and kills the connection
+static constexpr int32_t INPUT_CAPTURE_DESTROY_SINCE_VERSION = 2;
+
 CInputCapturePortal::CInputCapturePortal(SP<CCHyprlandInputCaptureManagerV1> mgr) : m_sState{mgr} {
     Debug::log(LOG, "[input-capture] initializing input capture portal");
 
@@ -275,24 +279,64 @@ dbUasv CInputCapturePortal::onCreateSession(sdbus::ObjectPath requestHandle, sdb
 CInputCapturePortal::SSession::SSession(sdbus::ObjectPath requestHandle_, sdbus::ObjectPath sessionHandle_, std::string sessionId_, uint32_t capabilities_, wl_proxy* proxy) :
     requestHandle(requestHandle_), sessionHandle(sessionHandle_), sessionId(sessionId_), capabilities(capabilities_), whandle(std::make_unique<CCHyprlandInputCaptureV1>(proxy)) {
 
-    session            = createDBusSession(sessionHandle);
-    session->onDestroy = [this]() {
-        whandle->sendDisable();
-        Debug::log(LOG, "[input-capture] Session {} destroyed", sessionHandle.c_str());
-        session.release();
-        whandle.reset();
-        dead = true;
-    };
+    // ~SSession does not run on a throwing ctor, but the wrapper dtor still sends destroy
+    try {
+        session            = createDBusSession(sessionHandle);
+        session->onDestroy = [this]() {
+            // keep this alive past removeSession, so ~SSession runs after the lambda returns
+            const auto SELF = shared_from_this();
 
-    request            = createDBusRequest(requestHandle);
-    request->onDestroy = [this]() { request.release(); };
+            Debug::log(LOG, "[input-capture] Session {} destroyed", sessionHandle.c_str());
 
-    whandle->setActivated([this](CCHyprlandInputCaptureV1*, uint32_t activationId, wl_fixed_t x, wl_fixed_t y, uint32_t borderId) {
-        g_pPortalManager->m_sPortals.inputCapture->activate(sessionHandle, activationId, x, y, borderId);
-    });
-    whandle->setDeactivated([this](CCHyprlandInputCaptureV1*, uint32_t activationId) { g_pPortalManager->m_sPortals.inputCapture->deactivate(sessionHandle, activationId); });
-    whandle->setDisabled([this](CCHyprlandInputCaptureV1*) { g_pPortalManager->m_sPortals.inputCapture->disable(sessionHandle); });
-    whandle->setEisFd([this](CCHyprlandInputCaptureV1*, int32_t fd) { eisFD = fd; });
+            session.release();
+
+            destroy();
+
+            g_pPortalManager->m_sPortals.inputCapture->removeSession(sessionHandle);
+        };
+
+        request            = createDBusRequest(requestHandle);
+        request->onDestroy = [this]() { request.release(); };
+
+        whandle->setActivated([this](CCHyprlandInputCaptureV1*, uint32_t activationId, wl_fixed_t x, wl_fixed_t y, uint32_t borderId) {
+            g_pPortalManager->m_sPortals.inputCapture->activate(sessionHandle, activationId, x, y, borderId);
+        });
+        whandle->setDeactivated([this](CCHyprlandInputCaptureV1*, uint32_t activationId) { g_pPortalManager->m_sPortals.inputCapture->deactivate(sessionHandle, activationId); });
+        whandle->setDisabled([this](CCHyprlandInputCaptureV1*) { g_pPortalManager->m_sPortals.inputCapture->disable(sessionHandle); });
+        whandle->setEisFd([this](CCHyprlandInputCaptureV1*, int32_t fd) { eisFD = fd; });
+    } catch (...) {
+        destroy();
+        throw;
+    }
+}
+
+CInputCapturePortal::SSession::~SSession() {
+    destroy();
+}
+
+void CInputCapturePortal::SSession::destroy() {
+    if (dead)
+        return;
+
+    dead = true;
+
+    if (whandle && whandle->resource()) {
+        if (whandle->version() >= INPUT_CAPTURE_DESTROY_SINCE_VERSION) {
+            whandle->sendDestroy();
+            whandle.reset();
+        } else {
+            // the wrapper dtor would send destroy, so tear down by hand and leak it
+            whandle->sendDisable();
+            wl_proxy_destroy(whandle->resource());
+            whandle.release();
+        }
+    }
+
+    // the fd handed to ConnectToEIS is a dup, this one is ours
+    if (eisFD >= 0) {
+        close(eisFD);
+        eisFD = -1;
+    }
 }
 
 dbUasv CInputCapturePortal::onGetZones(sdbus::ObjectPath requestHandle, sdbus::ObjectPath sessionHandle, std::string appID, std::unordered_map<std::string, sdbus::Variant> opts) {

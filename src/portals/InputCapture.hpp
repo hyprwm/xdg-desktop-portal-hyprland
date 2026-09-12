@@ -3,6 +3,7 @@
 #include "hyprland-input-capture-v1.hpp"
 #include "../includes.hpp"
 #include "../shared/Session.hpp"
+#include <memory>
 #include <sdbus-c++/Types.h>
 
 enum ClientStatus : uint8_t {
@@ -33,8 +34,12 @@ class CInputCapturePortal {
         SP<CCHyprlandInputCaptureManagerV1> manager;
     } m_sState;
 
-    struct SSession {
+    struct SSession : std::enable_shared_from_this<SSession> {
         SSession(sdbus::ObjectPath requestHandle, sdbus::ObjectPath sessionHandle, std::string sessionId, uint32_t capabilities, wl_proxy* proxy);
+        ~SSession();
+
+        // idempotent
+        void                                   destroy();
 
         sdbus::ObjectPath                      requestHandle, sessionHandle;
         std::string                            sessionId;
