@@ -9,6 +9,7 @@
 #include "../portals/Screenshot.hpp"
 #include "../portals/GlobalShortcuts.hpp"
 #include "../portals/InputCapture.hpp"
+#include "../portals/RemoteDesktop.hpp"
 #include "../helpers/Timer.hpp"
 #include "../shared/ToplevelManager.hpp"
 #include "../shared/ToplevelMappingManager.hpp"
@@ -21,6 +22,8 @@
 #include "linux-dmabuf-v1.hpp"
 #include "wlr-foreign-toplevel-management-unstable-v1.hpp"
 #include "wlr-screencopy-unstable-v1.hpp"
+#include "wlr-virtual-pointer-unstable-v1.hpp"
+#include "virtual-keyboard-unstable-v1.hpp"
 
 #include "../includes.hpp"
 #include "../dbusDefines.hpp"
@@ -72,6 +75,12 @@ class CPortalManager {
     std::vector<std::unique_ptr<SOutput>> const& getAllOutputs();
 
     struct {
+        enum wl_keyboard_keymap_format format = WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1;
+        int32_t                         fd     = -1;
+        uint32_t                        size   = 0;
+    } m_sKeymap;
+
+    struct {
         pw_loop* loop = nullptr;
     } m_sPipewire;
 
@@ -80,6 +89,7 @@ class CPortalManager {
         std::unique_ptr<CScreenshotPortal>      screenshot;
         std::unique_ptr<CGlobalShortcutsPortal> globalShortcuts;
         std::unique_ptr<CInputCapturePortal>    inputCapture;
+        std::unique_ptr<CRemoteDesktopPortal>   remoteDesktop;
     } m_sPortals;
 
     struct {
@@ -89,6 +99,8 @@ class CPortalManager {
 
     struct {
         wl_display*                           display = nullptr;
+        SP<CCWlSeat>                          seat;
+        SP<CCWlKeyboard>                      keyboard;
         SP<CCWlRegistry>                      registry;
         SP<CCHyprlandToplevelExportManagerV1> hyprlandToplevelMgr;
         SP<CCZwpLinuxDmabufV1>                linuxDmabuf;
