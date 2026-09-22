@@ -16,7 +16,7 @@ pkg_check_modules(
   picker_deps
   REQUIRED
   IMPORTED_TARGET
-  hyprtoolkit
+  hyprtoolkit>=0.6.0
   hyprutils>=0.2.6
   libdrm)
 
