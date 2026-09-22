@@ -1,12 +1,15 @@
 [Unit]
-Description=Portal service (Hyprland implementation)
-PartOf=graphical-session.target
-After=graphical-session.target
-ConditionEnvironment=WAYLAND_DISPLAY
+Description=xdg-desktop-portal-hyprland (start after Hyprland)
+After=hyprland-session.target
+Wants=hyprland-session.target
 
 [Service]
 Type=dbus
 BusName=org.freedesktop.impl.portal.desktop.hyprland
+Environment=XDG_CURRENT_DESKTOP=Hyprland
+Environment=WAYLAND_DISPLAY=wayland-1
+Environment=XDG_DESKTOP_PORTAL_BACKEND=hyprland
 ExecStart=@LIBEXECDIR@/xdg-desktop-portal-hyprland
 Restart=on-failure
+RestartSec=2
 Slice=session.slice
