@@ -79,7 +79,7 @@ if(NOT SDBUS_FOUND)
 endif()
 
 # same for hyprland-protocols
-pkg_check_modules(HYPRLAND_PROTOS IMPORTED_TARGET hyprland-protocols)
+pkg_check_modules(HYPRLAND_PROTOS IMPORTED_TARGET hyprland-protocols>=0.7.1)
 if(HYPRLAND_PROTOS_FOUND)
   set(HYPRLAND_PROTOCOLS "${HYPRLAND_PROTOS_PREFIX}/share/hyprland-protocols")
 else()

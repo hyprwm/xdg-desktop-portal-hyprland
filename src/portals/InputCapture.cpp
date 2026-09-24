@@ -16,6 +16,7 @@
 #include <string>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <unistd.h>
 #include <unordered_map>
 #include <vector>
 #include <wayland-client-core.h>
@@ -192,6 +193,9 @@ static bool isBarrierValid(int x1, int y1, int x2, int y2) {
     return isHorizontalBarrierOnExteriorBoundary(y1, x1, x2);
 }
 
+// destroy is v2; on a v1 compositor it is an unknown opcode and kills the connection
+static constexpr int INPUT_CAPTURE_DESTROY_SINCE_VERSION = 2;
+
 CInputCapturePortal::CInputCapturePortal(SP<CCHyprlandInputCaptureManagerV1> mgr) : m_sState{mgr} {
     Debug::log(LOG, "[input-capture] initializing input capture portal");
 
@@ -277,11 +281,14 @@ CInputCapturePortal::SSession::SSession(sdbus::ObjectPath requestHandle_, sdbus:
 
     session            = createDBusSession(sessionHandle);
     session->onDestroy = [this]() {
-        whandle->sendDisable();
         Debug::log(LOG, "[input-capture] Session {} destroyed", sessionHandle.c_str());
+
         session.release();
-        whandle.reset();
-        dead = true;
+
+        destroy();
+
+        // erases the last ref, so this must stay the final statement
+        g_pPortalManager->m_sPortals.inputCapture->removeSession(sessionHandle);
     };
 
     request            = createDBusRequest(requestHandle);
@@ -293,6 +300,35 @@ CInputCapturePortal::SSession::SSession(sdbus::ObjectPath requestHandle_, sdbus:
     whandle->setDeactivated([this](CCHyprlandInputCaptureV1*, uint32_t activationId) { g_pPortalManager->m_sPortals.inputCapture->deactivate(sessionHandle, activationId); });
     whandle->setDisabled([this](CCHyprlandInputCaptureV1*) { g_pPortalManager->m_sPortals.inputCapture->disable(sessionHandle); });
     whandle->setEisFd([this](CCHyprlandInputCaptureV1*, int32_t fd) { eisFD = fd; });
+}
+
+CInputCapturePortal::SSession::~SSession() {
+    destroy();
+}
+
+void CInputCapturePortal::SSession::destroy() {
+    if (dead)
+        return;
+
+    dead = true;
+
+    if (whandle) {
+        if (whandle->version() >= INPUT_CAPTURE_DESTROY_SINCE_VERSION) {
+            whandle.reset(); // the wrapper dtor sends destroy
+        } else {
+            // the wrapper dtor would send destroy regardless, so tear the proxy
+            // down by hand and leak the wrapper
+            whandle->sendDisable();
+            wl_proxy_destroy(whandle->resource());
+            whandle.release();
+        }
+    }
+
+    // the fd handed to ConnectToEIS is a dup, this one is ours
+    if (eisFD >= 0) {
+        close(eisFD);
+        eisFD = -1;
+    }
 }
 
 dbUasv CInputCapturePortal::onGetZones(sdbus::ObjectPath requestHandle, sdbus::ObjectPath sessionHandle, std::string appID, std::unordered_map<std::string, sdbus::Variant> opts) {
