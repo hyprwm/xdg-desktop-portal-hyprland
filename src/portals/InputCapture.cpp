@@ -193,6 +193,9 @@ static bool isBarrierValid(int x1, int y1, int x2, int y2) {
     return isHorizontalBarrierOnExteriorBoundary(y1, x1, x2);
 }
 
+// destroy is v2; on a v1 compositor it is an unknown opcode and kills the connection
+static constexpr int INPUT_CAPTURE_DESTROY_SINCE_VERSION = 2;
+
 CInputCapturePortal::CInputCapturePortal(SP<CCHyprlandInputCaptureManagerV1> mgr) : m_sState{mgr} {
     Debug::log(LOG, "[input-capture] initializing input capture portal");
 
@@ -309,8 +312,17 @@ void CInputCapturePortal::SSession::destroy() {
 
     dead = true;
 
-    // the wrapper dtor sends destroy
-    whandle.reset();
+    if (whandle) {
+        if (whandle->version() >= INPUT_CAPTURE_DESTROY_SINCE_VERSION) {
+            whandle.reset(); // the wrapper dtor sends destroy
+        } else {
+            // the wrapper dtor would send destroy regardless, so tear the proxy
+            // down by hand and leak the wrapper
+            whandle->sendDisable();
+            wl_proxy_destroy(whandle->resource());
+            whandle.release();
+        }
+    }
 
     // the fd handed to ConnectToEIS is a dup, this one is ours
     if (eisFD >= 0) {
