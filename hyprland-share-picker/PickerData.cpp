@@ -56,6 +56,23 @@ std::vector<SWindowEntry> parseWindowList(std::string_view list) {
     return result;
 }
 
+std::vector<SWorkspaceEntry> parseWorkspaceList(std::string_view list) {
+    std::vector<SWorkspaceEntry> result;
+
+    while (!list.empty()) {
+        const auto NAME = takeUntil(list, "[HN>]");
+
+        if (!NAME)
+            break;
+
+        result.emplace_back(SWorkspaceEntry{
+            .name = std::string{*NAME},
+        });
+    }
+
+    return result;
+}
+
 std::vector<SOutputEntry> parseOutputList(std::string_view list) {
     std::vector<SOutputEntry> result;
 
@@ -140,6 +157,7 @@ std::string formatSelection(const SSelection& selection, bool allowToken) {
     switch (selection.type) {
         case SELECTION_OUTPUT: return result + "screen:" + selection.output + "\n";
         case SELECTION_WINDOW: return result + "window:" + std::to_string(selection.windowID) + "\n";
+        case SELECTION_WORKSPACE: return result + "workspace:" + selection.workspace + "\n";
         case SELECTION_REGION:
             return result + "region:" + selection.output + "@" + std::to_string(selection.x) + "," + std::to_string(selection.y) + "," + std::to_string(selection.width) + "," +
                 std::to_string(selection.height) + "\n";

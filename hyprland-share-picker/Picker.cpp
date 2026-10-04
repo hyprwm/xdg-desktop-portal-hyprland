@@ -1,5 +1,6 @@
 #include "Picker.hpp"
 
+#include "PickerData.hpp"
 #include "RegionPicker.hpp"
 
 #include <hyprtoolkit/core/Backend.hpp>
@@ -32,8 +33,9 @@ static CSharedPointer<CTextElement> makeText(const CSharedPointer<IBackend>& bac
     return CTextBuilder::begin()->text(std::move(text))->fontSize(std::move(fontSize))->color([backend] { return backend->getPalette()->m_colors.text; })->commence();
 }
 
-CPicker::CPicker(const CSharedPointer<IBackend>& backend, std::vector<SOutputEntry> outputs, std::vector<SWindowEntry> windows, bool allowTokenByDefault) :
-    m_backend(backend), m_outputs(std::move(outputs)), m_windows(std::move(windows)), m_allowTokenByDefault(allowTokenByDefault) {
+CPicker::CPicker(const CSharedPointer<IBackend>& backend, std::vector<SOutputEntry> outputs, std::vector<SWindowEntry> windows, std::vector<SWorkspaceEntry> workspaces,
+                 bool allowTokenByDefault) :
+    m_backend(backend), m_outputs(std::move(outputs)), m_windows(std::move(windows)), m_workspaces(std::move(workspaces)), m_allowTokenByDefault(allowTokenByDefault) {
     for (const auto& toolkitOutput : m_backend->getOutputs()) {
         const auto MATCH = std::ranges::find_if(m_outputs, [&toolkitOutput](const auto& output) { return output.name == toolkitOutput->port(); });
         if (MATCH != m_outputs.end()) {
@@ -83,7 +85,7 @@ void CPicker::buildUI() {
     BACKGROUND->addChild(m_mainLayout);
 
     m_mainLayout->addChild(makeText(m_backend, "Select what to share", {CFontSize::HT_FONT_H2}));
-    m_mainLayout->addChild(makeText(m_backend, "Choose a monitor, window, or region to share."));
+    m_mainLayout->addChild(makeText(m_backend, "Choose a monitor, window, workspace, or region to share."));
 
     buildTabs();
 
@@ -113,7 +115,7 @@ void CPicker::buildUI() {
 void CPicker::buildTabs() {
     const auto TAB_ROW = CRowLayoutBuilder::begin()->size({CDynamicSize::HT_SIZE_PERCENT, CDynamicSize::HT_SIZE_ABSOLUTE, {1.F, 36.F}})->commence();
 
-    static constexpr std::array<const char*, 3> LABELS = {"Monitors", "Windows", "Region"};
+    static constexpr std::array<const char*, 4> LABELS = {"Monitors", "Windows", "Workspaces", "Region"};
     m_tabButtons.reserve(LABELS.size());
     for (size_t i = 0; i < LABELS.size(); ++i) {
         auto button = CButtonBuilder::begin()
@@ -136,6 +138,7 @@ void CPicker::rebuildContent() {
     switch (m_activeTab) {
         case PICKER_TAB_OUTPUTS: buildOutputContent(); break;
         case PICKER_TAB_WINDOWS: buildWindowContent(); break;
+        case PICKER_TAB_WORKSPACE: buildWorkspaceContent(); break;
         case PICKER_TAB_REGION: buildRegionContent(); break;
     }
 }
@@ -212,6 +215,38 @@ void CPicker::buildWindowContent() {
     }
 }
 
+void CPicker::buildWorkspaceContent() {
+    if (m_workspaces.empty()) {
+        const auto TEXT = makeText(m_backend, "No shareable workspaces are available.");
+        TEXT->setPositionMode(IElement::HT_POSITION_ABSOLUTE);
+        TEXT->setPositionFlag(IElement::HT_POSITION_FLAG_CENTER, true);
+        m_contentHost->addChild(TEXT);
+        return;
+    }
+
+    const auto SCROLL = CScrollAreaBuilder::begin()->scrollY(true)->showScrollbar(true)->size(fullSize())->commence();
+    const auto LIST   = CColumnLayoutBuilder::begin()->size({CDynamicSize::HT_SIZE_PERCENT, CDynamicSize::HT_SIZE_AUTO, {1.F, 1.F}})->gap(6)->commence();
+    SCROLL->addChild(LIST);
+    m_contentHost->addChild(SCROLL);
+
+    m_sourceButtons.reserve(m_workspaces.size());
+    for (size_t i = 0; i < m_workspaces.size(); ++i) {
+        const auto& WORKSPACE = m_workspaces[i];
+
+        const auto  ESCAPED_LABEL = escapeMarkup(WORKSPACE.name);
+        auto        button        = CButtonBuilder::begin()
+                                        ->label(std::string{ESCAPED_LABEL})
+                                        ->alignText(HT_FONT_ALIGN_LEFT)
+                                        ->ellipsize(true)
+                                        ->accent(m_selectedSource == i && m_selection && m_selection->type == SELECTION_WORKSPACE)
+                                        ->size({CDynamicSize::HT_SIZE_PERCENT, CDynamicSize::HT_SIZE_ABSOLUTE, {1.F, SOURCE_BUTTON_HEIGHT}})
+                                        ->onMainClick([this, i](CSharedPointer<CButtonElement>) { selectWorkspace(i); })
+                                        ->commence();
+        m_sourceButtons.emplace_back(button);
+        LIST->addChild(button);
+    }
+}
+
 void CPicker::buildRegionContent() {
     const auto LAYOUT = CColumnLayoutBuilder::begin()->size({CDynamicSize::HT_SIZE_PERCENT, CDynamicSize::HT_SIZE_AUTO, {1.F, 1.F}})->gap(10)->commence();
     LAYOUT->setMargin(8);
@@ -275,6 +310,18 @@ void CPicker::selectWindow(size_t index) {
     m_selection = SSelection{
         .type     = SELECTION_WINDOW,
         .windowID = m_windows[index].id,
+    };
+    m_selectedSource = index;
+    updateSelectionButtons();
+}
+
+void CPicker::selectWorkspace(size_t index) {
+    if (index >= m_workspaces.size())
+        return;
+
+    m_selection = SSelection{
+        .type     = SELECTION_WORKSPACE,
+        .workspace = m_workspaces[index].name,
     };
     m_selectedSource = index;
     updateSelectionButtons();

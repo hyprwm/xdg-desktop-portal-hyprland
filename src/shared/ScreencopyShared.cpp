@@ -80,6 +80,16 @@ static bool parseUint32(std::string_view value, uint32_t& result) {
     return PARSED.ec == std::errc{} && PARSED.ptr == value.data() + value.size();
 }
 
+static std::string buildWorkspaceList() {
+    std::string result;
+
+    for (const auto& ws : g_pPortalManager->m_sHelpers.workspaceTracker->workspaces()) {
+        result += std::format("{}[HN>]", ws->m_name);
+    }
+
+    return result;
+}
+
 static std::optional<std::string_view> takeUntil(std::string_view& value, char separator) {
     const auto POS = value.find(separator);
     if (POS == std::string_view::npos)
@@ -182,6 +192,7 @@ SSelectionData promptForScreencopySelection() {
     proc.addEnv("HYPRLAND_INSTANCE_SIGNATURE", HYPRLAND_INSTANCE_SIGNATURE ? HYPRLAND_INSTANCE_SIGNATURE : "0");
     proc.addEnv("XDPH_WINDOW_SHARING_LIST", buildWindowList());
     proc.addEnv("XDPH_OUTPUT_SHARING_LIST", buildOutputList());
+    proc.addEnv("XDPH_WORKSPACE_SHARING_LIST", buildWorkspaceList());
 
     if (!proc.runSync())
         return {};

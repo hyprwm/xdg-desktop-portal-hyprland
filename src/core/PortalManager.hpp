@@ -12,6 +12,7 @@
 #include "../helpers/Timer.hpp"
 #include "../shared/ToplevelManager.hpp"
 #include "../shared/ToplevelMappingManager.hpp"
+#include "../shared/WorkspaceTracker.hpp"
 #include <gbm.h>
 #include <poll.h>
 #include <xf86drm.h>
@@ -85,6 +86,7 @@ class CPortalManager {
     struct {
         std::unique_ptr<CToplevelManager>        toplevel;
         std::unique_ptr<CToplevelMappingManager> toplevelMapping;
+        std::unique_ptr<CWorkspaceTracker>       workspaceTracker;
     } m_sHelpers;
 
     struct {

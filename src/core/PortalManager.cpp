@@ -1,8 +1,12 @@
 #include "PortalManager.hpp"
 #include "../helpers/Log.hpp"
 #include "../helpers/MiscFunctions.hpp"
+#include "ext-workspace-v1.hpp"
+#include "shared/WorkspaceTracker.hpp"
 #include "xdg-output-unstable-v1.hpp"
 
+#include <hyprutils/memory/SharedPtr.hpp>
+#include <memory>
 #include <pipewire/pipewire.h>
 #include <sys/mman.h>
 #include <fcntl.h>
@@ -257,6 +261,11 @@ void CPortalManager::onGlobal(uint32_t name, const char* interface, uint32_t ver
     else if (INTERFACE == hyprland_toplevel_mapping_manager_v1_interface.name) {
         m_sHelpers.toplevelMapping = std::make_unique<CToplevelMappingManager>(makeShared<CCHyprlandToplevelMappingManagerV1>(
             (wl_proxy*)wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &hyprland_toplevel_mapping_manager_v1_interface, version)));
+    }
+
+    else if (INTERFACE == ext_workspace_manager_v1_interface.name) {
+        m_sHelpers.workspaceTracker = std::make_unique<CWorkspaceTracker>(makeShared<CCExtWorkspaceManagerV1>(
+            (wl_proxy*)wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &ext_workspace_manager_v1_interface, 1)));
     }
 }
 

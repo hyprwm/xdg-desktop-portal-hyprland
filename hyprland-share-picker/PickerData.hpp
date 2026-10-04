@@ -12,6 +12,10 @@ struct SWindowEntry {
     std::string title;
 };
 
+struct SWorkspaceEntry {
+    std::string name;
+};
+
 struct SOutputEntry {
     std::string name;
     std::string description;
@@ -26,12 +30,13 @@ enum eSelectionType : uint8_t {
     SELECTION_NONE = 0,
     SELECTION_OUTPUT,
     SELECTION_WINDOW,
+    SELECTION_WORKSPACE,
     SELECTION_REGION,
 };
 
 struct SSelection {
     eSelectionType type = SELECTION_NONE;
-    std::string    output;
+    std::string    output, workspace;
     uint32_t       windowID = 0;
     int32_t        x        = 0;
     int32_t        y        = 0;
@@ -39,8 +44,9 @@ struct SSelection {
     int32_t        height   = 0;
 };
 
-std::vector<SWindowEntry> parseWindowList(std::string_view list);
-std::vector<SOutputEntry> parseOutputList(std::string_view list);
-std::optional<SSelection> parseRegion(std::string_view result, const std::vector<SOutputEntry>& outputs);
-std::string               formatSelection(const SSelection& selection, bool allowToken);
-std::string               escapeMarkup(std::string_view text);
+std::vector<SWindowEntry>    parseWindowList(std::string_view list);
+std::vector<SOutputEntry>    parseOutputList(std::string_view list);
+std::vector<SWorkspaceEntry> parseWorkspaceList(std::string_view list);
+std::optional<SSelection>    parseRegion(std::string_view result, const std::vector<SOutputEntry>& outputs);
+std::string                  formatSelection(const SSelection& selection, bool allowToken);
+std::string                  escapeMarkup(std::string_view text);
