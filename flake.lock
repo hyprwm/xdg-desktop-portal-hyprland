@@ -65,15 +65,16 @@
         ]
       },
       "locked": {
-        "lastModified": 1772460177,
-        "narHash": "sha256-/6G/MsPvtn7bc4Y32pserBT/Z4SUUdBd4XYJpOEKVR4=",
+        "lastModified": 1790936629,
+        "narHash": "sha256-qkOjy6VHaf9X4X45asbhdCmx1Y2wVERnQLdGrh623oU=",
         "owner": "hyprwm",
         "repo": "hyprland-protocols",
-        "rev": "1cb6db5fd6bb8aee419f4457402fa18293ace917",
+        "rev": "d260a60f90668bf55dbddb6fa60fba9a3e2e34e9",
         "type": "github"
       },
       "original": {
         "owner": "hyprwm",
+        "ref": "icc-workspace",
         "repo": "hyprland-protocols",
         "type": "github"
       }

@@ -13,6 +13,7 @@ struct SWindowEntry {
 };
 
 struct SWorkspaceEntry {
+    uint64_t    id = 0;
     std::string name;
 };
 
@@ -36,16 +37,18 @@ enum eSelectionType : uint8_t {
 
 struct SSelection {
     eSelectionType type = SELECTION_NONE;
-    std::string    output, workspace;
-    uint32_t       windowID = 0;
-    int32_t        x        = 0;
-    int32_t        y        = 0;
-    int32_t        width    = 0;
-    int32_t        height   = 0;
+    std::string    output;
+    uint32_t       windowID    = 0;
+    uint64_t       workspaceID = 0;
+    int32_t        x           = 0;
+    int32_t        y           = 0;
+    int32_t        width       = 0;
+    int32_t        height      = 0;
 };
 
-std::vector<SWindowEntry>    parseWindowList(std::string_view list);
-std::vector<SOutputEntry>    parseOutputList(std::string_view list);
+std::vector<SWindowEntry> parseWindowList(std::string_view list);
+std::vector<SOutputEntry> parseOutputList(std::string_view list);
+// Concatenated <label byte length>:<label>:<tracker ID>; records.
 std::vector<SWorkspaceEntry> parseWorkspaceList(std::string_view list);
 std::optional<SSelection>    parseRegion(std::string_view result, const std::vector<SOutputEntry>& outputs);
 std::string                  formatSelection(const SSelection& selection, bool allowToken);

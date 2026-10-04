@@ -320,8 +320,8 @@ void CPicker::selectWorkspace(size_t index) {
         return;
 
     m_selection = SSelection{
-        .type     = SELECTION_WORKSPACE,
-        .workspace = m_workspaces[index].name,
+        .type        = SELECTION_WORKSPACE,
+        .workspaceID = m_workspaces[index].id,
     };
     m_selectedSource = index;
     updateSelectionButtons();

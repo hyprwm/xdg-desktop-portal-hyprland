@@ -23,7 +23,7 @@
     };
 
     hyprland-protocols = {
-      url = "github:hyprwm/hyprland-protocols";
+      url = "github:hyprwm/hyprland-protocols/icc-workspace";
       inputs.nixpkgs.follows = "nixpkgs";
       inputs.systems.follows = "systems";
     };

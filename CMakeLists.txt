@@ -59,7 +59,7 @@ pkg_check_modules(
   REQUIRED
   IMPORTED_TARGET
   wayland-client
-  wayland-protocols
+  wayland-protocols>=1.39
   libpipewire-0.3>=1.1.82
   libspa-0.2
   libdrm
@@ -83,6 +83,14 @@ if(HYPRLAND_PROTOS_FOUND)
   set(HYPRLAND_PROTOCOLS "${HYPRLAND_PROTOS_PREFIX}/share/hyprland-protocols")
 else()
   set(HYPRLAND_PROTOCOLS "${CMAKE_SOURCE_DIR}/subprojects/hyprland-protocols")
+endif()
+
+if(NOT EXISTS
+   "${HYPRLAND_PROTOCOLS}/protocols/hyprland-workspace-image-capture-source-v1.xml")
+  message(
+    FATAL_ERROR
+    "Missing ${HYPRLAND_PROTOCOLS}/protocols/hyprland-workspace-image-capture-source-v1.xml. "
+    "Workspace capture requires a hyprland-protocols revision containing this protocol.")
 endif()
 
 file(GLOB_RECURSE SRCFILES CONFIGURE_DEPENDS "src/*.cpp")
@@ -137,8 +145,8 @@ protocolnew("${HYPRLAND_PROTOCOLS}/protocols" "hyprland-toplevel-mapping-v1"
         true)
 protocolnew("${HYPRLAND_PROTOCOLS}/protocols" "hyprland-input-capture-v1"
             true)
-protocolnew("${HYPRLAND_PROTOCOLS}/protocols" "hyprland-workspace-image-capture-source-v1"
-            true)
+protocolnew("${HYPRLAND_PROTOCOLS}/protocols"
+            "hyprland-workspace-image-capture-source-v1" true)
 protocolnew("stable/linux-dmabuf" "linux-dmabuf-v1" false)
 protocolnew("unstable/xdg-output" "xdg-output-unstable-v1" false)
 protocolnew("staging/ext-foreign-toplevel-list" "ext-foreign-toplevel-list-v1" false)

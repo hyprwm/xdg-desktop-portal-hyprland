@@ -60,13 +60,31 @@ std::vector<SWorkspaceEntry> parseWorkspaceList(std::string_view list) {
     std::vector<SWorkspaceEntry> result;
 
     while (!list.empty()) {
-        const auto NAME = takeUntil(list, "[HN>]");
-
-        if (!NAME)
+        const auto LENGTH     = takeUntil(list, ":");
+        uint32_t   nameLength = 0;
+        if (!LENGTH || !parseUint32(*LENGTH, nameLength) || nameLength > list.size())
             break;
 
+        const auto NAME = list.substr(0, nameLength);
+        list.remove_prefix(nameLength);
+        if (!list.starts_with(':'))
+            break;
+        list.remove_prefix(1);
+
+        const auto ID = takeUntil(list, ";");
+        if (!ID)
+            break;
+        if (ID->empty())
+            continue;
+
+        uint64_t   id     = 0;
+        const auto PARSED = std::from_chars(ID->data(), ID->data() + ID->size(), id);
+        if (PARSED.ec != std::errc{} || PARSED.ptr != ID->data() + ID->size() || id == 0)
+            continue;
+
         result.emplace_back(SWorkspaceEntry{
-            .name = std::string{*NAME},
+            .id   = id,
+            .name = std::string{NAME},
         });
     }
 
@@ -157,7 +175,10 @@ std::string formatSelection(const SSelection& selection, bool allowToken) {
     switch (selection.type) {
         case SELECTION_OUTPUT: return result + "screen:" + selection.output + "\n";
         case SELECTION_WINDOW: return result + "window:" + std::to_string(selection.windowID) + "\n";
-        case SELECTION_WORKSPACE: return result + "workspace:" + selection.workspace + "\n";
+        case SELECTION_WORKSPACE:
+            if (selection.workspaceID == 0)
+                return {};
+            return result + "workspace-id:" + std::to_string(selection.workspaceID) + "\n";
         case SELECTION_REGION:
             return result + "region:" + selection.output + "@" + std::to_string(selection.x) + "," + std::to_string(selection.y) + "," + std::to_string(selection.width) + "," +
                 std::to_string(selection.height) + "\n";

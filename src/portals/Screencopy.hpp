@@ -52,12 +52,17 @@ struct SBuffer {
 };
 
 class CPipewireConnection;
+class CImageCopyCapture;
+class CCExtImageCopyCaptureManagerV1;
+class CCHyprlandWorkspaceImageCaptureSourceManagerV1;
 
 class CScreencopyPortal {
   public:
     CScreencopyPortal(SP<CCZwlrScreencopyManagerV1>);
 
     void   appendToplevelExport(SP<CCHyprlandToplevelExportManagerV1>);
+    void   appendICC(SP<CCExtImageCopyCaptureManagerV1>);
+    void   appendHLWorkspace(SP<CCHyprlandWorkspaceImageCaptureSourceManagerV1>);
 
     dbUasv onCreateSession(sdbus::ObjectPath requestHandle, sdbus::ObjectPath sessionHandle, std::string appID, std::unordered_map<std::string, sdbus::Variant> opts);
     dbUasv onSelectSources(sdbus::ObjectPath requestHandle, sdbus::ObjectPath sessionHandle, std::string appID, std::unordered_map<std::string, sdbus::Variant> opts);
@@ -77,21 +82,33 @@ class CScreencopyPortal {
 
         void                                      startCopy();
         void                                      initCallbacks();
+        bool                                      initWorkspaceCapture();
+        void                                      updateWorkspaceConstraints();
+        void                                      startWorkspaceCopy();
+        void                                      stopWorkspaceCapture();
 
         struct {
             bool                                  active              = false;
             SP<CCZwlrScreencopyFrameV1>           frameCallback       = nullptr;
             SP<CCHyprlandToplevelExportFrameV1>   windowFrameCallback = nullptr;
-            frameStatus                           status              = FRAME_NONE;
-            uint64_t                              tvSec               = 0;
-            uint32_t                              tvNsec              = 0;
-            uint64_t                              tvTimestampNs       = 0;
-            uint32_t                              nodeID              = 0;
-            uint64_t                              pipewireSerial      = 0;
-            uint32_t                              framerate           = 60;
-            wl_output_transform                   transform           = WL_OUTPUT_TRANSFORM_NORMAL;
-            std::chrono::system_clock::time_point begunFrame          = std::chrono::system_clock::now();
-            uint32_t                              copyRetries         = 0;
+            SP<CImageCopyCapture>                 icc;
+            std::vector<uint64_t>                 iccModifiers;
+            bool                                  iccConstraintsChanged = false;
+            bool                                  iccRenegotiating      = false;
+            std::chrono::steady_clock::time_point iccBufferWaitStarted  = {};
+            bool                                  started               = false;
+            bool                                  frameTimerPending     = false;
+            uint64_t                              frameTimerGeneration  = 0;
+            frameStatus                           status                = FRAME_NONE;
+            uint64_t                              tvSec                 = 0;
+            uint32_t                              tvNsec                = 0;
+            uint64_t                              tvTimestampNs         = 0;
+            uint32_t                              nodeID                = SPA_ID_INVALID;
+            uint64_t                              pipewireSerial        = 0;
+            uint32_t                              framerate             = 60;
+            wl_output_transform                   transform             = WL_OUTPUT_TRANSFORM_NORMAL;
+            std::chrono::system_clock::time_point begunFrame            = std::chrono::system_clock::now();
+            uint32_t                              copyRetries           = 0;
 
             struct {
                 uint32_t w = 0, h = 0, size = 0, stride = 0, fmt = 0;
@@ -114,6 +131,7 @@ class CScreencopyPortal {
     void                                 startFrameCopy(SSession* pSession);
     void                                 queueNextShareFrame(SSession* pSession);
     bool                                 hasToplevelCapabilities();
+    bool                                 hasWorkspaceCapabilities();
 
     std::unique_ptr<CPipewireConnection> m_pPipewire;
 
@@ -123,11 +141,13 @@ class CScreencopyPortal {
     std::vector<Hyprutils::Memory::CUniquePointer<SSession>> m_vSessions;
 
     SSession*                                                getSession(sdbus::ObjectPath& path);
-    void                                                     startSharing(SSession* pSession);
+    bool                                                     startSharing(SSession* pSession);
 
     struct {
-        SP<CCZwlrScreencopyManagerV1>         screencopy = nullptr;
-        SP<CCHyprlandToplevelExportManagerV1> toplevel   = nullptr;
+        SP<CCZwlrScreencopyManagerV1>                      screencopy      = nullptr;
+        SP<CCHyprlandToplevelExportManagerV1>              toplevel        = nullptr;
+        SP<CCExtImageCopyCaptureManagerV1>                 icc             = nullptr;
+        SP<CCHyprlandWorkspaceImageCaptureSourceManagerV1> workspaceSource = nullptr;
     } m_sState;
 
     const sdbus::InterfaceName INTERFACE_NAME = sdbus::InterfaceName{"org.freedesktop.impl.portal.ScreenCast"};
@@ -143,7 +163,7 @@ class CPipewireConnection {
 
     bool good();
 
-    void createStream(CScreencopyPortal::SSession* pSession);
+    bool createStream(CScreencopyPortal::SSession* pSession);
     void destroyStream(CScreencopyPortal::SSession* pSession);
 
     void enqueue(CScreencopyPortal::SSession* pSession);
@@ -156,10 +176,12 @@ class CPipewireConnection {
         spa_hook                              streamListener;
         SBuffer*                              currentPWBuffer = nullptr;
         spa_video_info_raw                    pwVideoInfo;
-        uint32_t                              seq           = 0;
-        bool                                  isDMA         = false;
-        uint32_t                              dmaBufRetries = 0;
-        bool                                  dmaBufFailed  = false;
+        uint32_t                              seq                = 0;
+        bool                                  isDMA              = false;
+        uint32_t                              dmaBufRetries      = 0;
+        bool                                  dmaBufFailed       = false;
+        bool                                  bufferRetryPending = false;
+        uint64_t                              bufferGeneration   = 0;
 
         std::vector<std::unique_ptr<SBuffer>> buffers;
     };

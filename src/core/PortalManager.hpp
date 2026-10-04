@@ -32,6 +32,8 @@ struct pw_loop;
 
 class CCZxdgOutputManagerV1;
 class CCZxdgOutputV1;
+class CCExtImageCopyCaptureManagerV1;
+class CCHyprlandWorkspaceImageCaptureSourceManagerV1;
 
 struct SOutput {
     SOutput(SP<CCWlOutput>);
@@ -90,15 +92,17 @@ class CPortalManager {
     } m_sHelpers;
 
     struct {
-        wl_display*                           display = nullptr;
-        SP<CCWlRegistry>                      registry;
-        SP<CCHyprlandToplevelExportManagerV1> hyprlandToplevelMgr;
-        SP<CCZwpLinuxDmabufV1>                linuxDmabuf;
-        SP<CCZwpLinuxDmabufFeedbackV1>        linuxDmabufFeedback;
-        SP<CCZxdgOutputManagerV1>             xdgOutputManager;
-        SP<CCWlShm>                           shm;
-        gbm_bo*                               gbm       = nullptr;
-        gbm_device*                           gbmDevice = nullptr;
+        wl_display*                                        display = nullptr;
+        SP<CCWlRegistry>                                   registry;
+        SP<CCHyprlandToplevelExportManagerV1>              hyprlandToplevelMgr;
+        SP<CCExtImageCopyCaptureManagerV1>                 icc;
+        SP<CCHyprlandWorkspaceImageCaptureSourceManagerV1> workspaceSource;
+        SP<CCZwpLinuxDmabufV1>                             linuxDmabuf;
+        SP<CCZwpLinuxDmabufFeedbackV1>                     linuxDmabufFeedback;
+        SP<CCZxdgOutputManagerV1>                          xdgOutputManager;
+        SP<CCWlShm>                                        shm;
+        gbm_bo*                                            gbm       = nullptr;
+        gbm_device*                                        gbmDevice = nullptr;
         struct {
             void*  formatTable     = nullptr;
             size_t formatTableSize = 0;

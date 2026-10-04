@@ -26,6 +26,26 @@ int main() {
         success &= expect(OUTPUTS[0].name == "DP-1" && OUTPUTS[0].x == -1920 && OUTPUTS[0].width == 1920, "output parser produced incorrect geometry");
     success &= expect(parseOutputList("20:DP-1:0:0:1:1;").empty(), "output parser accepted a truncated name");
 
+    const std::string WORKSPACE_LABEL = "dev:[HN>];\n\r[SELECTION]/workspace:99/\xc3\xa9";
+    const auto        WORKSPACES      = parseWorkspaceList(std::to_string(WORKSPACE_LABEL.size()) + ":" + WORKSPACE_LABEL + ":18446744073709551615;4:code:1;4:code:2;");
+    success &= expect(WORKSPACES.size() == 3, "workspace parser rejected length-prefixed labels or duplicate names");
+    if (WORKSPACES.size() == 3) {
+        success &= expect(WORKSPACES[0].name == WORKSPACE_LABEL && WORKSPACES[0].id == UINT64_MAX, "workspace parser corrupted a label or uint64 id");
+        success &= expect(WORKSPACES[1].name == WORKSPACES[2].name && WORKSPACES[1].id != WORKSPACES[2].id, "workspace parser confused identity with display name");
+        const SSelection WORKSPACE_SELECTION{
+            .type        = SELECTION_WORKSPACE,
+            .workspaceID = WORKSPACES[0].id,
+        };
+        success &= expect(formatSelection(WORKSPACE_SELECTION, true) == "[SELECTION]r/workspace-id:18446744073709551615\n", "workspace selection did not serialize only its id");
+        success &= expect(formatSelection(WORKSPACE_SELECTION, false) == "[SELECTION]/workspace-id:18446744073709551615\n", "workspace selection added an unwanted restore flag");
+    }
+    for (const auto MALFORMED :
+         {"20:dev:1;", "3:dev1;", "3:dev:1", "-1:dev:1;", "4294967296:dev:1;", "3:dev:;", "3:dev:0;", "3:dev:-1;", "3:dev:1x;", "3:dev:18446744073709551616;"})
+        success &= expect(parseWorkspaceList(MALFORMED).empty(), "workspace parser accepted a malformed record");
+    const auto EMPTY_LABEL = parseWorkspaceList("0::3;");
+    success &= expect(EMPTY_LABEL.size() == 1 && EMPTY_LABEL[0].name.empty() && EMPTY_LABEL[0].id == 3, "workspace parser used an empty label as identity");
+    success &= expect(formatSelection(SSelection{.type = SELECTION_WORKSPACE}, false).empty(), "workspace formatter accepted an unset id");
+
     const auto REGION = parseRegion("DP-1 20 20 800 600\n", OUTPUTS);
     success &= expect(REGION.has_value(), "region parser rejected a valid region");
     success &= expect(REGION && REGION->x == 20 && REGION->y == 20 && REGION->width == 800 && REGION->height == 600, "region parser converted coordinates incorrectly");

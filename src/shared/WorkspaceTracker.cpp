@@ -2,20 +2,81 @@
 #include "ext-workspace-v1.hpp"
 #include "../helpers/Log.hpp"
 
-CTrackedWorkspace::CTrackedWorkspace(CWorkspaceTracker& p, SP<CCExtWorkspaceHandleV1> handle) : m_handle(handle), m_parent(p) {
-    m_handle->setId([this](CCExtWorkspaceHandleV1* r, const char* id) { m_id = id; });
-    m_handle->setName([this](CCExtWorkspaceHandleV1* r, const char* name) { m_name = name; });
+#include <algorithm>
 
-    m_handle->setRemoved([this](CCExtWorkspaceHandleV1* r) { std::erase_if(m_parent.m_workspaces, [this](const auto& e) { return !e || e.get() == this; }); });
+CTrackedWorkspace::CTrackedWorkspace(CWorkspaceTracker& p, SP<CCExtWorkspaceHandleV1> handle) : m_trackerId(p.m_nextId++), m_handle(handle), m_parent(p) {
+    m_handle->setId([this](CCExtWorkspaceHandleV1* r, const char* id) { m_pendingId = id; });
+    m_handle->setName([this](CCExtWorkspaceHandleV1* r, const char* name) { m_pendingName = name; });
+
+    m_handle->setRemoved([this](CCExtWorkspaceHandleV1* r) {
+        // Keep the callback's owner alive while erasing the last references to this record.
+        const auto HANDLE = m_handle;
+        auto&      parent = m_parent;
+        const auto SELF   = this;
+        m_removed         = true;
+        m_handle.reset();
+        std::erase_if(parent.m_workspaces, [SELF](const auto& ws) { return ws.get() == SELF; });
+        std::erase_if(parent.m_pendingWorkspaces, [SELF](const auto& ws) { return ws.get() == SELF; });
+    });
 }
 
 CWorkspaceTracker::CWorkspaceTracker(SP<CCExtWorkspaceManagerV1> mgr) : m_manager(mgr) {
-    mgr->setWorkspace([this](CCExtWorkspaceManagerV1* r, wl_proxy* ws) {
-        Debug::log(TRACE, "[WorkspaceTracker] new workspace {}", (uintptr_t)ws);
-        m_workspaces.emplace_back(makeShared<CTrackedWorkspace>(*this, makeShared<CCExtWorkspaceHandleV1>(ws)));
+    mgr->setWorkspaceGroup([](CCExtWorkspaceManagerV1* r, wl_proxy* group) {
+        // Group membership is not needed. Wrap and destroy the announced object.
+        const auto GROUP = makeShared<CCExtWorkspaceGroupHandleV1>(group);
     });
+    mgr->setWorkspace([this](CCExtWorkspaceManagerV1* r, wl_proxy* ws) {
+        Debug::log(TRACE, "[WorkspaceTracker] new workspace {}", rc<uintptr_t>(ws));
+        m_pendingWorkspaces.emplace_back(makeShared<CTrackedWorkspace>(*this, makeShared<CCExtWorkspaceHandleV1>(ws)));
+    });
+    mgr->setDone([this](CCExtWorkspaceManagerV1* r) {
+        for (const auto& ws : m_pendingWorkspaces) {
+            ws->m_name = ws->m_pendingName;
+            ws->m_id   = ws->m_pendingId;
+        }
+        m_workspaces = m_pendingWorkspaces;
+    });
+    mgr->setFinished([this](CCExtWorkspaceManagerV1* r) { clear(); });
+}
+
+CWorkspaceTracker::~CWorkspaceTracker() {
+    m_manager->setWorkspaceGroup({});
+    m_manager->setWorkspace({});
+    m_manager->setDone({});
+    m_manager->setFinished({});
+    clear();
+}
+
+void CWorkspaceTracker::clear() {
+    for (const auto& ws : m_pendingWorkspaces) {
+        ws->m_removed = true;
+        ws->m_handle.reset();
+    }
+    m_workspaces.clear();
+    m_pendingWorkspaces.clear();
 }
 
 const std::vector<SP<CTrackedWorkspace>>& CWorkspaceTracker::workspaces() const {
     return m_workspaces;
+}
+
+SP<CTrackedWorkspace> CWorkspaceTracker::fromName(const std::string_view name) const {
+    SP<CTrackedWorkspace> result;
+    for (const auto& w : m_workspaces) {
+        if (w->m_removed || w->m_name != name)
+            continue;
+        if (result)
+            return nullptr;
+        result = w;
+    }
+
+    return result;
+}
+
+SP<CTrackedWorkspace> CWorkspaceTracker::fromId(uint64_t id) const {
+    for (const auto& w : m_workspaces) {
+        if (!w->m_removed && w->m_trackerId == id)
+            return w;
+    }
+    return nullptr;
 }

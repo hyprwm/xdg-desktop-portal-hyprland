@@ -26,7 +26,7 @@ int main(int argc, char** argv) {
 
     const auto WINDOW_LIST    = std::getenv("XDPH_WINDOW_SHARING_LIST");
     const auto OUTPUT_LIST    = std::getenv("XDPH_OUTPUT_SHARING_LIST");
-    const auto WORKSPACE_LIST = std::getenv("XDPH_WORKSPACE_SHARING_LIST");
+    const auto WORKSPACE_LIST = std::getenv("XDPH_WORKSPACE_SHARING_LIST_V2");
 
     CPicker    picker(BACKEND, parseOutputList(OUTPUT_LIST ? OUTPUT_LIST : ""), parseWindowList(WINDOW_LIST ? WINDOW_LIST : ""),
                       parseWorkspaceList(WORKSPACE_LIST ? WORKSPACE_LIST : ""), allowTokenByDefault);

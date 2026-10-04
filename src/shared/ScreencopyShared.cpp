@@ -1,4 +1,5 @@
 #include "ScreencopyShared.hpp"
+#include "WorkspaceTracker.hpp"
 #include "../helpers/MiscFunctions.hpp"
 #include <wayland-client.h>
 #include "../helpers/Log.hpp"
@@ -80,11 +81,32 @@ static bool parseUint32(std::string_view value, uint32_t& result) {
     return PARSED.ec == std::errc{} && PARSED.ptr == value.data() + value.size();
 }
 
-static std::string buildWorkspaceList() {
+struct SWorkspaceChoice {
+    WP<CTrackedWorkspace> handle;
+    std::string           name;
+};
+
+static bool isLegacyWorkspaceName(std::string_view name) {
+    return name.find_first_of("\r\n") == std::string_view::npos && !name.contains("[HN>]");
+}
+
+static std::string buildWorkspaceList(std::vector<SWorkspaceChoice>& workspaces, std::string& legacyList) {
     std::string result;
+    if (!g_pPortalManager->m_sPortals.screencopy->hasWorkspaceCapabilities() || !g_pPortalManager->m_sHelpers.workspaceTracker)
+        return result;
 
     for (const auto& ws : g_pPortalManager->m_sHelpers.workspaceTracker->workspaces()) {
-        result += std::format("{}[HN>]", ws->m_name);
+        if (ws->m_removed || !ws->m_handle)
+            continue;
+
+        // Length is in bytes; workspace labels may contain delimiters or newlines.
+        result += std::format("{}:{}:{};", ws->m_name.size(), ws->m_name, ws->m_trackerId);
+        workspaces.emplace_back(SWorkspaceChoice{
+            .handle = ws,
+            .name   = ws->m_name,
+        });
+        if (isLegacyWorkspaceName(ws->m_name))
+            legacyList += ws->m_name + "[HN>]";
     }
 
     return result;
@@ -100,7 +122,7 @@ static std::optional<std::string_view> takeUntil(std::string_view& value, char s
     return RESULT;
 }
 
-static SSelectionData parsePickerSelection(const std::string& output) {
+static SSelectionData parsePickerSelection(const std::string& output, const std::vector<SWorkspaceChoice>& workspaces) {
     SSelectionData data;
 
     const auto     MARKER = output.find("[SELECTION]");
@@ -147,6 +169,36 @@ static SSelectionData parsePickerSelection(const std::string& output) {
         return data;
     }
 
+    const bool WORKSPACE_ID = selection.starts_with("workspace-id:");
+    if (WORKSPACE_ID || selection.starts_with("workspace:")) {
+        if (!g_pPortalManager->m_sPortals.screencopy->hasWorkspaceCapabilities() || !g_pPortalManager->m_sHelpers.workspaceTracker)
+            return {};
+
+        SP<CTrackedWorkspace> workspace;
+        if (WORKSPACE_ID) {
+            const auto ID = selection.substr(13);
+            uint64_t   id = 0;
+            if (ID.empty())
+                return {};
+            const auto PARSED = std::from_chars(ID.data(), ID.data() + ID.size(), id);
+            if (PARSED.ec != std::errc{} || PARSED.ptr != ID.data() + ID.size() || id == 0)
+                return {};
+
+            workspace = g_pPortalManager->m_sHelpers.workspaceTracker->fromId(id);
+        } else
+            workspace = g_pPortalManager->m_sHelpers.workspaceTracker->fromName(selection.substr(10));
+
+        if (!workspace || !workspace->m_handle || std::ranges::none_of(workspaces, [&workspace, WORKSPACE_ID](const auto& ws) {
+                return ws.handle.lock() == workspace && (WORKSPACE_ID || (ws.name == workspace->m_name && isLegacyWorkspaceName(ws.name)));
+            }))
+            return {};
+
+        data.type            = TYPE_WORKSPACE;
+        data.workspace       = workspace->m_name;
+        data.workspaceHandle = workspace;
+        return data;
+    }
+
     if (!selection.starts_with("region:"))
         return {};
 
@@ -177,9 +229,11 @@ SSelectionData promptForScreencopySelection() {
 
     static auto* const* PALLOWTOKENBYDEFAULT =
         (Hyprlang::INT* const*)g_pPortalManager->m_sConfig.config->getConfigValuePtr("screencopy:allow_token_by_default")->getDataStaticPtr();
-    static auto* const*      PCUSTOMPICKER = (Hyprlang::STRING* const)g_pPortalManager->m_sConfig.config->getConfigValuePtr("screencopy:custom_picker_binary")->getDataStaticPtr();
+    static auto* const* PCUSTOMPICKER = (Hyprlang::STRING* const)g_pPortalManager->m_sConfig.config->getConfigValuePtr("screencopy:custom_picker_binary")->getDataStaticPtr();
 
-    std::vector<std::string> args;
+    std::vector<SWorkspaceChoice> workspaces;
+    std::string                   legacyWorkspaces;
+    std::vector<std::string>      args;
     if (**PALLOWTOKENBYDEFAULT)
         args.emplace_back("--allow-token");
 
@@ -192,7 +246,8 @@ SSelectionData promptForScreencopySelection() {
     proc.addEnv("HYPRLAND_INSTANCE_SIGNATURE", HYPRLAND_INSTANCE_SIGNATURE ? HYPRLAND_INSTANCE_SIGNATURE : "0");
     proc.addEnv("XDPH_WINDOW_SHARING_LIST", buildWindowList());
     proc.addEnv("XDPH_OUTPUT_SHARING_LIST", buildOutputList());
-    proc.addEnv("XDPH_WORKSPACE_SHARING_LIST", buildWorkspaceList());
+    proc.addEnv("XDPH_WORKSPACE_SHARING_LIST_V2", buildWorkspaceList(workspaces, legacyWorkspaces));
+    proc.addEnv("XDPH_WORKSPACE_SHARING_LIST", legacyWorkspaces);
 
     if (!proc.runSync())
         return {};
@@ -213,7 +268,7 @@ SSelectionData promptForScreencopySelection() {
     }
 
     Debug::log(LOG, "[sc] Selection output: {}", RETVAL);
-    return parsePickerSelection(RETVAL);
+    return parsePickerSelection(RETVAL, workspaces);
 }
 
 wl_shm_format wlSHMFromDrmFourcc(uint32_t format) {
