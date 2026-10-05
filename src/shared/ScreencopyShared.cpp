@@ -90,7 +90,7 @@ static bool isLegacyWorkspaceName(std::string_view name) {
     return name.find_first_of("\r\n") == std::string_view::npos && !name.contains("[HN>]");
 }
 
-static std::string buildWorkspaceList(std::vector<SWorkspaceChoice>& workspaces, std::string& legacyList) {
+static std::string buildWorkspaceList(std::vector<SWorkspaceChoice>& workspaces, std::string& v2List, std::string& legacyList) {
     std::string result;
     if (!g_pPortalManager->m_sPortals.screencopy->hasWorkspaceCapabilities() || !g_pPortalManager->m_sHelpers.workspaceTracker)
         return result;
@@ -99,8 +99,24 @@ static std::string buildWorkspaceList(std::vector<SWorkspaceChoice>& workspaces,
         if (ws->m_removed || !ws->m_handle)
             continue;
 
-        // Length is in bytes; workspace labels may contain delimiters or newlines.
-        result += std::format("{}:{}:{};", ws->m_name.size(), ws->m_name, ws->m_trackerId);
+        std::vector<std::string> outputs;
+        for (const auto& output : ws->outputs()) {
+            for (const auto& candidate : g_pPortalManager->getAllOutputs()) {
+                if (candidate->output != output || candidate->name.empty())
+                    continue;
+                if (std::ranges::find(outputs, candidate->name) == outputs.end())
+                    outputs.emplace_back(candidate->name);
+                break;
+            }
+        }
+
+        // Lengths are in bytes; names may contain delimiters or newlines.
+        result += std::format("{}[HN>]{}:{}[HM>]{}:", ws->m_trackerId, ws->m_name.size(), ws->m_name, outputs.size());
+        for (const auto& output : outputs) {
+            result += std::format("{}:{}", output.size(), output);
+        }
+        result += "[HE>]";
+        v2List += std::format("{}:{}:{};", ws->m_name.size(), ws->m_name, ws->m_trackerId);
         workspaces.emplace_back(SWorkspaceChoice{
             .handle = ws,
             .name   = ws->m_name,
@@ -232,7 +248,7 @@ SSelectionData promptForScreencopySelection() {
     static auto* const* PCUSTOMPICKER = (Hyprlang::STRING* const)g_pPortalManager->m_sConfig.config->getConfigValuePtr("screencopy:custom_picker_binary")->getDataStaticPtr();
 
     std::vector<SWorkspaceChoice> workspaces;
-    std::string                   legacyWorkspaces;
+    std::string                   v2Workspaces, legacyWorkspaces;
     std::vector<std::string>      args;
     if (**PALLOWTOKENBYDEFAULT)
         args.emplace_back("--allow-token");
@@ -246,7 +262,8 @@ SSelectionData promptForScreencopySelection() {
     proc.addEnv("HYPRLAND_INSTANCE_SIGNATURE", HYPRLAND_INSTANCE_SIGNATURE ? HYPRLAND_INSTANCE_SIGNATURE : "0");
     proc.addEnv("XDPH_WINDOW_SHARING_LIST", buildWindowList());
     proc.addEnv("XDPH_OUTPUT_SHARING_LIST", buildOutputList());
-    proc.addEnv("XDPH_WORKSPACE_SHARING_LIST_V2", buildWorkspaceList(workspaces, legacyWorkspaces));
+    proc.addEnv("XDPH_WORKSPACE_SHARING_LIST_V3", buildWorkspaceList(workspaces, v2Workspaces, legacyWorkspaces));
+    proc.addEnv("XDPH_WORKSPACE_SHARING_LIST_V2", v2Workspaces);
     proc.addEnv("XDPH_WORKSPACE_SHARING_LIST", legacyWorkspaces);
 
     if (!proc.runSync())

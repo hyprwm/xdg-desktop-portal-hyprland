@@ -13,8 +13,9 @@ struct SWindowEntry {
 };
 
 struct SWorkspaceEntry {
-    uint64_t    id = 0;
-    std::string name;
+    uint64_t                 id = 0;
+    std::string              name;
+    std::vector<std::string> outputs;
 };
 
 struct SOutputEntry {
@@ -50,6 +51,9 @@ std::vector<SWindowEntry> parseWindowList(std::string_view list);
 std::vector<SOutputEntry> parseOutputList(std::string_view list);
 // Concatenated <label byte length>:<label>:<tracker ID>; records.
 std::vector<SWorkspaceEntry> parseWorkspaceList(std::string_view list);
+// Concatenated <tracker ID>[HN>]<name length>:<name>[HM>]<output count>:<length>:<output>...[HE>] records, with byte lengths.
+std::vector<SWorkspaceEntry> parseWorkspaceListV3(std::string_view list);
+std::string                  workspaceLabel(const SWorkspaceEntry& workspace);
 std::optional<SSelection>    parseRegion(std::string_view result, const std::vector<SOutputEntry>& outputs);
 std::string                  formatSelection(const SSelection& selection, bool allowToken);
 std::string                  escapeMarkup(std::string_view text);

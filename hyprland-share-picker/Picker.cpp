@@ -233,7 +233,7 @@ void CPicker::buildWorkspaceContent() {
     for (size_t i = 0; i < m_workspaces.size(); ++i) {
         const auto& WORKSPACE = m_workspaces[i];
 
-        const auto  ESCAPED_LABEL = escapeMarkup(WORKSPACE.name);
+        const auto  ESCAPED_LABEL = escapeMarkup(workspaceLabel(WORKSPACE));
         auto        button        = CButtonBuilder::begin()
                                         ->label(std::string{ESCAPED_LABEL})
                                         ->alignText(HT_FONT_ALIGN_LEFT)
