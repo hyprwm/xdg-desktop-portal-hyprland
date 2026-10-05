@@ -1,6 +1,9 @@
 #include "PortalManager.hpp"
 #include "../helpers/Log.hpp"
 #include "../helpers/MiscFunctions.hpp"
+#include "ext-image-copy-capture-v1.hpp"
+#include "ext-workspace-v1.hpp"
+#include "hyprland-workspace-image-capture-source-v1.hpp"
 #include "xdg-output-unstable-v1.hpp"
 
 #include <pipewire/pipewire.h>
@@ -258,6 +261,21 @@ void CPortalManager::onGlobal(uint32_t name, const char* interface, uint32_t ver
         m_sHelpers.toplevelMapping = std::make_unique<CToplevelMappingManager>(makeShared<CCHyprlandToplevelMappingManagerV1>(
             (wl_proxy*)wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &hyprland_toplevel_mapping_manager_v1_interface, version)));
     }
+
+    else if (INTERFACE == ext_workspace_manager_v1_interface.name) {
+        m_sHelpers.workspaceTracker = std::make_unique<CWorkspaceTracker>(makeShared<CCExtWorkspaceManagerV1>(
+            (wl_proxy*)wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &ext_workspace_manager_v1_interface, 1)));
+    }
+
+    else if (INTERFACE == ext_image_copy_capture_manager_v1_interface.name) {
+        m_sWaylandConnection.icc = makeShared<CCExtImageCopyCaptureManagerV1>(
+            (wl_proxy*)wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &ext_image_copy_capture_manager_v1_interface, 1));
+    }
+
+    else if (INTERFACE == hyprland_workspace_image_capture_source_manager_v1_interface.name) {
+        m_sWaylandConnection.workspaceSource = makeShared<CCHyprlandWorkspaceImageCaptureSourceManagerV1>(
+            (wl_proxy*)wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &hyprland_workspace_image_capture_source_manager_v1_interface, 1));
+    }
 }
 
 void CPortalManager::onGlobalRemoved(uint32_t name) {
@@ -315,8 +333,14 @@ void CPortalManager::init() {
 
     if (!m_sPortals.screencopy)
         Debug::log(WARN, "Screencopy not started: compositor doesn't support zwlr_screencopy_v1 or pw refused a loop");
-    else if (m_sWaylandConnection.hyprlandToplevelMgr)
-        m_sPortals.screencopy->appendToplevelExport(m_sWaylandConnection.hyprlandToplevelMgr);
+    else {
+        if (m_sWaylandConnection.hyprlandToplevelMgr)
+            m_sPortals.screencopy->appendToplevelExport(m_sWaylandConnection.hyprlandToplevelMgr);
+        if (m_sWaylandConnection.icc)
+            m_sPortals.screencopy->appendICC(m_sWaylandConnection.icc);
+        if (m_sWaylandConnection.workspaceSource)
+            m_sPortals.screencopy->appendHLWorkspace(m_sWaylandConnection.workspaceSource);
+    }
 
     if (!inShellPath("grim"))
         Debug::log(WARN, "grim not found. Screenshots will not work.");
@@ -458,11 +482,13 @@ void CPortalManager::startEventLoop() {
 
         std::vector<CTimer*> toRemove;
         for (auto& t : m_sTimersThread.timers) {
-            if (t->passed()) {
-                t->m_fnCallback();
+            if (t->passed())
                 toRemove.emplace_back(t.get());
-                Debug::log(TRACE, "[core] calling timer {}", (void*)t.get());
-            }
+        }
+        // Callbacks may add timers and reallocate the owning vector.
+        for (const auto timer : toRemove) {
+            Debug::log(TRACE, "[core] calling timer {}", sc<void*>(timer));
+            timer->m_fnCallback();
         }
 
         int ret = 0;

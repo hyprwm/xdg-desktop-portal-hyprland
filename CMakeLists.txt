@@ -10,6 +10,7 @@ project(
 
 include(CTest)
 
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_MESSAGE_LOG_LEVEL "STATUS")
 set(SYSTEMD_SERVICES
     ON
@@ -24,8 +25,6 @@ else()
 endif()
 
 add_compile_definitions(XDPH_VERSION="${VER}")
-
-include_directories(. "protocols/")
 
 # configure
 include(GNUInstallDirs)
@@ -60,7 +59,7 @@ pkg_check_modules(
   REQUIRED
   IMPORTED_TARGET
   wayland-client
-  wayland-protocols
+  wayland-protocols>=1.39
   libpipewire-0.3>=1.1.82
   libspa-0.2
   libdrm
@@ -86,8 +85,17 @@ else()
   set(HYPRLAND_PROTOCOLS "${CMAKE_SOURCE_DIR}/subprojects/hyprland-protocols")
 endif()
 
+if(NOT EXISTS
+   "${HYPRLAND_PROTOCOLS}/protocols/hyprland-workspace-image-capture-source-v1.xml")
+  message(
+    FATAL_ERROR
+    "Missing ${HYPRLAND_PROTOCOLS}/protocols/hyprland-workspace-image-capture-source-v1.xml. "
+    "Workspace capture requires a hyprland-protocols revision containing this protocol.")
+endif()
+
 file(GLOB_RECURSE SRCFILES CONFIGURE_DEPENDS "src/*.cpp")
 add_executable(xdg-desktop-portal-hyprland ${SRCFILES})
+target_include_directories(xdg-desktop-portal-hyprland PRIVATE "src/" "protocols/")
 target_link_libraries(
   xdg-desktop-portal-hyprland PRIVATE rt PkgConfig::SDBUS Threads::Threads
                                       PkgConfig::deps)
@@ -137,9 +145,14 @@ protocolnew("${HYPRLAND_PROTOCOLS}/protocols" "hyprland-toplevel-mapping-v1"
         true)
 protocolnew("${HYPRLAND_PROTOCOLS}/protocols" "hyprland-input-capture-v1"
             true)
+protocolnew("${HYPRLAND_PROTOCOLS}/protocols"
+            "hyprland-workspace-image-capture-source-v1" true)
 protocolnew("stable/linux-dmabuf" "linux-dmabuf-v1" false)
 protocolnew("unstable/xdg-output" "xdg-output-unstable-v1" false)
 protocolnew("staging/ext-foreign-toplevel-list" "ext-foreign-toplevel-list-v1" false)
+protocolnew("staging/ext-image-copy-capture" "ext-image-copy-capture-v1" false)
+protocolnew("staging/ext-image-capture-source" "ext-image-capture-source-v1" false)
+protocolnew("staging/ext-workspace" "ext-workspace-v1" false)
 
 # Installation
 install(TARGETS xdg-desktop-portal-hyprland
