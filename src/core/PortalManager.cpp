@@ -98,7 +98,8 @@ void CPortalManager::onGlobal(uint32_t name, const char* interface, uint32_t ver
     }
     if (INTERFACE == hyprland_input_capture_manager_v1_interface.name)
         m_sPortals.inputCapture = std::make_unique<CInputCapturePortal>(makeShared<CCHyprlandInputCaptureManagerV1>(
-            (wl_proxy*)wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &hyprland_input_capture_manager_v1_interface, version)));
+            (wl_proxy*)wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &hyprland_input_capture_manager_v1_interface,
+                                        std::min(version, static_cast<uint32_t>(hyprland_input_capture_manager_v1_interface.version)))));
     else if (INTERFACE == zxdg_output_manager_v1_interface.name) {
         m_sWaylandConnection.xdgOutputManager = makeShared<CCZxdgOutputManagerV1>(
             (wl_proxy*)wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &zxdg_output_manager_v1_interface, std::min(version, 3u)));
