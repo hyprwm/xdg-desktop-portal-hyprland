@@ -121,6 +121,8 @@ class CPortalManager {
     // terminate after the event loop has been created. Before we can exit()
     void terminate();
 
+    void releaseWayland();
+
   private:
     void  startEventLoop();
     void  setupXDGOutput(SOutput* output);

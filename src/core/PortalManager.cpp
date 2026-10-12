@@ -484,11 +484,12 @@ void CPortalManager::startEventLoop() {
     m_sPortals.screencopy.reset();
     m_sPortals.screenshot.reset();
     m_sHelpers.toplevel.reset();
+    m_sHelpers.toplevelMapping.reset();
     m_sPortals.inputCapture.reset();
 
     m_pConnection.reset();
     pw_loop_destroy(m_sPipewire.loop);
-    wl_display_disconnect(m_sWaylandConnection.display);
+    releaseWayland();
 
     m_sTimersThread.thread.release();
     pollThr.join(); // wait for poll to exit
@@ -571,6 +572,22 @@ void CPortalManager::addFdToEventLoop(int fd, short events, std::function<void()
 void CPortalManager::removeFdFromEventLoop(int fd) {
     std::erase_if(m_sEventLoopInternals.pollFds, [fd](const pollfd& p) { return p.fd == fd; });
     m_sEventLoopInternals.pollCallbacks.erase(fd);
+}
+
+void CPortalManager::releaseWayland() {
+    m_vOutputs.clear();
+    m_sWaylandConnection.linuxDmabufFeedback.reset();
+    m_sWaylandConnection.linuxDmabuf.reset();
+    m_sWaylandConnection.hyprlandToplevelMgr.reset();
+    m_sWaylandConnection.xdgOutputManager.reset();
+    m_sWaylandConnection.shm.reset();
+    m_sWaylandConnection.registry.reset();
+
+    if (!m_sWaylandConnection.display)
+        return;
+
+    wl_display_disconnect(m_sWaylandConnection.display);
+    m_sWaylandConnection.display = nullptr;
 }
 
 void CPortalManager::terminate() {
