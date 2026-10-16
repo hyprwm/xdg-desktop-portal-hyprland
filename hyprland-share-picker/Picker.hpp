@@ -22,7 +22,7 @@ namespace Hyprtoolkit {
 class CPicker {
   public:
     CPicker(const Hyprutils::Memory::CSharedPointer<Hyprtoolkit::IBackend>& backend, std::vector<SOutputEntry> outputs, std::vector<SWindowEntry> windows,
-            bool allowTokenByDefault);
+            std::vector<SWorkspaceEntry> workspaces, bool allowTokenByDefault);
     ~CPicker();
 
     bool initialize();
@@ -32,6 +32,7 @@ class CPicker {
     enum ePickerTab : uint8_t {
         PICKER_TAB_OUTPUTS = 0,
         PICKER_TAB_WINDOWS,
+        PICKER_TAB_WORKSPACE,
         PICKER_TAB_REGION,
     };
 
@@ -40,11 +41,13 @@ class CPicker {
     void                                                                        rebuildContent();
     void                                                                        buildOutputContent();
     void                                                                        buildWindowContent();
+    void                                                                        buildWorkspaceContent();
     void                                                                        buildRegionContent();
     void                                                                        updateSelectionButtons();
     void                                                                        switchTab(ePickerTab tab);
     void                                                                        selectOutput(size_t index);
     void                                                                        selectWindow(size_t index);
+    void                                                                        selectWorkspace(size_t index);
     void                                                                        beginRegionSelection();
     void                                                                        submit();
     void                                                                        cancel();
@@ -60,6 +63,7 @@ class CPicker {
 
     std::vector<SOutputEntry>                                                   m_outputs;
     std::vector<SWindowEntry>                                                   m_windows;
+    std::vector<SWorkspaceEntry>                                                m_workspaces;
     std::optional<SSelection>                                                   m_selection;
     std::optional<size_t>                                                       m_selectedSource;
     ePickerTab                                                                  m_activeTab           = PICKER_TAB_OUTPUTS;

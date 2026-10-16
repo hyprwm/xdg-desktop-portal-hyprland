@@ -2,11 +2,16 @@
 #include "../core/PortalManager.hpp"
 #include "../helpers/Log.hpp"
 #include "../helpers/MiscFunctions.hpp"
+#include "../shared/ImageCopyCapture.hpp"
 
 #include <cerrno>
 #include <cstdlib>
+#include <hyprutils/memory/SharedPtr.hpp>
 #include <libdrm/drm_fourcc.h>
 #include <pipewire/pipewire.h>
+#include "ext-image-capture-source-v1.hpp"
+#include "ext-image-copy-capture-v1.hpp"
+#include "hyprland-workspace-image-capture-source-v1.hpp"
 #include "linux-dmabuf-v1.hpp"
 #include <unistd.h>
 #include <hyprutils/math/Vector2D.hpp>
@@ -26,6 +31,7 @@ static sdbus::Struct<std::string, uint32_t, sdbus::Variant> getFullRestoreStruct
             mapData["geometry"] = sdbus::Variant{sdbus::Struct<uint32_t, uint32_t, uint32_t, uint32_t>{data.x, data.y, data.w, data.h}};
             break;
         case TYPE_OUTPUT: mapData["output"] = sdbus::Variant{data.output}; break;
+        case TYPE_WORKSPACE: mapData["workspace"] = sdbus::Variant{data.workspace}; break;
         case TYPE_WINDOW:
             mapData["windowHandle"] = sdbus::Variant{(uint64_t)data.windowHandle->resource()};
             mapData["windowClass"]  = sdbus::Variant{data.windowClass};
@@ -94,12 +100,13 @@ dbUasv CScreencopyPortal::onSelectSources(sdbus::ObjectPath requestHandle, sdbus
     }
 
     struct {
-        bool        exists = false;
+        bool        exists       = false;
+        bool        hasWorkspace = false;
         std::string token, output;
-        uint64_t    windowHandle;
-        bool        withCursor;
-        uint64_t    timeIssued;
-        std::string windowClass;
+        uint64_t    windowHandle = 0;
+        bool        withCursor   = false;
+        uint64_t    timeIssued   = 0;
+        std::string windowClass, workspace;
         struct {
             uint32_t x = 0;
             uint32_t y = 0;
@@ -169,7 +176,10 @@ dbUasv CScreencopyPortal::onSelectSources(sdbus::ObjectPath requestHandle, sdbus
                         restoreData.windowHandle = tkval.get<uint64_t>();
                     else if (tkkey == "windowClass")
                         restoreData.windowClass = tkval.get<std::string>();
-                    else if (tkkey == "withCursor")
+                    else if (tkkey == "workspace") {
+                        restoreData.workspace    = tkval.get<std::string>();
+                        restoreData.hasWorkspace = true;
+                    } else if (tkkey == "withCursor")
                         restoreData.withCursor = tkval.get<uint32_t>() == EMBEDDED;
                     else if (tkkey == "timeIssued")
                         restoreData.timeIssued = tkval.get<uint64_t>();
@@ -200,7 +210,8 @@ dbUasv CScreencopyPortal::onSelectSources(sdbus::ObjectPath requestHandle, sdbus
     const bool     RESTOREDATAVALID = restoreData.exists &&
     (
         (!restoreData.output.empty() && g_pPortalManager->getOutputFromName(restoreData.output)) || // output exists
-        (!restoreData.windowClass.empty() && g_pPortalManager->m_sHelpers.toplevel->handleFromClass(restoreData.windowClass)) // window exists
+        (!restoreData.windowClass.empty() && g_pPortalManager->m_sHelpers.toplevel->handleFromClass(restoreData.windowClass)) || // window exists
+        (restoreData.hasWorkspace && hasWorkspaceCapabilities() && g_pPortalManager->m_sHelpers.workspaceTracker->fromName(restoreData.workspace))
     );
     // clang-format on
 
@@ -209,23 +220,41 @@ dbUasv CScreencopyPortal::onSelectSources(sdbus::ObjectPath requestHandle, sdbus
         Debug::log(LOG, "[screencopy] restore data valid, not prompting");
 
         const bool WINDOW      = !restoreData.windowClass.empty();
+        const bool WORKSPACE   = restoreData.hasWorkspace;
         const bool GEOMETRY    = restoreData.geometry.w > 0 && restoreData.geometry.h > 0;
         const auto HANDLEMATCH = WINDOW && restoreData.windowHandle != 0 ? g_pPortalManager->m_sHelpers.toplevel->handleFromHandleFull(restoreData.windowHandle) : nullptr;
 
-        SHAREDATA.output       = restoreData.output;
-        SHAREDATA.type         = WINDOW ? TYPE_WINDOW : (GEOMETRY ? TYPE_GEOMETRY : TYPE_OUTPUT);
-        SHAREDATA.windowHandle = WINDOW ? (HANDLEMATCH ? HANDLEMATCH->handle : g_pPortalManager->m_sHelpers.toplevel->handleFromClass(restoreData.windowClass)->handle) : nullptr;
-        SHAREDATA.windowClass  = restoreData.windowClass;
-        SHAREDATA.allowToken   = true; // user allowed token before
-        PSESSION->cursorMode   = restoreData.withCursor ? EMBEDDED : HIDDEN;
+        if (WORKSPACE) {
+            const auto WS = hasWorkspaceCapabilities() ? g_pPortalManager->m_sHelpers.workspaceTracker->fromName(restoreData.workspace) : nullptr;
+            if (WS) {
+                SHAREDATA.workspace       = restoreData.workspace;
+                SHAREDATA.workspaceHandle = WS;
+                SHAREDATA.type            = TYPE_WORKSPACE;
+            }
+        } else if (WINDOW) {
+            const auto HANDLE = HANDLEMATCH ? HANDLEMATCH : g_pPortalManager->m_sHelpers.toplevel->handleFromClass(restoreData.windowClass);
+            if (HANDLE) {
+                SHAREDATA.windowClass  = restoreData.windowClass;
+                SHAREDATA.windowHandle = HANDLE->handle;
+                SHAREDATA.type         = TYPE_WINDOW;
+            }
+        } else {
+            SHAREDATA.output = restoreData.output;
+            SHAREDATA.type   = GEOMETRY ? TYPE_GEOMETRY : TYPE_OUTPUT;
 
-        if (GEOMETRY) {
-            SHAREDATA.x = restoreData.geometry.x;
-            SHAREDATA.y = restoreData.geometry.y;
-            SHAREDATA.w = restoreData.geometry.w;
-            SHAREDATA.h = restoreData.geometry.h;
+            if (GEOMETRY) {
+                SHAREDATA.x = restoreData.geometry.x;
+                SHAREDATA.y = restoreData.geometry.y;
+                SHAREDATA.w = restoreData.geometry.w;
+                SHAREDATA.h = restoreData.geometry.h;
+            }
         }
-    } else {
+
+        SHAREDATA.allowToken = true; // user allowed token before
+        PSESSION->cursorMode = restoreData.withCursor ? EMBEDDED : HIDDEN;
+    }
+
+    if (SHAREDATA.type == TYPE_INVALID) {
         Debug::log(LOG, "[screencopy] restore data invalid / missing, prompting");
 
         SHAREDATA = promptForScreencopySelection();
@@ -236,6 +265,13 @@ dbUasv CScreencopyPortal::onSelectSources(sdbus::ObjectPath requestHandle, sdbus
     if (SHAREDATA.type == TYPE_WINDOW && !m_sState.toplevel) {
         Debug::log(ERR, "[screencopy] Requested type window for no toplevel export protocol!");
         SHAREDATA.type = TYPE_INVALID;
+    } else if (SHAREDATA.type == TYPE_WORKSPACE) {
+        const auto WORKSPACE = SHAREDATA.workspaceHandle.lock();
+        if (!hasWorkspaceCapabilities() || !WORKSPACE || WORKSPACE->m_removed || !WORKSPACE->m_handle)
+            SHAREDATA.type = TYPE_INVALID;
+
+        static auto* const* PFPS        = (Hyprlang::INT* const*)g_pPortalManager->m_sConfig.config->getConfigValuePtr("screencopy:max_fps")->getDataStaticPtr();
+        PSESSION->sharingData.framerate = **PFPS > 0 ? std::clamp<Hyprlang::INT>(**PFPS, 1, UINT32_MAX) : 60;
     } else if (SHAREDATA.type == TYPE_OUTPUT || SHAREDATA.type == TYPE_GEOMETRY) {
         const auto POUTPUT = g_pPortalManager->getOutputFromName(SHAREDATA.output);
 
@@ -270,7 +306,10 @@ dbUasv CScreencopyPortal::onStart(sdbus::ObjectPath requestHandle, sdbus::Object
         return {1, {}};
     }
 
-    startSharing(PSESSION);
+    if (PSESSION->sharingData.active || !startSharing(PSESSION))
+        return {2, {}};
+
+    PSESSION->sharingData.started = true;
 
     std::unordered_map<std::string, sdbus::Variant> options;
 
@@ -312,37 +351,89 @@ dbUasv CScreencopyPortal::onStart(sdbus::ObjectPath requestHandle, sdbus::Object
     return {0, options};
 }
 
-void CScreencopyPortal::startSharing(CScreencopyPortal::SSession* pSession) {
+static bool waitForCaptureConstraints(wl_display* display, const std::function<bool()>& complete) {
+    const auto DEADLINE = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (std::chrono::steady_clock::now() < DEADLINE) {
+        if (wl_display_dispatch_pending(display) < 0)
+            return false;
+        if (complete())
+            return true;
+        if (wl_display_prepare_read(display) != 0)
+            continue;
+
+        const int FLUSH = wl_display_flush(display);
+        if (FLUSH < 0 && errno != EAGAIN) {
+            wl_display_cancel_read(display);
+            return false;
+        }
+
+        pollfd    fd  = {.fd = wl_display_get_fd(display), .events = sc<short>(POLLIN | (FLUSH < 0 ? POLLOUT : 0)), .revents = 0};
+        const int RET = poll(&fd, 1, 100);
+        if (RET > 0 && (fd.revents & POLLIN)) {
+            if (wl_display_read_events(display) < 0)
+                return false;
+        } else
+            wl_display_cancel_read(display);
+
+        if ((RET < 0 && errno != EINTR) || (fd.revents & (POLLERR | POLLHUP | POLLNVAL)))
+            return false;
+    }
+    return false;
+}
+
+bool CScreencopyPortal::startSharing(CScreencopyPortal::SSession* pSession) {
+    if (pSession->selection.type == TYPE_INVALID)
+        return false;
+
     pSession->sharingData.active = true;
+    const auto FAIL              = [&]() {
+        m_pPipewire->destroyStream(pSession);
+        return false;
+    };
 
-    startFrameCopy(pSession);
+    if (pSession->selection.type == TYPE_WORKSPACE) {
+        if (!pSession->initWorkspaceCapture())
+            return FAIL();
 
-    wl_display_dispatch(g_pPortalManager->m_sWaylandConnection.display);
-    wl_display_roundtrip(g_pPortalManager->m_sWaylandConnection.display);
+        if (!waitForCaptureConstraints(g_pPortalManager->m_sWaylandConnection.display,
+                                       [pSession]() { return !pSession->sharingData.active || (pSession->sharingData.icc && pSession->sharingData.icc->ready()); }) ||
+            !pSession->sharingData.active) {
+            Debug::log(ERR, "[screencopy] Couldn't obtain workspace capture constraints");
+            return FAIL();
+        }
+    } else {
+        startFrameCopy(pSession);
 
-    if (pSession->sharingData.frameInfoDMA.fmt == DRM_FORMAT_INVALID) {
-        Debug::log(ERR, "[screencopy] Couldn't obtain a format from dma"); // todo: blocks shm
-        return;
+        if (wl_display_dispatch(g_pPortalManager->m_sWaylandConnection.display) < 0 || wl_display_roundtrip(g_pPortalManager->m_sWaylandConnection.display) < 0)
+            return FAIL();
     }
 
-    m_pPipewire->createStream(pSession);
+    if ((pSession->sharingData.frameInfoDMA.fmt == DRM_FORMAT_INVALID && pSession->sharingData.frameInfoSHM.fmt == DRM_FORMAT_INVALID) || !m_pPipewire->createStream(pSession))
+        return FAIL();
 
-    while (pSession->sharingData.nodeID == SPA_ID_INVALID) {
-        int ret = pw_loop_iterate(g_pPortalManager->m_sPipewire.loop, 0);
-        if (ret < 0) {
-            Debug::log(ERR, "[pipewire] pw_loop_iterate failed with {}", spa_strerror(ret));
-            return;
+    const auto DEADLINE = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (pSession->sharingData.active && pSession->sharingData.nodeID == SPA_ID_INVALID) {
+        const int RET = pw_loop_iterate(g_pPortalManager->m_sPipewire.loop, 100);
+        if (RET < 0 || std::chrono::steady_clock::now() >= DEADLINE) {
+            Debug::log(ERR, "[pipewire] Failed to initialize stream{}", RET < 0 ? std::format(": {}", spa_strerror(RET)) : ": timed out");
+            return FAIL();
         }
     }
+
+    if (!pSession->sharingData.active || !m_pPipewire->streamFromSession(pSession))
+        return FAIL();
 
     Debug::log(LOG, "[screencopy] Sharing initialized");
 
     g_pPortalManager->m_sPortals.screencopy->queueNextShareFrame(pSession);
 
     Debug::log(TRACE, "[sc] queued frame in {}ms", 1000.0 / pSession->sharingData.framerate);
+    return true;
 }
 
 void CScreencopyPortal::startFrameCopy(CScreencopyPortal::SSession* pSession) {
+    ++pSession->sharingData.frameTimerGeneration;
+    pSession->sharingData.frameTimerPending = false;
     pSession->startCopy();
 
     Debug::log(TRACE, "[screencopy] frame callbacks initialized");
@@ -354,6 +445,11 @@ void CScreencopyPortal::SSession::startCopy() {
 
     if (!sharingData.active) {
         Debug::log(TRACE, "[sc] startFrameCopy: not copying, inactive session");
+        return;
+    }
+
+    if (selection.type == TYPE_WORKSPACE) {
+        startWorkspaceCopy();
         return;
     }
 
@@ -639,10 +735,15 @@ void CScreencopyPortal::SSession::initCallbacks() {
 
             Debug::log(TRACE, "[sc] hl frame copied");
         });
+    } else {
+        Debug::log(ERR, "[sc] initCallbacks: no suitable callback");
     }
 }
 
 void CScreencopyPortal::queueNextShareFrame(CScreencopyPortal::SSession* pSession) {
+    if (!pSession->sharingData.active || pSession->sharingData.frameTimerPending)
+        return;
+
     const auto PSTREAM = m_pPipewire->streamFromSession(pSession);
 
     if (PSTREAM && !PSTREAM->streamState)
@@ -656,11 +757,23 @@ void CScreencopyPortal::queueNextShareFrame(CScreencopyPortal::SSession* pSessio
     Debug::log(TRACE, "[screencopy] set fps {}, frame took {:.2f}ms, ms till next refresh {:.2f}, estimated actual fps: {:.2f}", pSession->sharingData.framerate, FRAMETOOKMS,
                MSTILNEXTREFRESH, std::clamp(1000.0 / FRAMETOOKMS, 1.0, (double)pSession->sharingData.framerate));
 
-    g_pPortalManager->addTimer(
-        {std::clamp(MSTILNEXTREFRESH - 1.0 /* safezone */, 6.0, 1000.0), [pSession]() { g_pPortalManager->m_sPortals.screencopy->startFrameCopy(pSession); }});
+    pSession->sharingData.frameTimerPending = true;
+    const auto GENERATION                   = ++pSession->sharingData.frameTimerGeneration;
+    auto       delay                        = std::clamp(MSTILNEXTREFRESH - 1.0 /* safezone */, 6.0, 1000.0);
+    if (pSession->selection.type == TYPE_WORKSPACE && pSession->sharingData.copyRetries)
+        delay = std::max(delay, std::min(1000.0, 50.0 * pSession->sharingData.copyRetries));
+    g_pPortalManager->addTimer({delay, [session = pSession->self, GENERATION]() {
+                                    if (!session || !session->sharingData.active || session->sharingData.frameTimerGeneration != GENERATION)
+                                        return;
+                                    g_pPortalManager->m_sPortals.screencopy->startFrameCopy(session.get());
+                                }});
 }
 bool CScreencopyPortal::hasToplevelCapabilities() {
     return !!m_sState.toplevel;
+}
+
+bool CScreencopyPortal::hasWorkspaceCapabilities() {
+    return m_sState.icc && m_sState.workspaceSource && g_pPortalManager->m_sHelpers.workspaceTracker;
 }
 
 CScreencopyPortal::SSession* CScreencopyPortal::getSession(sdbus::ObjectPath& path) {
@@ -703,6 +816,18 @@ void CScreencopyPortal::appendToplevelExport(SP<CCHyprlandToplevelExportManagerV
     Debug::log(LOG, "[screencopy] Registered for toplevel export");
 }
 
+void CScreencopyPortal::appendICC(SP<CCExtImageCopyCaptureManagerV1> proto) {
+    m_sState.icc = proto;
+
+    Debug::log(LOG, "[screencopy] Registered for image copy capture");
+}
+
+void CScreencopyPortal::appendHLWorkspace(SP<CCHyprlandWorkspaceImageCaptureSourceManagerV1> proto) {
+    m_sState.workspaceSource = proto;
+
+    Debug::log(LOG, "[screencopy] Registered for hyprland workspace source");
+}
+
 bool CPipewireConnection::good() {
     return m_pContext && m_pCore;
 }
@@ -730,6 +855,10 @@ void CPipewireConnection::removeSessionFrameCallbacks(CScreencopyPortal::SSessio
 
     pSession->sharingData.frameCallback.reset();
     pSession->sharingData.windowFrameCallback.reset();
+    if (pSession->sharingData.icc)
+        pSession->sharingData.icc->cancelFrame();
+    ++pSession->sharingData.frameTimerGeneration;
+    pSession->sharingData.frameTimerPending = false;
 
     pSession->sharingData.windowFrameCallback = nullptr;
     pSession->sharingData.frameCallback       = nullptr;
@@ -773,7 +902,9 @@ static void pwStreamStateChange(void* data, pw_stream_state old, pw_stream_state
     switch (state) {
         case PW_STREAM_STATE_STREAMING:
             PSTREAM->streamState = true;
-            if (PSTREAM->pSession->sharingData.status == FRAME_NONE)
+            if (PSTREAM->pSession->selection.type == TYPE_WORKSPACE)
+                g_pPortalManager->m_sPortals.screencopy->queueNextShareFrame(PSTREAM->pSession);
+            else if (PSTREAM->pSession->sharingData.status == FRAME_NONE)
                 g_pPortalManager->m_sPortals.screencopy->startFrameCopy(PSTREAM->pSession);
             else {
                 g_pPortalManager->m_sPortals.screencopy->m_pPipewire->removeSessionFrameCallbacks(PSTREAM->pSession);
@@ -781,15 +912,28 @@ static void pwStreamStateChange(void* data, pw_stream_state old, pw_stream_state
             }
             break;
         default: {
-            PSTREAM->streamState = false;
+            PSTREAM->streamState                                = false;
+            PSTREAM->pSession->sharingData.iccBufferWaitStarted = {};
             g_pPortalManager->m_sPortals.screencopy->m_pPipewire->removeSessionFrameCallbacks(PSTREAM->pSession);
             break;
         }
     }
 
-    if (state == PW_STREAM_STATE_UNCONNECTED) {
+    if (state == PW_STREAM_STATE_ERROR && PSTREAM->pSession->selection.type == TYPE_WORKSPACE) {
+        Debug::log(ERR, "[workspace] PipeWire stream failed: {}", error ? error : "unknown error");
+        g_pPortalManager->addTimer({0, [session = PSTREAM->pSession->self]() {
+                                        if (session && session->sharingData.active)
+                                            session->stopWorkspaceCapture();
+                                    }});
+    } else if (state == PW_STREAM_STATE_UNCONNECTED) {
         g_pPortalManager->m_sPortals.screencopy->m_pPipewire->removeSessionFrameCallbacks(PSTREAM->pSession);
-        g_pPortalManager->m_sPortals.screencopy->m_pPipewire->destroyStream(PSTREAM->pSession);
+        if (PSTREAM->pSession->selection.type == TYPE_WORKSPACE) {
+            g_pPortalManager->addTimer({0, [session = PSTREAM->pSession->self]() {
+                                            if (session && session->sharingData.active)
+                                                session->stopWorkspaceCapture();
+                                        }});
+        } else
+            g_pPortalManager->m_sPortals.screencopy->m_pPipewire->destroyStream(PSTREAM->pSession);
     }
 }
 
@@ -797,6 +941,11 @@ static void pwStreamParamChanged(void* data, uint32_t id, const spa_pod* param) 
     const auto PSTREAM = (CPipewireConnection::SPWStream*)data;
 
     Debug::log(TRACE, "[pw] pwStreamParamChanged on {}", (void*)PSTREAM);
+
+    if (id == SPA_PARAM_Format) {
+        ++PSTREAM->bufferGeneration;
+        PSTREAM->bufferRetryPending = false;
+    }
 
     if (id != SPA_PARAM_Format || !param) {
         Debug::log(TRACE, "[pw] invalid call in pwStreamParamChanged");
@@ -813,9 +962,11 @@ static void pwStreamParamChanged(void* data, uint32_t id, const spa_pod* param) 
 
     spa_format_video_raw_parse(param, &PSTREAM->pwVideoInfo);
     Debug::log(TRACE, "[pw] Framerate: {}/{}", PSTREAM->pwVideoInfo.max_framerate.num, PSTREAM->pwVideoInfo.max_framerate.denom);
-    PSTREAM->pSession->sharingData.framerate = PSTREAM->pwVideoInfo.max_framerate.num / PSTREAM->pwVideoInfo.max_framerate.denom;
+    if (PSTREAM->pwVideoInfo.max_framerate.num && PSTREAM->pwVideoInfo.max_framerate.denom)
+        PSTREAM->pSession->sharingData.framerate = std::max(1U, PSTREAM->pwVideoInfo.max_framerate.num / PSTREAM->pwVideoInfo.max_framerate.denom);
 
-    uint32_t                   data_type = 1 << SPA_DATA_MemFd;
+    uint32_t data_type = 1 << SPA_DATA_MemFd;
+    PSTREAM->isDMA     = false;
 
     const struct spa_pod_prop* prop_modifier;
     if ((prop_modifier = spa_pod_find_prop(param, nullptr, SPA_FORMAT_VIDEO_modifier))) {
@@ -823,7 +974,16 @@ static void pwStreamParamChanged(void* data, uint32_t id, const spa_pod* param) 
         PSTREAM->isDMA = true;
         data_type      = 1 << SPA_DATA_DmaBuf;
 
-        RASSERT(PSTREAM->pwVideoInfo.format == pwFromDrmFourcc(PSTREAM->pSession->sharingData.frameInfoDMA.fmt), "invalid format in dma pw param change");
+        RASSERT(PSTREAM->pSession->selection.type == TYPE_WORKSPACE || PSTREAM->pwVideoInfo.format == pwFromDrmFourcc(PSTREAM->pSession->sharingData.frameInfoDMA.fmt),
+                "invalid format in dma pw param change");
+        if (PSTREAM->pSession->selection.type == TYPE_WORKSPACE &&
+            (PSTREAM->pSession->sharingData.frameInfoDMA.fmt == DRM_FORMAT_INVALID ||
+             PSTREAM->pwVideoInfo.format != pwFromDrmFourcc(PSTREAM->pSession->sharingData.frameInfoDMA.fmt))) {
+            spa_pod_dynamic_builder_clean(&dynBuilder[0]);
+            spa_pod_dynamic_builder_clean(&dynBuilder[1]);
+            spa_pod_dynamic_builder_clean(&dynBuilder[2]);
+            return;
+        }
 
         if ((prop_modifier->flags & SPA_POD_PROP_FLAG_DONT_FIXATE) > 0) {
             Debug::log(TRACE, "[pw] don't fixate");
@@ -843,9 +1003,9 @@ static void pwStreamParamChanged(void* data, uint32_t id, const spa_pod* param) 
             uint32_t       n_modifiers = SPA_POD_CHOICE_N_VALUES(pod_modifier) - 1;
             uint64_t*      modifiers   = (uint64_t*)SPA_POD_CHOICE_VALUES(pod_modifier);
             modifiers++;
-            uint32_t         flags = GBM_BO_USE_RENDERING;
-            uint64_t         modifier;
-            uint32_t         n_params;
+            uint32_t         flags      = GBM_BO_USE_RENDERING;
+            uint64_t         modifier   = DRM_FORMAT_MOD_INVALID;
+            uint32_t         n_params   = 0;
             spa_pod_builder* builder[2] = {&dynBuilder[0].b, &dynBuilder[1].b};
 
             gbm_bo*          bo =
@@ -854,7 +1014,9 @@ static void pwStreamParamChanged(void* data, uint32_t id, const spa_pod* param) 
             if (bo) {
                 modifier = gbm_bo_get_modifier(bo);
                 gbm_bo_destroy(bo);
-                goto fixate_format;
+                if (PSTREAM->pSession->selection.type != TYPE_WORKSPACE ||
+                    std::ranges::find(PSTREAM->pSession->sharingData.iccModifiers, modifier) != PSTREAM->pSession->sharingData.iccModifiers.end())
+                    goto fixate_format;
             }
 
             Debug::log(TRACE, "[pw] unable to allocate a dmabuf with modifiers. Falling back to the old api");
@@ -872,7 +1034,9 @@ static void pwStreamParamChanged(void* data, uint32_t id, const spa_pod* param) 
                 if (bo) {
                     modifier = gbm_bo_get_modifier(bo);
                     gbm_bo_destroy(bo);
-                    goto fixate_format;
+                    if (PSTREAM->pSession->selection.type != TYPE_WORKSPACE ||
+                        std::ranges::find(PSTREAM->pSession->sharingData.iccModifiers, modifier) != PSTREAM->pSession->sharingData.iccModifiers.end())
+                        goto fixate_format;
                 }
             }
 
@@ -924,8 +1088,8 @@ static void pwStreamParamChanged(void* data, uint32_t id, const spa_pod* param) 
         stride = 0;
 
         if (PSTREAM->pwVideoInfo.modifier != DRM_FORMAT_MOD_INVALID) {
-            const int PLANES = gbm_device_get_format_modifier_plane_count(g_pPortalManager->m_sWaylandConnection.gbmDevice,
-                                                                          PSTREAM->pSession->sharingData.frameInfoDMA.fmt, PSTREAM->pwVideoInfo.modifier);
+            const int PLANES = gbm_device_get_format_modifier_plane_count(g_pPortalManager->m_sWaylandConnection.gbmDevice, PSTREAM->pSession->sharingData.frameInfoDMA.fmt,
+                                                                          PSTREAM->pwVideoInfo.modifier);
             if (PLANES > 0)
                 blocks = PLANES;
             else
@@ -954,6 +1118,30 @@ static void pwStreamParamChanged(void* data, uint32_t id, const spa_pod* param) 
     spa_pod_dynamic_builder_clean(&dynBuilder[2]);
 }
 
+static void retryWorkspaceBufferAllocation(CPipewireConnection::SPWStream* stream) {
+    if (stream->pSession->selection.type != TYPE_WORKSPACE || stream->bufferRetryPending)
+        return;
+
+    stream->bufferRetryPending = true;
+    g_pPortalManager->addTimer({0, [session = stream->pSession->self, generation = stream->bufferGeneration]() {
+                                    if (!session || !session->sharingData.active)
+                                        return;
+                                    const auto PIPEWIRE = g_pPortalManager->m_sPortals.screencopy->m_pPipewire.get();
+                                    const auto STREAM   = PIPEWIRE->streamFromSession(session.get());
+                                    if (!STREAM || STREAM->bufferGeneration != generation)
+                                        return;
+                                    STREAM->bufferRetryPending = false;
+                                    if (!STREAM->isDMA || STREAM->dmaBufFailed) {
+                                        session->stopWorkspaceCapture();
+                                        return;
+                                    }
+                                    Debug::log(WARN, "[workspace] DMA-BUF allocation failed, trying SHM");
+                                    STREAM->dmaBufFailed = true;
+                                    PIPEWIRE->removeSessionFrameCallbacks(session.get());
+                                    session->updateWorkspaceConstraints();
+                                }});
+}
+
 static void pwStreamAddBuffer(void* data, pw_buffer* buffer) {
     const auto PSTREAM = (CPipewireConnection::SPWStream*)data;
 
@@ -980,6 +1168,7 @@ static void pwStreamAddBuffer(void* data, pw_buffer* buffer) {
 
     if (!newBuffer) {
         Debug::log(ERR, "[pw] createBuffer failed in addbuffer");
+        retryWorkspaceBufferAllocation(PSTREAM);
         return;
     }
 
@@ -1032,8 +1221,13 @@ static void pwStreamRemoveBuffer(void* data, pw_buffer* buffer) {
     if (!PBUFFER)
         return;
 
-    if (PSTREAM->currentPWBuffer == PBUFFER)
+    if (PSTREAM->currentPWBuffer == PBUFFER) {
+        if (PSTREAM->pSession->sharingData.icc)
+            g_pPortalManager->m_sPortals.screencopy->m_pPipewire->removeSessionFrameCallbacks(PSTREAM->pSession);
         PSTREAM->currentPWBuffer = nullptr;
+        if (PSTREAM->pSession->selection.type == TYPE_WORKSPACE)
+            g_pPortalManager->m_sPortals.screencopy->queueNextShareFrame(PSTREAM->pSession);
+    }
 
     if (PBUFFER->isDMABUF)
         gbm_bo_destroy(PBUFFER->bo);
@@ -1062,7 +1256,7 @@ static const pw_stream_events pwStreamEvents = {
 
 // ------------------------------------------------------- //
 
-void CPipewireConnection::createStream(CScreencopyPortal::SSession* pSession) {
+bool CPipewireConnection::createStream(CScreencopyPortal::SSession* pSession) {
     const auto PSTREAM = m_vStreams.emplace_back(std::make_unique<SPWStream>(pSession)).get();
 
     pw_loop_enter(g_pPortalManager->m_sPipewire.loop);
@@ -1080,25 +1274,30 @@ void CPipewireConnection::createStream(CScreencopyPortal::SSession* pSession) {
 
     if (!PSTREAM->stream) {
         Debug::log(ERR, "[pipewire] refused to create stream");
-        g_pPortalManager->terminate();
-        return;
+        spa_pod_dynamic_builder_clean(&dynBuilder[0]);
+        spa_pod_dynamic_builder_clean(&dynBuilder[1]);
+        return false;
     }
 
     spa_pod_builder* builder[2] = {&dynBuilder[0].b, &dynBuilder[1].b};
     const spa_pod*   params[2];
     const auto       PARAMCOUNT = buildFormatsFor(builder, params, PSTREAM);
 
-    spa_pod_dynamic_builder_clean(&dynBuilder[0]);
-    spa_pod_dynamic_builder_clean(&dynBuilder[1]);
-
     pw_stream_add_listener(PSTREAM->stream, &PSTREAM->streamListener, &pwStreamEvents, PSTREAM);
 
-    pw_stream_connect(PSTREAM->stream, PW_DIRECTION_OUTPUT, PW_ID_ANY, (pw_stream_flags)(PW_STREAM_FLAG_DRIVER | PW_STREAM_FLAG_ALLOC_BUFFERS), params, PARAMCOUNT);
+    const int RESULT = PARAMCOUNT ?
+        pw_stream_connect(PSTREAM->stream, PW_DIRECTION_OUTPUT, PW_ID_ANY, (pw_stream_flags)(PW_STREAM_FLAG_DRIVER | PW_STREAM_FLAG_ALLOC_BUFFERS), params, PARAMCOUNT) :
+        -EINVAL;
+    spa_pod_dynamic_builder_clean(&dynBuilder[0]);
+    spa_pod_dynamic_builder_clean(&dynBuilder[1]);
+    if (RESULT < 0 || !streamFromSession(pSession))
+        return false;
 
     pSession->sharingData.nodeID         = pw_stream_get_node_id(PSTREAM->stream);
     pSession->sharingData.pipewireSerial = readObjectSerial(PSTREAM->stream);
 
     Debug::log(TRACE, "[pw] Stream got nodeid {} serial {}", pSession->sharingData.nodeID, pSession->sharingData.pipewireSerial);
+    return true;
 }
 
 void CPipewireConnection::destroyStream(CScreencopyPortal::SSession* pSession) {
@@ -1106,11 +1305,21 @@ void CPipewireConnection::destroyStream(CScreencopyPortal::SSession* pSession) {
     if (pSession->sharingData.active == false)
         return;
     pSession->sharingData.active = false;
+    removeSessionFrameCallbacks(pSession);
+    if (pSession->sharingData.icc)
+        pSession->sharingData.icc->stop();
+    pSession->sharingData.icc.reset();
+    pSession->sharingData.nodeID = SPA_ID_INVALID;
 
     const auto PSTREAM = streamFromSession(pSession);
 
-    if (!PSTREAM || !PSTREAM->stream)
+    if (!PSTREAM)
         return;
+
+    if (!PSTREAM->stream) {
+        std::erase_if(m_vStreams, [&](const auto& other) { return other.get() == PSTREAM; });
+        return;
+    }
 
     if (!PSTREAM->buffers.empty()) {
         std::vector<SBuffer*> bufs;
@@ -1185,6 +1394,20 @@ uint32_t CPipewireConnection::buildFormatsFor(spa_pod_builder* b[2], const spa_p
 
     static auto* const* PFORCESHM = (Hyprlang::INT* const*)g_pPortalManager->m_sConfig.config->getConfigValuePtr("screencopy:force_shm")->getDataStaticPtr();
     const bool          forceSHM  = **PFORCESHM || stream->dmaBufFailed;
+
+    if (stream->pSession->selection.type == TYPE_WORKSPACE) {
+        auto& data = stream->pSession->sharingData;
+        if (!forceSHM && data.frameInfoDMA.fmt != DRM_FORMAT_INVALID && !data.iccModifiers.empty()) {
+            params[paramCount] = build_format(b[paramCount], pwFromDrmFourcc(data.frameInfoDMA.fmt), data.frameInfoDMA.w, data.frameInfoDMA.h, data.framerate,
+                                              data.iccModifiers.data(), data.iccModifiers.size());
+            ++paramCount;
+        }
+        if (data.frameInfoSHM.fmt != DRM_FORMAT_INVALID) {
+            params[paramCount] = build_format(b[paramCount], pwFromDrmFourcc(data.frameInfoSHM.fmt), data.frameInfoSHM.w, data.frameInfoSHM.h, data.framerate, nullptr, 0);
+            ++paramCount;
+        }
+        return paramCount;
+    }
 
     if (!forceSHM && build_modifierlist(stream, stream->pSession->sharingData.frameInfoDMA.fmt, &modifiers, &modCount) && modCount > 0) {
         Debug::log(LOG, "[pw] Building modifiers for dma");
@@ -1337,6 +1560,10 @@ void CPipewireConnection::dequeue(CScreencopyPortal::SSession* pSession) {
     const auto PBUF = (SBuffer*)PWBUF->user_data;
 
     PSTREAM->currentPWBuffer = PBUF;
+    if (!PBUF) {
+        pw_stream_queue_buffer(PSTREAM->stream, PWBUF);
+        retryWorkspaceBufferAllocation(PSTREAM);
+    }
 }
 
 std::unique_ptr<SBuffer> CPipewireConnection::createBuffer(CPipewireConnection::SPWStream* pStream, bool dmabuf) {
@@ -1451,7 +1678,15 @@ void CPipewireConnection::updateStreamParam(SPWStream* pStream) {
     spa_pod_builder* builder[2] = {&dynBuilder[0].b, &dynBuilder[1].b};
     uint32_t         n_params   = buildFormatsFor(builder, params, pStream);
 
-    pw_stream_update_params(pStream->stream, params, n_params);
+    if (n_params)
+        pw_stream_update_params(pStream->stream, params, n_params);
+    else if (pStream->pSession->selection.type == TYPE_WORKSPACE) {
+        Debug::log(ERR, "[workspace] No supported PipeWire buffer format remains");
+        g_pPortalManager->addTimer({0, [session = pStream->pSession->self]() {
+                                        if (session && session->sharingData.active)
+                                            session->stopWorkspaceCapture();
+                                    }});
+    }
     spa_pod_dynamic_builder_clean(&dynBuilder[0]);
     spa_pod_dynamic_builder_clean(&dynBuilder[1]);
 }

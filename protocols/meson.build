@@ -1,15 +1,27 @@
 wayland_protos = dependency('wayland-protocols',
-	version: '>=1.31',
+	version: '>=1.39',
 	default_options: ['tests=false'],
 )
 
 hyprland_protos = dependency('hyprland-protocols',
 	version: '>=0.7.0',
-	fallback: 'hyprland-protocols',
+	required: false,
+	allow_fallback: false,
 )
 
 wl_protocol_dir = wayland_protos.get_variable('pkgdatadir')
-hl_protocol_dir = hyprland_protos.get_variable('pkgdatadir')
+hl_protocol_dir = meson.project_source_root() / 'subprojects/hyprland-protocols'
+if hyprland_protos.found()
+	installed_hl_protocol_dir = hyprland_protos.get_variable('pkgdatadir')
+	if import('fs').is_file(installed_hl_protocol_dir / 'protocols/hyprland-workspace-image-capture-source-v1.xml')
+		hl_protocol_dir = installed_hl_protocol_dir
+	endif
+endif
+
+workspace_source_xml = hl_protocol_dir / 'protocols/hyprland-workspace-image-capture-source-v1.xml'
+if not import('fs').is_file(workspace_source_xml)
+	error('Missing ' + workspace_source_xml + '. Install hyprland-protocols with workspace capture support or initialize/update the bundled submodule.')
+endif
 
 hyprwayland_scanner_dep = dependency('hyprwayland-scanner', required: true, native: true, version: '>=0.4.2')
 hyprwayland_scanner = find_program(
@@ -24,9 +36,13 @@ client_protocols = [
 	hl_protocol_dir / 'protocols/hyprland-toplevel-mapping-v1.xml',
 	hl_protocol_dir / 'protocols/hyprland-global-shortcuts-v1.xml',
 	hl_protocol_dir / 'protocols/hyprland-input-capture-v1.xml',
+	workspace_source_xml,
 	wl_protocol_dir / 'stable/linux-dmabuf/linux-dmabuf-v1.xml',
 	wl_protocol_dir / 'unstable/xdg-output/xdg-output-unstable-v1.xml',
 	wl_protocol_dir / 'staging/ext-foreign-toplevel-list/ext-foreign-toplevel-list-v1.xml',
+	wl_protocol_dir / 'staging/ext-image-copy-capture/ext-image-copy-capture-v1.xml',
+	wl_protocol_dir / 'staging/ext-image-capture-source/ext-image-capture-source-v1.xml',
+	wl_protocol_dir / 'staging/ext-workspace/ext-workspace-v1.xml',
 ]
 
 wl_proto_files = []

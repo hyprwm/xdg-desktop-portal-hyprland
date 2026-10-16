@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <charconv>
+#include <utility>
 
 static bool parseUint32(std::string_view value, uint32_t& result) {
     if (value.empty())
@@ -51,6 +52,110 @@ std::vector<SWindowEntry> parseWindowList(std::string_view list) {
             .windowClass = std::string{*CLASS},
             .title       = std::string{*TITLE},
         });
+    }
+
+    return result;
+}
+
+std::vector<SWorkspaceEntry> parseWorkspaceList(std::string_view list) {
+    std::vector<SWorkspaceEntry> result;
+
+    while (!list.empty()) {
+        const auto LENGTH     = takeUntil(list, ":");
+        uint32_t   nameLength = 0;
+        if (!LENGTH || !parseUint32(*LENGTH, nameLength) || nameLength > list.size())
+            break;
+
+        const auto NAME = list.substr(0, nameLength);
+        list.remove_prefix(nameLength);
+        if (!list.starts_with(':'))
+            break;
+        list.remove_prefix(1);
+
+        const auto ID = takeUntil(list, ";");
+        if (!ID)
+            break;
+        if (ID->empty())
+            continue;
+
+        uint64_t   id     = 0;
+        const auto PARSED = std::from_chars(ID->data(), ID->data() + ID->size(), id);
+        if (PARSED.ec != std::errc{} || PARSED.ptr != ID->data() + ID->size() || id == 0)
+            continue;
+
+        result.emplace_back(SWorkspaceEntry{
+            .id   = id,
+            .name = std::string{NAME},
+        });
+    }
+
+    return result;
+}
+
+static std::optional<std::string_view> takeLengthPrefixed(std::string_view& value) {
+    const auto LENGTH = takeUntil(value, ":");
+    uint32_t   length = 0;
+    if (!LENGTH || !parseUint32(*LENGTH, length) || length > value.size())
+        return std::nullopt;
+
+    const auto RESULT = value.substr(0, length);
+    value.remove_prefix(length);
+    return RESULT;
+}
+
+std::vector<SWorkspaceEntry> parseWorkspaceListV3(std::string_view list) {
+    std::vector<SWorkspaceEntry> result;
+
+    while (!list.empty()) {
+        const auto ID = takeUntil(list, "[HN>]");
+        if (!ID || ID->empty())
+            break;
+
+        uint64_t   id     = 0;
+        const auto PARSED = std::from_chars(ID->data(), ID->data() + ID->size(), id);
+        if (PARSED.ec != std::errc{} || PARSED.ptr != ID->data() + ID->size() || id == 0)
+            break;
+
+        const auto NAME = takeLengthPrefixed(list);
+        if (!NAME || !list.starts_with("[HM>]"))
+            break;
+        list.remove_prefix(std::string_view{"[HM>]"}.size());
+
+        const auto COUNT       = takeUntil(list, ":");
+        uint32_t   outputCount = 0;
+        if (!COUNT || !parseUint32(*COUNT, outputCount))
+            break;
+
+        SWorkspaceEntry workspace{
+            .id   = id,
+            .name = std::string{*NAME},
+        };
+        for (uint32_t i = 0; i < outputCount; ++i) {
+            const auto OUTPUT = takeLengthPrefixed(list);
+            if (!OUTPUT)
+                return result;
+            workspace.outputs.emplace_back(*OUTPUT);
+        }
+
+        if (!list.starts_with("[HE>]"))
+            break;
+        list.remove_prefix(std::string_view{"[HE>]"}.size());
+        result.emplace_back(std::move(workspace));
+    }
+
+    return result;
+}
+
+std::string workspaceLabel(const SWorkspaceEntry& workspace) {
+    std::string result = "Workspace " + workspace.name;
+    if (workspace.outputs.empty())
+        return result;
+
+    result += workspace.outputs.size() == 1 ? " on monitor " : " on monitors ";
+    for (size_t i = 0; i < workspace.outputs.size(); ++i) {
+        if (i != 0)
+            result += ", ";
+        result += workspace.outputs[i];
     }
 
     return result;
@@ -140,6 +245,10 @@ std::string formatSelection(const SSelection& selection, bool allowToken) {
     switch (selection.type) {
         case SELECTION_OUTPUT: return result + "screen:" + selection.output + "\n";
         case SELECTION_WINDOW: return result + "window:" + std::to_string(selection.windowID) + "\n";
+        case SELECTION_WORKSPACE:
+            if (selection.workspaceID == 0)
+                return {};
+            return result + "workspace-id:" + std::to_string(selection.workspaceID) + "\n";
         case SELECTION_REGION:
             return result + "region:" + selection.output + "@" + std::to_string(selection.x) + "," + std::to_string(selection.y) + "," + std::to_string(selection.width) + "," +
                 std::to_string(selection.height) + "\n";
