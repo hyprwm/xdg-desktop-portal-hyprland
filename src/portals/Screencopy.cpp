@@ -840,8 +840,20 @@ static void pwStreamParamChanged(void* data, uint32_t id, const spa_pod* param) 
 
             const spa_pod* pod_modifier = &prop_modifier->value;
 
-            uint32_t       n_modifiers = SPA_POD_CHOICE_N_VALUES(pod_modifier) - 1;
-            uint64_t*      modifiers   = (uint64_t*)SPA_POD_CHOICE_VALUES(pod_modifier);
+            uint32_t       n_choice = SPA_POD_CHOICE_N_VALUES(pod_modifier);
+            if (n_choice < 2) {
+                // invalid, required at least default + fallback
+                Debug::log(ERR, "[pw] DMA-BUF failed, invalid choice for modifiers");
+                PSTREAM->dmaBufFailed = true;
+                g_pPortalManager->m_sPortals.screencopy->m_pPipewire->updateStreamParam(PSTREAM);
+                spa_pod_dynamic_builder_clean(&dynBuilder[0]);
+                spa_pod_dynamic_builder_clean(&dynBuilder[1]);
+                spa_pod_dynamic_builder_clean(&dynBuilder[2]);
+                return;
+            }
+
+            uint32_t  n_modifiers = n_choice - 1;
+            uint64_t* modifiers   = (uint64_t*)SPA_POD_CHOICE_VALUES(pod_modifier);
             modifiers++;
             uint32_t         flags = GBM_BO_USE_RENDERING;
             uint64_t         modifier;
@@ -924,8 +936,8 @@ static void pwStreamParamChanged(void* data, uint32_t id, const spa_pod* param) 
         stride = 0;
 
         if (PSTREAM->pwVideoInfo.modifier != DRM_FORMAT_MOD_INVALID) {
-            const int PLANES = gbm_device_get_format_modifier_plane_count(g_pPortalManager->m_sWaylandConnection.gbmDevice,
-                                                                          PSTREAM->pSession->sharingData.frameInfoDMA.fmt, PSTREAM->pwVideoInfo.modifier);
+            const int PLANES = gbm_device_get_format_modifier_plane_count(g_pPortalManager->m_sWaylandConnection.gbmDevice, PSTREAM->pSession->sharingData.frameInfoDMA.fmt,
+                                                                          PSTREAM->pwVideoInfo.modifier);
             if (PLANES > 0)
                 blocks = PLANES;
             else
