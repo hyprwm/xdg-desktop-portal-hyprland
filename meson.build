@@ -31,6 +31,7 @@ add_project_arguments(cpp_compiler.get_supported_arguments([
   '-fpermissive',
   '-Wno-address-of-temporary'
 ]), language: 'cpp')
+add_project_arguments('-DXDPH_VERSION="' + meson.project_version() + '"', language: 'cpp')
 
 conf_data = configuration_data()
 conf_data.set('LIBEXECDIR', join_paths(get_option('prefix'), get_option('libexecdir')))
