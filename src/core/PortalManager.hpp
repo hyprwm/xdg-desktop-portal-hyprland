@@ -12,6 +12,7 @@
 #include "../helpers/Timer.hpp"
 #include "../shared/ToplevelManager.hpp"
 #include "../shared/ToplevelMappingManager.hpp"
+#include "../shared/WorkspaceTracker.hpp"
 #include <gbm.h>
 #include <poll.h>
 #include <xf86drm.h>
@@ -31,6 +32,8 @@ struct pw_loop;
 
 class CCZxdgOutputManagerV1;
 class CCZxdgOutputV1;
+class CCExtImageCopyCaptureManagerV1;
+class CCHyprlandWorkspaceImageCaptureSourceManagerV1;
 
 struct SOutput {
     SOutput(SP<CCWlOutput>);
@@ -85,18 +88,21 @@ class CPortalManager {
     struct {
         std::unique_ptr<CToplevelManager>        toplevel;
         std::unique_ptr<CToplevelMappingManager> toplevelMapping;
+        std::unique_ptr<CWorkspaceTracker>       workspaceTracker;
     } m_sHelpers;
 
     struct {
-        wl_display*                           display = nullptr;
-        SP<CCWlRegistry>                      registry;
-        SP<CCHyprlandToplevelExportManagerV1> hyprlandToplevelMgr;
-        SP<CCZwpLinuxDmabufV1>                linuxDmabuf;
-        SP<CCZwpLinuxDmabufFeedbackV1>        linuxDmabufFeedback;
-        SP<CCZxdgOutputManagerV1>             xdgOutputManager;
-        SP<CCWlShm>                           shm;
-        gbm_bo*                               gbm       = nullptr;
-        gbm_device*                           gbmDevice = nullptr;
+        wl_display*                                        display = nullptr;
+        SP<CCWlRegistry>                                   registry;
+        SP<CCHyprlandToplevelExportManagerV1>              hyprlandToplevelMgr;
+        SP<CCExtImageCopyCaptureManagerV1>                 icc;
+        SP<CCHyprlandWorkspaceImageCaptureSourceManagerV1> workspaceSource;
+        SP<CCZwpLinuxDmabufV1>                             linuxDmabuf;
+        SP<CCZwpLinuxDmabufFeedbackV1>                     linuxDmabufFeedback;
+        SP<CCZxdgOutputManagerV1>                          xdgOutputManager;
+        SP<CCWlShm>                                        shm;
+        gbm_bo*                                            gbm       = nullptr;
+        gbm_device*                                        gbmDevice = nullptr;
         struct {
             void*  formatTable     = nullptr;
             size_t formatTableSize = 0;

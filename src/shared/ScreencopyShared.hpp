@@ -29,11 +29,13 @@ enum eSelectionType {
 };
 
 struct zwlr_foreign_toplevel_handle_v1;
+class CTrackedWorkspace;
 
 struct SSelectionData {
     eSelectionType                    type = TYPE_INVALID;
-    std::string                       output;
+    std::string                       output, workspace;
     SP<CCZwlrForeignToplevelHandleV1> windowHandle = nullptr;
+    WP<CTrackedWorkspace>             workspaceHandle;
     uint32_t                          x = 0, y = 0, w = 0, h = 0; // for TYPE_GEOMETRY
     bool                              allowToken = false;
 
