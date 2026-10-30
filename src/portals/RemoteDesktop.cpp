@@ -951,10 +951,11 @@ void CRemoteDesktopPortal::onNotifyPointerAxis(sdbus::ObjectPath sessionHandle, 
     if (!PSESSION || !PSESSION->virtualPointer)
         return;
 
+    // Portal and Wayland scroll deltas use the same coordinate directions.
     uint32_t time = currentTimeMs();
     if (dy != 0.0) {
         PSESSION->virtualPointer->sendAxisSource(2);
-        PSESSION->virtualPointer->sendAxis(time, 0, wl_fixed_from_double(-dy));
+        PSESSION->virtualPointer->sendAxis(time, 0, wl_fixed_from_double(dy));
         PSESSION->axisActiveY = true;
     }
     if (dx != 0.0) {
@@ -986,8 +987,6 @@ void CRemoteDesktopPortal::onNotifyPointerAxisDiscrete(sdbus::ObjectPath session
     }
 
     uint32_t time = currentTimeMs();
-    if (axis == 0)
-        steps = -steps;
     PSESSION->virtualPointer->sendAxisSource(0);
     PSESSION->virtualPointer->sendAxisDiscrete(time, axis, wl_fixed_from_int(steps * 15), steps);
     PSESSION->virtualPointer->sendFrame();
@@ -1165,7 +1164,7 @@ void CRemoteDesktopPortal::processEISEvents() {
                         double dy = eis_event_scroll_get_dy(event);
                         if (dy != 0.0) {
                             s->virtualPointer->sendAxisSource(2);
-                            s->virtualPointer->sendAxis(time, 0, wl_fixed_from_double(-dy));
+                            s->virtualPointer->sendAxis(time, 0, wl_fixed_from_double(dy));
                         }
                         if (dx != 0.0) {
                             s->virtualPointer->sendAxisSource(2);
@@ -1183,9 +1182,8 @@ void CRemoteDesktopPortal::processEISEvents() {
                         s->discreteScrollX %= 120;
                         s->discreteScrollY %= 120;
                         if (STEPSY != 0) {
-                            const int32_t VERTICALSTEPS = -STEPSY;
                             s->virtualPointer->sendAxisSource(0);
-                            s->virtualPointer->sendAxisDiscrete(time, 0, wl_fixed_from_int(VERTICALSTEPS * 15), VERTICALSTEPS);
+                            s->virtualPointer->sendAxisDiscrete(time, 0, wl_fixed_from_int(STEPSY * 15), STEPSY);
                         }
                         if (STEPSX != 0) {
                             s->virtualPointer->sendAxisSource(0);
