@@ -484,9 +484,26 @@ void CPortalManager::startEventLoop() {
         exit(1);
     }
 
-    addFdToEventLoop(m_pConnection->getEventLoopPollData().fd, POLLIN, nullptr);
-    addFdToEventLoop(wl_display_get_fd(m_sWaylandConnection.display), POLLIN, nullptr);
-    addFdToEventLoop(pw_loop_get_fd(m_sPipewire.loop), POLLIN, nullptr);
+    // Core fds use the same fd-keyed dispatch as portals: registrations made
+    // during portal construction must not change which service gets dispatched.
+    addFdToEventLoop(m_pConnection->getEventLoopPollData().fd, POLLIN, [this]() {
+        while (m_pConnection->processPendingEvent()) {
+            ;
+        }
+    });
+    addFdToEventLoop(wl_display_get_fd(m_sWaylandConnection.display), POLLIN, [this]() {
+        wl_display_flush(m_sWaylandConnection.display);
+        if (wl_display_prepare_read(m_sWaylandConnection.display) == 0) {
+            wl_display_read_events(m_sWaylandConnection.display);
+            wl_display_dispatch_pending(m_sWaylandConnection.display);
+        } else
+            wl_display_dispatch(m_sWaylandConnection.display);
+    });
+    addFdToEventLoop(pw_loop_get_fd(m_sPipewire.loop), POLLIN, [this]() {
+        while (pw_loop_iterate(m_sPipewire.loop, 0) != 0) {
+            ;
+        }
+    });
     addFdToEventLoop(m_sEventLoopInternals.wakeFd, POLLIN, nullptr);
 
     std::thread pollThr([this]() {
@@ -619,28 +636,6 @@ void CPortalManager::startEventLoop() {
             pollCallbacks = m_sEventLoopInternals.pollCallbacks;
             for (auto& fd : m_sEventLoopInternals.pollFds)
                 fd.revents = 0;
-        }
-
-        if (readyFds[0].revents & POLLIN /* dbus */) {
-            while (m_pConnection->processPendingEvent()) {
-                ;
-            }
-        }
-
-        if (readyFds[1].revents & POLLIN /* wl */) {
-            wl_display_flush(m_sWaylandConnection.display);
-            if (wl_display_prepare_read(m_sWaylandConnection.display) == 0) {
-                wl_display_read_events(m_sWaylandConnection.display);
-                wl_display_dispatch_pending(m_sWaylandConnection.display);
-            } else {
-                wl_display_dispatch(m_sWaylandConnection.display);
-            }
-        }
-
-        if (readyFds[2].revents & POLLIN /* pw */) {
-            while (pw_loop_iterate(m_sPipewire.loop, 0) != 0) {
-                ;
-            }
         }
 
         for (pollfd p : readyFds) {
