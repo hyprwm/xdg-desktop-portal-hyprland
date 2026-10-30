@@ -158,6 +158,13 @@ protocolnew("staging/ext-workspace" "ext-workspace-v1" false)
 protocolnew("${CMAKE_SOURCE_DIR}/protocols" "wlr-virtual-pointer-unstable-v1" true)
 protocolnew("${CMAKE_SOURCE_DIR}/protocols" "virtual-keyboard-unstable-v1" true)
 
+if(BUILD_TESTING)
+  add_executable(keyboard-state-test tests/keyboard-state.cpp
+                                     src/shared/KeyboardState.cpp)
+  target_link_libraries(keyboard-state-test PRIVATE PkgConfig::deps)
+  add_test(NAME keyboard-state COMMAND keyboard-state-test)
+endif()
+
 # Installation
 install(TARGETS xdg-desktop-portal-hyprland
         DESTINATION ${CMAKE_INSTALL_LIBEXECDIR})

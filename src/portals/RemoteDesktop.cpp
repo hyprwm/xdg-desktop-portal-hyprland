@@ -1,5 +1,6 @@
 #include "RemoteDesktop.hpp"
 #include "../core/PortalManager.hpp"
+#include "../shared/KeyboardState.hpp"
 
 #include <algorithm>
 #include <array>
@@ -345,9 +346,13 @@ CRemoteDesktopPortal::~CRemoteDesktopPortal() {
 
 // ─── Session management ──────────────────────────────────────────
 
+CRemoteDesktopPortal::SSession::SSession(const std::string& app, const sdbus::ObjectPath& req, const sdbus::ObjectPath& sess) :
+    appid(app), requestHandle(req), sessionHandle(sess) {
+    ;
+}
+
 CRemoteDesktopPortal::SSession::~SSession() {
-    if (xkbState)
-        xkb_state_unref(xkbState);
+    releaseKeyboardKeys(this);
     releaseKeymap(keymap);
     if (eisFd >= 0)
         g_pPortalManager->removeFdFromEventLoop(eisFd);
@@ -459,6 +464,7 @@ void CRemoteDesktopPortal::removeEISKeyboardDevice(SSession* session, bool notif
     if (!session->eisKeyboard)
         return;
 
+    releaseKeyboardKeys(session);
     if (notifyClient)
         eis_device_remove(session->eisKeyboard);
     eis_device_unref(session->eisKeyboard);
@@ -768,8 +774,8 @@ dbUasv CRemoteDesktopPortal::onStart(sdbus::ObjectPath requestHandle, sdbus::Obj
                     initialized = false;
                 else {
                     PSESSION->virtualKeyboard->sendKeymap(WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1, PSESSION->keymap.fd, PSESSION->keymap.size);
-                    PSESSION->xkbState = xkb_state_new(PSESSION->keymap.keymap);
-                    if (!PSESSION->xkbState)
+                    PSESSION->xkbState = std::make_unique<CKeyboardState>(PSESSION->keymap.keymap);
+                    if (!PSESSION->xkbState->get())
                         initialized = false;
                     else {
                         wl_display_flush(display);
@@ -782,10 +788,7 @@ dbUasv CRemoteDesktopPortal::onStart(sdbus::ObjectPath requestHandle, sdbus::Obj
     }
 
     if (!initialized) {
-        if (PSESSION->xkbState) {
-            xkb_state_unref(PSESSION->xkbState);
-            PSESSION->xkbState = nullptr;
-        }
+        PSESSION->xkbState.reset();
         releaseKeymap(PSESSION->keymap);
         PSESSION->virtualPointer.reset();
         PSESSION->virtualKeyboard.reset();
@@ -796,10 +799,7 @@ dbUasv CRemoteDesktopPortal::onStart(sdbus::ObjectPath requestHandle, sdbus::Obj
     std::unordered_map<std::string, sdbus::Variant> results;
     const bool                                      persistSession = PSESSION->persistMode == 2 && persistAllowed;
     if (g_pPortalManager->m_sPortals.screencopy && !g_pPortalManager->m_sPortals.screencopy->startRemoteDesktopSession(sessionHandle, persistSession, results)) {
-        if (PSESSION->xkbState) {
-            xkb_state_unref(PSESSION->xkbState);
-            PSESSION->xkbState = nullptr;
-        }
+        PSESSION->xkbState.reset();
         releaseKeymap(PSESSION->keymap);
         PSESSION->virtualPointer.reset();
         PSESSION->virtualKeyboard.reset();
@@ -998,9 +998,10 @@ void CRemoteDesktopPortal::onNotifyKeyboardKeycode(sdbus::ObjectPath sessionHand
     if (!PSESSION || !PSESSION->virtualKeyboard)
         return;
 
+    if (!PSESSION->xkbState->key(keycode, state == 1))
+        return;
     PSESSION->virtualKeyboard->sendKey(currentTimeMs(), keycode, state);
-    xkb_state_update_key(PSESSION->xkbState, keycode + 8, state == 1 ? XKB_KEY_DOWN : XKB_KEY_UP);
-    sendModifiers(PSESSION->virtualKeyboard.get(), PSESSION->xkbState, activeKeysymModifiers(PSESSION->keysymModifiers));
+    sendModifiers(PSESSION->virtualKeyboard.get(), PSESSION->xkbState->get(), activeKeysymModifiers(PSESSION->keysymModifiers));
     wl_display_flush(g_pPortalManager->m_sWaylandConnection.display);
 }
 
@@ -1012,7 +1013,7 @@ void CRemoteDesktopPortal::onNotifyKeyboardKeysym(sdbus::ObjectPath sessionHandl
     const auto PRESSED = PSESSION->keysymKeycodes.find(keysym);
     const auto KEY     = state != 1 && PRESSED != PSESSION->keysymKeycodes.end() ?
         PRESSED->second :
-        keycodeFromKeysym(PSESSION->keymap.keymap, keysym, xkb_state_serialize_layout(PSESSION->xkbState, XKB_STATE_LAYOUT_EFFECTIVE));
+        keycodeFromKeysym(PSESSION->keymap.keymap, keysym, xkb_state_serialize_layout(PSESSION->xkbState->get(), XKB_STATE_LAYOUT_EFFECTIVE));
     if (!KEY.keycode) {
         Debug::log(WARN, "[remotedesktop] keysym 0x{:x} not found in keymap", keysym);
         return;
@@ -1023,14 +1024,14 @@ void CRemoteDesktopPortal::onNotifyKeyboardKeysym(sdbus::ObjectPath sessionHandl
         PSESSION->keysymKeycodes[keysym]  = KEY;
     }
 
-    sendModifiers(PSESSION->virtualKeyboard.get(), PSESSION->xkbState, activeKeysymModifiers(PSESSION->keysymModifiers) | KEY.modifiers, KEY.layout);
+    sendModifiers(PSESSION->virtualKeyboard.get(), PSESSION->xkbState->get(), activeKeysymModifiers(PSESSION->keysymModifiers) | KEY.modifiers, KEY.layout);
     PSESSION->virtualKeyboard->sendKey(currentTimeMs(), KEY.keycode, state);
-    xkb_state_update_key(PSESSION->xkbState, KEY.keycode + 8, state == 1 ? XKB_KEY_DOWN : XKB_KEY_UP);
+    PSESSION->xkbState->key(KEY.keycode, state == 1);
     if (state != 1) {
         PSESSION->keysymModifiers.erase(keysym);
         PSESSION->keysymKeycodes.erase(keysym);
     }
-    sendModifiers(PSESSION->virtualKeyboard.get(), PSESSION->xkbState, activeKeysymModifiers(PSESSION->keysymModifiers));
+    sendModifiers(PSESSION->virtualKeyboard.get(), PSESSION->xkbState->get(), activeKeysymModifiers(PSESSION->keysymModifiers));
     wl_display_flush(g_pPortalManager->m_sWaylandConnection.display);
 }
 
@@ -1202,13 +1203,20 @@ void CRemoteDesktopPortal::processEISEvents() {
                     }
                     break;
                 }
+                case EIS_EVENT_DEVICE_STOP_EMULATING: {
+                    // A pointer leaving must not disturb held keyboard keys.
+                    if (eis_event_get_device(event) == s->eisKeyboard)
+                        releaseKeyboardKeys(s.get());
+                    break;
+                }
                 case EIS_EVENT_KEYBOARD_KEY: {
                     if (s->virtualKeyboard) {
                         uint32_t key   = eis_event_keyboard_get_key(event);
                         uint32_t state = eis_event_keyboard_get_key_is_press(event) ? 1 : 0;
+                        if (!s->xkbState->key(key, state == 1))
+                            break;
                         s->virtualKeyboard->sendKey(time, key, state);
-                        xkb_state_update_key(s->xkbState, key + 8, state == 1 ? XKB_KEY_DOWN : XKB_KEY_UP);
-                        sendModifiers(s->virtualKeyboard.get(), s->xkbState, activeKeysymModifiers(s->keysymModifiers));
+                        sendModifiers(s->virtualKeyboard.get(), s->xkbState->get(), activeKeysymModifiers(s->keysymModifiers));
                     }
                     break;
                 }
@@ -1238,6 +1246,19 @@ void CRemoteDesktopPortal::processEISEvents() {
             s->eis = nullptr;
         }
     }
+}
+
+void CRemoteDesktopPortal::releaseKeyboardKeys(SSession* session) {
+    if (!session->virtualKeyboard || !session->xkbState)
+        return;
+
+    const auto TIME = currentTimeMs();
+    for (const auto KEY : session->xkbState->releaseAll())
+        session->virtualKeyboard->sendKey(TIME, KEY, 0);
+    session->keysymModifiers.clear();
+    session->keysymKeycodes.clear();
+    sendModifiers(session->virtualKeyboard.get(), session->xkbState->get());
+    wl_display_flush(g_pPortalManager->m_sWaylandConnection.display);
 }
 
 // ─── Keysym → keycode conversion ─────────────────────────────────

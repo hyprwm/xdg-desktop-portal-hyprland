@@ -17,6 +17,7 @@ struct eis;
 struct eis_client;
 struct eis_seat;
 struct eis_device;
+class CKeyboardState;
 
 class CRemoteDesktopPortal {
   public:
@@ -81,7 +82,7 @@ class CRemoteDesktopPortal {
     };
 
     struct SSession {
-        SSession(const std::string& app, const sdbus::ObjectPath& req, const sdbus::ObjectPath& sess) : appid(app), requestHandle(req), sessionHandle(sess) {}
+        SSession(const std::string& app, const sdbus::ObjectPath& req, const sdbus::ObjectPath& sess);
         ~SSession();
 
         std::string                   appid;
@@ -103,7 +104,7 @@ class CRemoteDesktopPortal {
         SP<CCZwlrVirtualPointerV1>                  virtualPointer;
         SP<CCZwpVirtualKeyboardV1>                  virtualKeyboard;
 
-        struct xkb_state*                           xkbState        = nullptr;
+        std::unique_ptr<CKeyboardState>             xkbState;
         bool                                        axisActiveX     = false;
         bool                                        axisActiveY     = false;
         int32_t                                     discreteScrollX = 0;
@@ -134,6 +135,7 @@ class CRemoteDesktopPortal {
     // Take a private copy of the keymap emulated input should speak.
     bool        acquireKeymap(SKeymap& keymap);
     static void releaseKeymap(SKeymap& keymap);
+    static void releaseKeyboardKeys(SSession* session);
 
     // Keysym → keycode conversion (via xkbcommon)
     static SKeycode                        keycodeFromKeysym(struct xkb_keymap* keymap, uint32_t sym, xkb_layout_index_t preferredLayout);
