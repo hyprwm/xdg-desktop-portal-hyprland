@@ -65,6 +65,8 @@ pkg_check_modules(
   libdrm
   uuid
   gbm
+  xkbcommon
+  libeis-1.0
   hyprlang>=0.2.0
   hyprutils>=0.2.6
   hyprwayland-scanner>=0.4.2)
@@ -153,6 +155,15 @@ protocolnew("staging/ext-foreign-toplevel-list" "ext-foreign-toplevel-list-v1" f
 protocolnew("staging/ext-image-copy-capture" "ext-image-copy-capture-v1" false)
 protocolnew("staging/ext-image-capture-source" "ext-image-capture-source-v1" false)
 protocolnew("staging/ext-workspace" "ext-workspace-v1" false)
+protocolnew("${CMAKE_SOURCE_DIR}/protocols" "wlr-virtual-pointer-unstable-v1" true)
+protocolnew("${CMAKE_SOURCE_DIR}/protocols" "virtual-keyboard-unstable-v1" true)
+
+if(BUILD_TESTING)
+  add_executable(keyboard-state-test tests/keyboard-state.cpp
+                                     src/shared/KeyboardState.cpp)
+  target_link_libraries(keyboard-state-test PRIVATE PkgConfig::deps)
+  add_test(NAME keyboard-state COMMAND keyboard-state-test)
+endif()
 
 # Installation
 install(TARGETS xdg-desktop-portal-hyprland

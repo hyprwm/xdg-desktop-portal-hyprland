@@ -206,14 +206,13 @@ dbUasv CScreencopyPortal::onSelectSources(sdbus::ObjectPath requestHandle, sdbus
         }
     }
 
-    // clang-format off
-    const bool     RESTOREDATAVALID = restoreData.exists &&
-    (
-        (!restoreData.output.empty() && g_pPortalManager->getOutputFromName(restoreData.output)) || // output exists
-        (!restoreData.windowClass.empty() && g_pPortalManager->m_sHelpers.toplevel->handleFromClass(restoreData.windowClass)) || // window exists
-        (restoreData.hasWorkspace && hasWorkspaceCapabilities() && g_pPortalManager->m_sHelpers.workspaceTracker->fromName(restoreData.workspace))
-    );
-    // clang-format on
+    const bool OUTPUTRESTORE =
+        !restoreData.hasWorkspace && restoreData.windowClass.empty() && !restoreData.output.empty() && g_pPortalManager->getOutputFromName(restoreData.output);
+    const bool WINDOWRESTORE = !PSESSION->remoteDesktop && !restoreData.hasWorkspace && !restoreData.windowClass.empty() && g_pPortalManager->m_sHelpers.toplevel &&
+        g_pPortalManager->m_sHelpers.toplevel->handleFromClass(restoreData.windowClass);
+    const bool WORKSPACERESTORE =
+        !PSESSION->remoteDesktop && restoreData.hasWorkspace && hasWorkspaceCapabilities() && g_pPortalManager->m_sHelpers.workspaceTracker->fromName(restoreData.workspace);
+    const bool     RESTOREDATAVALID = restoreData.exists && (OUTPUTRESTORE || WINDOWRESTORE || WORKSPACERESTORE);
 
     SSelectionData SHAREDATA;
     if (RESTOREDATAVALID) {
@@ -257,12 +256,15 @@ dbUasv CScreencopyPortal::onSelectSources(sdbus::ObjectPath requestHandle, sdbus
     if (SHAREDATA.type == TYPE_INVALID) {
         Debug::log(LOG, "[screencopy] restore data invalid / missing, prompting");
 
-        SHAREDATA = promptForScreencopySelection();
+        SHAREDATA = promptForScreencopySelection(!PSESSION->remoteDesktop);
     }
 
     Debug::log(LOG, "[screencopy] SHAREDATA returned selection {}", (int)SHAREDATA.type);
 
-    if (SHAREDATA.type == TYPE_WINDOW && !m_sState.toplevel) {
+    if ((SHAREDATA.type == TYPE_WINDOW || SHAREDATA.type == TYPE_WORKSPACE) && PSESSION->remoteDesktop) {
+        Debug::log(ERR, "[screencopy] Window and workspace sources are unsupported for RemoteDesktop sessions");
+        SHAREDATA.type = TYPE_INVALID;
+    } else if (SHAREDATA.type == TYPE_WINDOW && !m_sState.toplevel) {
         Debug::log(ERR, "[screencopy] Requested type window for no toplevel export protocol!");
         SHAREDATA.type = TYPE_INVALID;
     } else if (SHAREDATA.type == TYPE_WORKSPACE) {
@@ -285,7 +287,8 @@ dbUasv CScreencopyPortal::onSelectSources(sdbus::ObjectPath requestHandle, sdbus
         }
     }
 
-    PSESSION->selection = SHAREDATA;
+    PSESSION->selection       = SHAREDATA;
+    PSESSION->sourcesSelected = SHAREDATA.type != TYPE_INVALID;
 
     return {SHAREDATA.type == TYPE_INVALID ? 1 : 0, {}};
 }
@@ -311,18 +314,22 @@ dbUasv CScreencopyPortal::onStart(sdbus::ObjectPath requestHandle, sdbus::Object
 
     PSESSION->sharingData.started = true;
 
+    return {0, buildStartResults(PSESSION)};
+}
+
+std::unordered_map<std::string, sdbus::Variant> CScreencopyPortal::buildStartResults(SSession* pSession) {
     std::unordered_map<std::string, sdbus::Variant> options;
 
-    if (PSESSION->selection.allowToken) {
+    if (pSession->selection.allowToken) {
         // give them a token :)
-        options["restore_data"] = sdbus::Variant{getFullRestoreStruct(PSESSION->selection, PSESSION->cursorMode)};
+        options["restore_data"] = sdbus::Variant{getFullRestoreStruct(pSession->selection, pSession->cursorMode)};
         options["persist_mode"] = sdbus::Variant{uint32_t{2}};
 
-        Debug::log(LOG, "[screencopy] Sent restore token to {}", PSESSION->sessionHandle.c_str());
+        Debug::log(LOG, "[screencopy] Sent restore token to {}", pSession->sessionHandle.c_str());
     }
 
     uint32_t type = 0;
-    switch (PSESSION->selection.type) {
+    switch (pSession->selection.type) {
         case TYPE_OUTPUT: type = MONITOR; break;
         case TYPE_WINDOW: type = WINDOW; break;
         case TYPE_GEOMETRY:
@@ -334,21 +341,37 @@ dbUasv CScreencopyPortal::onStart(sdbus::ObjectPath requestHandle, sdbus::Object
     std::vector<sdbus::Struct<uint32_t, std::unordered_map<std::string, sdbus::Variant>>> streams;
 
     std::unordered_map<std::string, sdbus::Variant>                                       streamData;
-    streamData["position"]    = sdbus::Variant{sdbus::Struct<int32_t, int32_t>{0, 0}};
-    streamData["size"]        = sdbus::Variant{sdbus::Struct<int32_t, int32_t>{PSESSION->sharingData.frameInfoSHM.w, PSESSION->sharingData.frameInfoSHM.h}};
+    int32_t                                                                               positionX = 0, positionY = 0;
+    int32_t                                                                               width  = sc<int32_t>(pSession->sharingData.frameInfoSHM.w);
+    int32_t                                                                               height = sc<int32_t>(pSession->sharingData.frameInfoSHM.h);
+    if (const auto POUTPUT = g_pPortalManager->getOutputFromName(pSession->selection.output)) {
+        positionX = POUTPUT->logicalPositionValid ? POUTPUT->logicalX : POUTPUT->x;
+        positionY = POUTPUT->logicalPositionValid ? POUTPUT->logicalY : POUTPUT->y;
+        if (pSession->selection.type == TYPE_GEOMETRY) {
+            positionX += sc<int32_t>(pSession->selection.x);
+            positionY += sc<int32_t>(pSession->selection.y);
+            width  = sc<int32_t>(pSession->selection.w);
+            height = sc<int32_t>(pSession->selection.h);
+        } else if (pSession->selection.type == TYPE_OUTPUT && POUTPUT->logicalSizeValid) {
+            width  = POUTPUT->logicalWidth;
+            height = POUTPUT->logicalHeight;
+        }
+    }
+    streamData["position"]    = sdbus::Variant{sdbus::Struct<int32_t, int32_t>{positionX, positionY}};
+    streamData["size"]        = sdbus::Variant{sdbus::Struct<int32_t, int32_t>{width, height}};
     streamData["source_type"] = sdbus::Variant{uint32_t{type}};
 
-    if (PSESSION->selection.type == TYPE_OUTPUT && !PSESSION->selection.output.empty())
-        streamData["mapping_id"] = sdbus::Variant{PSESSION->selection.output};
+    if (pSession->selection.type == TYPE_OUTPUT && !pSession->selection.output.empty())
+        streamData["mapping_id"] = sdbus::Variant{pSession->selection.output};
 
-    if (PSESSION->sharingData.pipewireSerial != 0)
-        streamData["pipewire-serial"] = sdbus::Variant{PSESSION->sharingData.pipewireSerial};
+    if (pSession->sharingData.pipewireSerial != 0)
+        streamData["pipewire-serial"] = sdbus::Variant{pSession->sharingData.pipewireSerial};
 
-    streams.emplace_back(sdbus::Struct<uint32_t, std::unordered_map<std::string, sdbus::Variant>>{PSESSION->sharingData.nodeID, streamData});
+    streams.emplace_back(sdbus::Struct<uint32_t, std::unordered_map<std::string, sdbus::Variant>>{pSession->sharingData.nodeID, streamData});
 
     options["streams"] = sdbus::Variant{streams};
 
-    return {0, options};
+    return options;
 }
 
 static bool waitForCaptureConstraints(wl_display* display, const std::function<bool()>& complete) {
@@ -388,6 +411,7 @@ bool CScreencopyPortal::startSharing(CScreencopyPortal::SSession* pSession) {
     pSession->sharingData.active = true;
     const auto FAIL              = [&]() {
         m_pPipewire->destroyStream(pSession);
+        pSession->sharingData.pipewireSerial = 0;
         return false;
     };
 
@@ -776,7 +800,76 @@ bool CScreencopyPortal::hasWorkspaceCapabilities() {
     return m_sState.icc && m_sState.workspaceSource && g_pPortalManager->m_sHelpers.workspaceTracker;
 }
 
-CScreencopyPortal::SSession* CScreencopyPortal::getSession(sdbus::ObjectPath& path) {
+void CScreencopyPortal::createRemoteDesktopSession(const std::string& appID, const sdbus::ObjectPath& sessionHandle) {
+    if (getSession(sessionHandle))
+        return;
+
+    // No toplevel activation: window sources are unsupported for RemoteDesktop sessions.
+    const Hyprutils::Memory::CWeakPointer<SSession> PSESSION = m_vSessions.emplace_back(Hyprutils::Memory::makeUnique<SSession>(appID, sdbus::ObjectPath{"/"}, sessionHandle));
+    PSESSION->self                                           = PSESSION;
+    PSESSION->remoteDesktop                                  = true;
+}
+
+void CScreencopyPortal::destroyRemoteDesktopSession(const sdbus::ObjectPath& sessionHandle) {
+    std::erase_if(m_vSessions, [&](const auto& session) {
+        if (session->sessionHandle != sessionHandle || !session->remoteDesktop)
+            return false;
+
+        if (session->sharingData.active)
+            m_pPipewire->destroyStream(session.get());
+        return true;
+    });
+}
+
+bool CScreencopyPortal::startRemoteDesktopSession(const sdbus::ObjectPath& sessionHandle, bool persist, std::unordered_map<std::string, sdbus::Variant>& results) {
+    const auto PSESSION = getSession(sessionHandle);
+    if (!PSESSION || !PSESSION->remoteDesktop)
+        return false;
+    if (!PSESSION->sourcesSelected)
+        return true;
+
+    if (!startSharing(PSESSION))
+        return false;
+
+    // RemoteDesktop owns persistence for a combined session, so its consent
+    // decision controls whether the selected screen source is restorable.
+    PSESSION->selection.allowToken = persist;
+    results                        = buildStartResults(PSESSION);
+    return true;
+}
+
+bool CScreencopyPortal::mapRemoteDesktopCoordinates(const sdbus::ObjectPath& sessionHandle, uint32_t stream, double x, double y, uint32_t& mappedX, uint32_t& mappedY,
+                                                    uint32_t& extentW, uint32_t& extentH) {
+    const auto PSESSION = getSession(sessionHandle);
+    if (!PSESSION || !PSESSION->remoteDesktop || !PSESSION->sourcesSelected || PSESSION->sharingData.nodeID != stream)
+        return false;
+
+    int32_t layoutX = 0, layoutY = 0;
+    g_pPortalManager->getOutputLayout(layoutX, layoutY, extentW, extentH);
+    if (extentW == 0 || extentH == 0)
+        return false;
+
+    double globalX = x, globalY = y;
+    if (PSESSION->selection.type == TYPE_OUTPUT || PSESSION->selection.type == TYPE_GEOMETRY) {
+        const auto POUTPUT = g_pPortalManager->getOutputFromName(PSESSION->selection.output);
+        if (!POUTPUT)
+            return false;
+
+        globalX += POUTPUT->logicalPositionValid ? POUTPUT->logicalX : POUTPUT->x;
+        globalY += POUTPUT->logicalPositionValid ? POUTPUT->logicalY : POUTPUT->y;
+        if (PSESSION->selection.type == TYPE_GEOMETRY) {
+            globalX += PSESSION->selection.x;
+            globalY += PSESSION->selection.y;
+        }
+    } else if (PSESSION->selection.type != TYPE_WORKSPACE)
+        return false;
+
+    mappedX = sc<uint32_t>(std::clamp(globalX - layoutX, 0.0, sc<double>(extentW - 1)));
+    mappedY = sc<uint32_t>(std::clamp(globalY - layoutY, 0.0, sc<double>(extentH - 1)));
+    return true;
+}
+
+CScreencopyPortal::SSession* CScreencopyPortal::getSession(const sdbus::ObjectPath& path) {
     for (auto& s : m_vSessions) {
         if (s->sessionHandle == path)
             return s.get();
