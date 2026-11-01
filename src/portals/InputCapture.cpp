@@ -292,7 +292,7 @@ CInputCapturePortal::SSession::SSession(sdbus::ObjectPath requestHandle_, sdbus:
     });
     whandle->setDeactivated([this](CCHyprlandInputCaptureV1*, uint32_t activationId) { g_pPortalManager->m_sPortals.inputCapture->deactivate(sessionHandle, activationId); });
     whandle->setDisabled([this](CCHyprlandInputCaptureV1*) { g_pPortalManager->m_sPortals.inputCapture->disable(sessionHandle); });
-    whandle->setEisFd([this](CCHyprlandInputCaptureV1*, int32_t fd) { eisFD = fd; });
+    whandle->setEisFd([this](CCHyprlandInputCaptureV1*, int32_t fd) { eisFD.reset(fd, sdbus::adopt_fd); });
 }
 
 dbUasv CInputCapturePortal::onGetZones(sdbus::ObjectPath requestHandle, sdbus::ObjectPath sessionHandle, std::string appID, std::unordered_map<std::string, sdbus::Variant> opts) {
@@ -485,15 +485,17 @@ sdbus::UnixFd CInputCapturePortal::onConnectToEIS(sdbus::ObjectPath sessionHandl
     if (!sessionValid(sessionHandle))
         throw sdbus::Error{sdbus::Error::Name{"org.freedesktop.portal.Error.Failed"}, "No input-capture session found"};
 
-    for (size_t i = 0; i < 3 && m_sessions[sessionHandle]->eisFD < 0; ++i) {
+    for (size_t i = 0; i < 3 && !m_sessions[sessionHandle]->eisFD.isValid(); ++i) {
         if (wl_display_roundtrip(g_pPortalManager->m_sWaylandConnection.display) < 0)
             break;
     }
 
-    if (m_sessions[sessionHandle]->eisFD < 0)
+    if (!m_sessions[sessionHandle]->eisFD.isValid())
         throw sdbus::Error{sdbus::Error::Name{"org.freedesktop.portal.Error.Failed"}, "EIS fd is not ready"};
 
-    return (sdbus::UnixFd)m_sessions[sessionHandle]->eisFD;
+    // Hand our fd over instead of duplicating it: a copy left behind would keep the
+    // client end open, so the compositor would never see the client disconnect.
+    return std::move(m_sessions[sessionHandle]->eisFD);
 }
 
 bool CInputCapturePortal::sessionValid(sdbus::ObjectPath sessionHandle) {
