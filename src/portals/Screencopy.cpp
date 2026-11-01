@@ -352,9 +352,17 @@ std::unordered_map<std::string, sdbus::Variant> CScreencopyPortal::buildStartRes
             positionY += sc<int32_t>(pSession->selection.y);
             width  = sc<int32_t>(pSession->selection.w);
             height = sc<int32_t>(pSession->selection.h);
-        } else if (pSession->selection.type == TYPE_OUTPUT && POUTPUT->logicalSizeValid) {
-            width  = POUTPUT->logicalWidth;
-            height = POUTPUT->logicalHeight;
+        } else if (pSession->selection.type == TYPE_OUTPUT) {
+            // Stream size is in compositor coordinates, matching getOutputLayout(), so
+            // without xdg-output use the scaled wl_output size rather than the frame's pixels.
+            int32_t fallbackX = 0, fallbackY = 0, fallbackW = 0, fallbackH = 0;
+            if (POUTPUT->logicalSizeValid) {
+                width  = POUTPUT->logicalWidth;
+                height = POUTPUT->logicalHeight;
+            } else if (POUTPUT->fallbackGeometry(fallbackX, fallbackY, fallbackW, fallbackH)) {
+                width  = fallbackW;
+                height = fallbackH;
+            }
         }
     }
     streamData["position"]    = sdbus::Variant{sdbus::Struct<int32_t, int32_t>{positionX, positionY}};
