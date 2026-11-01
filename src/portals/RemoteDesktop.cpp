@@ -859,19 +859,19 @@ sdbus::UnixFd CRemoteDesktopPortal::onConnectToEIS(sdbus::ObjectPath sessionHand
 
     if (!PSESSION || !PSESSION->started) {
         Debug::log(ERR, "[remotedesktop] ConnectToEIS: no session for {}", std::string(sessionHandle));
-        return sdbus::UnixFd{-1};
+        throw sdbus::Error{sdbus::Error::Name{"org.freedesktop.portal.Error.Failed"}, "No started remote desktop session found"};
     }
 
     if (PSESSION->eis) {
         Debug::log(ERR, "[remotedesktop] ConnectToEIS: session already has an EIS connection");
-        return sdbus::UnixFd{-1};
+        throw sdbus::Error{sdbus::Error::Name{"org.freedesktop.portal.Error.Failed"}, "Session already has an EIS connection"};
     }
 
     // Create EIS context
     PSESSION->eis = eis_new(this);
     if (!PSESSION->eis) {
         Debug::log(ERR, "[remotedesktop] failed to create EIS context");
-        return sdbus::UnixFd{-1};
+        throw sdbus::Error{sdbus::Error::Name{"org.freedesktop.portal.Error.Failed"}, "Failed to create EIS context"};
     }
 
     eis_set_user_data(PSESSION->eis, this);
@@ -881,7 +881,7 @@ sdbus::UnixFd CRemoteDesktopPortal::onConnectToEIS(sdbus::ObjectPath sessionHand
         Debug::log(ERR, "[remotedesktop] eis_setup_backend_fd failed");
         eis_unref(PSESSION->eis);
         PSESSION->eis = nullptr;
-        return sdbus::UnixFd{-1};
+        throw sdbus::Error{sdbus::Error::Name{"org.freedesktop.portal.Error.Failed"}, "Failed to set up EIS backend"};
     }
 
     // Get client fd to pass to caller
@@ -890,7 +890,7 @@ sdbus::UnixFd CRemoteDesktopPortal::onConnectToEIS(sdbus::ObjectPath sessionHand
         Debug::log(ERR, "[remotedesktop] eis_backend_fd_add_client failed");
         eis_unref(PSESSION->eis);
         PSESSION->eis = nullptr;
-        return sdbus::UnixFd{-1};
+        throw sdbus::Error{sdbus::Error::Name{"org.freedesktop.portal.Error.Failed"}, "Failed to add EIS client"};
     }
 
     // Get the EIS fd to poll for events
