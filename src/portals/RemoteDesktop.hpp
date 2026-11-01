@@ -122,10 +122,11 @@ class CRemoteDesktopPortal {
         SKeymap                      keymap;
 
         // EIS/libei state (created by ConnectToEIS)
-        struct eis*             eis         = nullptr;
-        struct eis_seat*        eisSeat     = nullptr;
-        struct eis_device*      eisPointer  = nullptr;
-        struct eis_device*      eisKeyboard = nullptr;
+        struct eis*             eis            = nullptr;
+        struct eis_seat*        eisSeat        = nullptr;
+        struct eis_device*      eisPointer     = nullptr;
+        struct eis_device*      eisKeyboard    = nullptr;
+        uint32_t                eisPointerCaps = 0; // pointer-family caps bound when eisPointer was created
         std::vector<SEISRegion> eisPointerRegions;
         int                     eisFd    = -1; // fd to poll for EIS events
         bool                    eisReady = false;

@@ -1115,12 +1115,20 @@ void CRemoteDesktopPortal::processEISEvents() {
                         s->eisSeat = eis_seat_ref(seat);
                     }
 
-                    // Create and announce a pointer device if requested
-                    if ((s->deviceTypes & 2) &&
-                        (eis_event_seat_has_capability(event, EIS_DEVICE_CAP_POINTER) || eis_event_seat_has_capability(event, EIS_DEVICE_CAP_POINTER_ABSOLUTE) ||
-                         eis_event_seat_has_capability(event, EIS_DEVICE_CAP_BUTTON) || eis_event_seat_has_capability(event, EIS_DEVICE_CAP_SCROLL))) {
+                    // Create and announce a pointer device if requested. libeis fixes a device's
+                    // capabilities to the binding at creation, so recreate it when the binding changes.
+                    uint32_t pointerCaps = 0;
+                    for (const auto CAP : {EIS_DEVICE_CAP_POINTER, EIS_DEVICE_CAP_POINTER_ABSOLUTE, EIS_DEVICE_CAP_BUTTON, EIS_DEVICE_CAP_SCROLL}) {
+                        if (eis_event_seat_has_capability(event, CAP))
+                            pointerCaps |= CAP;
+                    }
+
+                    if ((s->deviceTypes & 2) && pointerCaps) {
+                        if (s->eisPointer && s->eisPointerCaps != pointerCaps)
+                            removeEISPointerDevice(s.get());
                         if (!s->eisPointer)
                             createEISPointerDevice(s.get());
+                        s->eisPointerCaps = pointerCaps;
                     } else
                         removeEISPointerDevice(s.get());
 
