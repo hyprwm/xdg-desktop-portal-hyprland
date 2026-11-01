@@ -14,6 +14,7 @@
 #include <libeis.h>
 #include <linux/input.h>
 #include <sstream>
+#include <sys/file.h>
 #include <sys/mman.h>
 #include <sys/random.h>
 #include <sys/socket.h>
@@ -98,6 +99,55 @@ static bool readTokenStore(const std::filesystem::path& path, std::string& conte
     return close(fd) == 0;
 }
 
+// Issuance appends to the store and revocation replaces it, so two backends sharing
+// XDG_STATE_HOME (separate session buses) would otherwise lose each other's updates, or
+// bring a revoked grant back. The lock lives on its own file because the store's inode
+// changes on every revoke, and a lock on it would not exclude the next writer.
+class CTokenStoreLock {
+  public:
+    explicit CTokenStoreLock(const std::filesystem::path& store);
+    ~CTokenStoreLock();
+
+    CTokenStoreLock(const CTokenStoreLock&)            = delete;
+    CTokenStoreLock& operator=(const CTokenStoreLock&) = delete;
+
+    bool             locked() const;
+
+  private:
+    int m_fd = -1;
+};
+
+CTokenStoreLock::CTokenStoreLock(const std::filesystem::path& store) {
+    const auto lockPath = store.string() + ".lock";
+    m_fd                = open(lockPath.c_str(), O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0600);
+    if (m_fd < 0)
+        return;
+
+    struct stat info;
+    if (fstat(m_fd, &info) != 0 || !S_ISREG(info.st_mode) || info.st_uid != getuid()) {
+        close(m_fd);
+        m_fd = -1;
+        return;
+    }
+
+    while (flock(m_fd, LOCK_EX) != 0) {
+        if (errno == EINTR)
+            continue;
+        close(m_fd);
+        m_fd = -1;
+        return;
+    }
+}
+
+CTokenStoreLock::~CTokenStoreLock() {
+    if (m_fd >= 0)
+        close(m_fd); // closing the last descriptor drops the flock
+}
+
+bool CTokenStoreLock::locked() const {
+    return m_fd >= 0;
+}
+
 static bool writeAll(int fd, const std::string& contents) {
     size_t offset = 0;
     while (offset < contents.size()) {
@@ -148,6 +198,11 @@ static bool revokeRestoreToken(const std::string& token) {
 
     const auto path = restoreTokenFile();
     if (path.empty())
+        return false;
+
+    // Held across read, rewrite and rename, so no other writer can slip in between.
+    const CTokenStoreLock LOCK{path};
+    if (!LOCK.locked())
         return false;
 
     std::string contents;
@@ -220,6 +275,11 @@ static std::string issueRestoreToken(const std::string& appID, uint32_t deviceTy
     std::error_code error;
     std::filesystem::create_directories(path.parent_path(), error);
     if (error || chmod(path.parent_path().c_str(), 0700) != 0)
+        return {};
+
+    // Without it, an append can land on the inode a concurrent revoke is replacing.
+    const CTokenStoreLock LOCK{path};
+    if (!LOCK.locked())
         return {};
 
     const int fd = open(path.c_str(), O_WRONLY | O_APPEND | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0600);
