@@ -1112,7 +1112,8 @@ void CRemoteDesktopPortal::processEISEvents() {
 
                     // Create and announce a pointer device if requested
                     if ((s->deviceTypes & 2) &&
-                        (eis_event_seat_has_capability(event, EIS_DEVICE_CAP_POINTER) || eis_event_seat_has_capability(event, EIS_DEVICE_CAP_POINTER_ABSOLUTE))) {
+                        (eis_event_seat_has_capability(event, EIS_DEVICE_CAP_POINTER) || eis_event_seat_has_capability(event, EIS_DEVICE_CAP_POINTER_ABSOLUTE) ||
+                         eis_event_seat_has_capability(event, EIS_DEVICE_CAP_BUTTON) || eis_event_seat_has_capability(event, EIS_DEVICE_CAP_SCROLL))) {
                         if (!s->eisPointer)
                             createEISPointerDevice(s.get());
                     } else
