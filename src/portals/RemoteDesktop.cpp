@@ -1008,7 +1008,7 @@ void CRemoteDesktopPortal::onNotifyKeyboardKeycode(sdbus::ObjectPath sessionHand
     if (!PSESSION->xkbState->key(keycode, state == 1))
         return;
     PSESSION->virtualKeyboard->sendKey(currentTimeMs(), keycode, state);
-    sendModifiers(PSESSION->virtualKeyboard.get(), PSESSION->xkbState->get(), activeKeysymModifiers(PSESSION->keysymModifiers));
+    sendModifiers(PSESSION->virtualKeyboard.get(), PSESSION->xkbState->get(), activeKeysymModifiers(PSESSION->keysymModifiers), activeKeysymLayout(PSESSION));
     wl_display_flush(g_pPortalManager->m_sWaylandConnection.display);
 }
 
@@ -1038,7 +1038,7 @@ void CRemoteDesktopPortal::onNotifyKeyboardKeysym(sdbus::ObjectPath sessionHandl
         PSESSION->keysymModifiers.erase(keysym);
         PSESSION->keysymKeycodes.erase(keysym);
     }
-    sendModifiers(PSESSION->virtualKeyboard.get(), PSESSION->xkbState->get(), activeKeysymModifiers(PSESSION->keysymModifiers));
+    sendModifiers(PSESSION->virtualKeyboard.get(), PSESSION->xkbState->get(), activeKeysymModifiers(PSESSION->keysymModifiers), activeKeysymLayout(PSESSION));
     wl_display_flush(g_pPortalManager->m_sWaylandConnection.display);
 }
 
@@ -1229,7 +1229,7 @@ void CRemoteDesktopPortal::processEISEvents() {
                         if (!s->xkbState->key(key, state == 1))
                             break;
                         s->virtualKeyboard->sendKey(time, key, state);
-                        sendModifiers(s->virtualKeyboard.get(), s->xkbState->get(), activeKeysymModifiers(s->keysymModifiers));
+                        sendModifiers(s->virtualKeyboard.get(), s->xkbState->get(), activeKeysymModifiers(s->keysymModifiers), activeKeysymLayout(s.get()));
                     }
                     break;
                 }
@@ -1286,6 +1286,14 @@ void CRemoteDesktopPortal::releasePointerButtons(SSession* session) {
         wl_display_flush(g_pPortalManager->m_sWaylandConnection.display);
     }
     session->eisHeldButtons.clear();
+}
+
+xkb_layout_index_t CRemoteDesktopPortal::activeKeysymLayout(const SSession* session) {
+    for (const auto& [_, key] : session->keysymKeycodes) {
+        if (key.layout != XKB_LAYOUT_INVALID)
+            return key.layout;
+    }
+    return XKB_LAYOUT_INVALID;
 }
 
 // ─── Keysym → keycode conversion ─────────────────────────────────

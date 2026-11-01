@@ -144,6 +144,8 @@ class CRemoteDesktopPortal {
     static void releaseKeymap(SKeymap& keymap);
     static void releaseKeyboardKeys(SSession* session);
     static void releasePointerButtons(SSession* session);
+    // Layout of a keysym still held, so key repeat keeps resolving in that layout.
+    static xkb_layout_index_t activeKeysymLayout(const SSession* session);
 
     // Keysym → keycode conversion (via xkbcommon)
     static SKeycode                        keycodeFromKeysym(struct xkb_keymap* keymap, uint32_t sym, xkb_layout_index_t preferredLayout);
