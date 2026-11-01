@@ -185,7 +185,7 @@ void CPortalManager::onGlobal(uint32_t name, const char* interface, uint32_t ver
     else if (INTERFACE == wl_seat_interface.name) {
         m_sWaylandConnection.keyboard.reset();
         m_sWaylandConnection.seat =
-            makeShared<CCWlSeat>((wl_proxy*)wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &wl_seat_interface, std::min(version, 7u)));
+            makeShared<CCWlSeat>(rc<wl_proxy*>(wl_registry_bind(rc<wl_registry*>(m_sWaylandConnection.registry->resource()), name, &wl_seat_interface, std::min(version, 7u))));
 
         // Track the seat's keyboard purely to mirror its keymap; asking for one on a
         // seat that has no keyboard capability is a protocol error.
@@ -199,12 +199,12 @@ void CPortalManager::onGlobal(uint32_t name, const char* interface, uint32_t ver
 
     else if (INTERFACE == zwlr_virtual_pointer_manager_v1_interface.name) {
         m_sWaylandConnection.virtualPointerMgr = makeShared<CCZwlrVirtualPointerManagerV1>(
-            (wl_proxy*)wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &zwlr_virtual_pointer_manager_v1_interface, version));
+            rc<wl_proxy*>(wl_registry_bind(rc<wl_registry*>(m_sWaylandConnection.registry->resource()), name, &zwlr_virtual_pointer_manager_v1_interface, version)));
     }
 
     else if (INTERFACE == zwp_virtual_keyboard_manager_v1_interface.name) {
         m_sWaylandConnection.virtualKeyboardMgr = makeShared<CCZwpVirtualKeyboardManagerV1>(
-            (wl_proxy*)wl_registry_bind((wl_registry*)m_sWaylandConnection.registry->resource(), name, &zwp_virtual_keyboard_manager_v1_interface, version));
+            rc<wl_proxy*>(wl_registry_bind(rc<wl_registry*>(m_sWaylandConnection.registry->resource()), name, &zwp_virtual_keyboard_manager_v1_interface, version)));
     }
 
     else if (INTERFACE == wl_output_interface.name) {
