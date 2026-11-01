@@ -628,7 +628,12 @@ dbUasv CRemoteDesktopPortal::onCreateSession(sdbus::ObjectPath requestHandle, sd
     PSESSION->session            = createDBusSession(sessionHandle);
     PSESSION->session->onDestroy = [this, sessionHandle]() { destroySession(sessionHandle); };
     PSESSION->request            = createDBusRequest(requestHandle);
-    PSESSION->request->onDestroy = [PSESSION]() { PSESSION->request.release(); };
+    // A closed request stays exported, so a later Close can arrive after the session is
+    // gone: look the session up instead of capturing a pointer that may dangle.
+    PSESSION->request->onDestroy = [this, sessionHandle]() {
+        if (const auto SESSION = getSession(sessionHandle))
+            SESSION->request.release();
+    };
 
     if (g_pPortalManager->m_sPortals.screencopy)
         g_pPortalManager->m_sPortals.screencopy->createRemoteDesktopSession(appID, sessionHandle);
