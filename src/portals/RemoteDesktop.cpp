@@ -353,6 +353,7 @@ CRemoteDesktopPortal::SSession::SSession(const std::string& app, const sdbus::Ob
 
 CRemoteDesktopPortal::SSession::~SSession() {
     releaseKeyboardKeys(this);
+    releasePointerButtons(this);
     releaseKeymap(keymap);
     if (eisFd >= 0)
         g_pPortalManager->removeFdFromEventLoop(eisFd);
@@ -419,6 +420,7 @@ void CRemoteDesktopPortal::removeEISPointerDevice(SSession* session, bool notify
     if (!session->eisPointer)
         return;
 
+    releasePointerButtons(session);
     if (notifyClient)
         eis_device_remove(session->eisPointer);
     eis_device_unref(session->eisPointer);
@@ -1160,6 +1162,10 @@ void CRemoteDesktopPortal::processEISEvents() {
                     if (s->virtualPointer) {
                         uint32_t button = eis_event_button_get_button(event);
                         uint32_t state  = eis_event_button_get_is_press(event) ? 1 : 0;
+                        if (state)
+                            s->eisHeldButtons.insert(button);
+                        else
+                            s->eisHeldButtons.erase(button);
                         s->virtualPointer->sendButton(time, button, state);
                     }
                     break;
@@ -1209,9 +1215,11 @@ void CRemoteDesktopPortal::processEISEvents() {
                     break;
                 }
                 case EIS_EVENT_DEVICE_STOP_EMULATING: {
-                    // A pointer leaving must not disturb held keyboard keys.
+                    // Each device only releases its own held input.
                     if (eis_event_get_device(event) == s->eisKeyboard)
                         releaseKeyboardKeys(s.get());
+                    else if (eis_event_get_device(event) == s->eisPointer)
+                        releasePointerButtons(s.get());
                     break;
                 }
                 case EIS_EVENT_KEYBOARD_KEY: {
@@ -1264,6 +1272,20 @@ void CRemoteDesktopPortal::releaseKeyboardKeys(SSession* session) {
     session->keysymKeycodes.clear();
     sendModifiers(session->virtualKeyboard.get(), session->xkbState->get());
     wl_display_flush(g_pPortalManager->m_sWaylandConnection.display);
+}
+
+void CRemoteDesktopPortal::releasePointerButtons(SSession* session) {
+    if (session->eisHeldButtons.empty())
+        return;
+
+    if (session->virtualPointer) {
+        const auto TIME = currentTimeMs();
+        for (const auto BUTTON : session->eisHeldButtons)
+            session->virtualPointer->sendButton(TIME, BUTTON, 0);
+        session->virtualPointer->sendFrame();
+        wl_display_flush(g_pPortalManager->m_sWaylandConnection.display);
+    }
+    session->eisHeldButtons.clear();
 }
 
 // ─── Keysym → keycode conversion ─────────────────────────────────

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <unordered_set>
 #include <vector>
 #include <sdbus-c++/sdbus-c++.h>
 #include <xkbcommon/xkbcommon.h>
@@ -114,8 +115,11 @@ class CRemoteDesktopPortal {
         int32_t                                     discreteScrollY = 0;
         std::unordered_map<int32_t, xkb_mod_mask_t> keysymModifiers;
         std::unordered_map<int32_t, SKeycode>       keysymKeycodes;
+        // Buttons an EIS client is holding, so they can be released if it stops
+        // emulating mid-drag instead of leaving the desktop dragging.
+        std::unordered_set<uint32_t> eisHeldButtons;
 
-        SKeymap                                     keymap;
+        SKeymap                      keymap;
 
         // EIS/libei state (created by ConnectToEIS)
         struct eis*             eis         = nullptr;
@@ -139,6 +143,7 @@ class CRemoteDesktopPortal {
     bool        acquireKeymap(SKeymap& keymap);
     static void releaseKeymap(SKeymap& keymap);
     static void releaseKeyboardKeys(SSession* session);
+    static void releasePointerButtons(SSession* session);
 
     // Keysym → keycode conversion (via xkbcommon)
     static SKeycode                        keycodeFromKeysym(struct xkb_keymap* keymap, uint32_t sym, xkb_layout_index_t preferredLayout);
