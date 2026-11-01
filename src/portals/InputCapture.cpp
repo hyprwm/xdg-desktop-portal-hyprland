@@ -292,7 +292,11 @@ CInputCapturePortal::SSession::SSession(sdbus::ObjectPath requestHandle_, sdbus:
     });
     whandle->setDeactivated([this](CCHyprlandInputCaptureV1*, uint32_t activationId) { g_pPortalManager->m_sPortals.inputCapture->deactivate(sessionHandle, activationId); });
     whandle->setDisabled([this](CCHyprlandInputCaptureV1*) { g_pPortalManager->m_sPortals.inputCapture->disable(sessionHandle); });
-    whandle->setEisFd([this](CCHyprlandInputCaptureV1*, int32_t fd) { eisFD = fd; });
+    whandle->setEisFd([this](CCHyprlandInputCaptureV1*, int32_t fd) {
+        if (eisFD >= 0)
+            close(eisFD);
+        eisFD = fd;
+    });
 }
 
 dbUasv CInputCapturePortal::onGetZones(sdbus::ObjectPath requestHandle, sdbus::ObjectPath sessionHandle, std::string appID, std::unordered_map<std::string, sdbus::Variant> opts) {
@@ -493,7 +497,16 @@ sdbus::UnixFd CInputCapturePortal::onConnectToEIS(sdbus::ObjectPath sessionHandl
     if (m_sessions[sessionHandle]->eisFD < 0)
         throw sdbus::Error{sdbus::Error::Name{"org.freedesktop.portal.Error.Failed"}, "EIS fd is not ready"};
 
-    return (sdbus::UnixFd)m_sessions[sessionHandle]->eisFD;
+    // Hand our fd over instead of duplicating it: a copy left behind would keep the
+    // client end open, so the compositor would never see the client disconnect.
+    const int FD                     = m_sessions[sessionHandle]->eisFD;
+    m_sessions[sessionHandle]->eisFD = -1;
+    return sdbus::UnixFd{FD, sdbus::adopt_fd};
+}
+
+CInputCapturePortal::SSession::~SSession() {
+    if (eisFD >= 0)
+        close(eisFD);
 }
 
 bool CInputCapturePortal::sessionValid(sdbus::ObjectPath sessionHandle) {

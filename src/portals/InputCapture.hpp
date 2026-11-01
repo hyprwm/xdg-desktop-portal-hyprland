@@ -35,6 +35,7 @@ class CInputCapturePortal {
 
     struct SSession {
         SSession(sdbus::ObjectPath requestHandle, sdbus::ObjectPath sessionHandle, std::string sessionId, uint32_t capabilities, wl_proxy* proxy);
+        ~SSession();
 
         sdbus::ObjectPath                      requestHandle, sessionHandle;
         std::string                            sessionId;
