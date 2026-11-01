@@ -66,7 +66,7 @@ pkg_check_modules(
   uuid
   gbm
   xkbcommon
-  libeis-1.0
+  libeis-1.0>=1.1
   hyprlang>=0.2.0
   hyprutils>=0.2.6
   hyprwayland-scanner>=0.4.2)

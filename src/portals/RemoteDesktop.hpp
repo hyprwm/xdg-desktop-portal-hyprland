@@ -68,8 +68,11 @@ class CRemoteDesktopPortal {
         uint32_t w     = 0;
         uint32_t h     = 0;
         double   scale = 1.0;
+        // Matches the ScreenCast stream's mapping_id (the output name), so a client can
+        // pair a captured monitor with its absolute-pointer region.
+        std::string mappingId;
 
-        bool     operator==(const SEISRegion& other) const = default;
+        bool        operator==(const SEISRegion& other) const = default;
     };
 
     // The keymap a session emulates with: the compositor's own whenever we can read it,

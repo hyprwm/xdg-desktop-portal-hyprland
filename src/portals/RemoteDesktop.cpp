@@ -396,11 +396,12 @@ std::vector<CRemoteDesktopPortal::SEISRegion> CRemoteDesktopPortal::pointerRegio
                 continue;
 
             regions.emplace_back(SEISRegion{
-                .x     = x - originX,
-                .y     = y - originY,
-                .w     = sc<uint32_t>(w),
-                .h     = sc<uint32_t>(h),
-                .scale = OUTPUT->scale > 0.0 ? OUTPUT->scale : 1.0,
+                .x         = x - originX,
+                .y         = y - originY,
+                .w         = sc<uint32_t>(w),
+                .h         = sc<uint32_t>(h),
+                .scale     = OUTPUT->scale > 0.0 ? OUTPUT->scale : 1.0,
+                .mappingId = OUTPUT->name,
             });
         }
 
@@ -449,6 +450,8 @@ void CRemoteDesktopPortal::createEISPointerDevice(SSession* session) {
         eis_region_set_offset(region, sc<uint32_t>(REGION.x), sc<uint32_t>(REGION.y));
         eis_region_set_size(region, REGION.w, REGION.h);
         eis_region_set_physical_scale(region, REGION.scale);
+        if (!REGION.mappingId.empty())
+            eis_region_set_mapping_id(region, REGION.mappingId.c_str());
         eis_region_add(region);
         eis_region_unref(region);
     }
