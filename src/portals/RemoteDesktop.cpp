@@ -1086,6 +1086,7 @@ void CRemoteDesktopPortal::onNotifyKeyboardKeysym(sdbus::ObjectPath sessionHandl
 
     if (state == 1) {
         KEY.dropped                      = PSESSION->xkbState->conflictingMods(KEY.keycode, keysym, KEY.modifiers, KEY.layout);
+        KEY.order                        = ++PSESSION->keysymPresses;
         PSESSION->keysymKeycodes[keysym] = KEY;
     }
 
@@ -1352,24 +1353,21 @@ void CRemoteDesktopPortal::releasePointerButtons(SSession* session) {
     session->eisHeldButtons.clear();
 }
 
-xkb_layout_index_t CRemoteDesktopPortal::activeKeysymLayout(const SSession* session) {
+CRemoteDesktopPortal::SKeycode CRemoteDesktopPortal::newestHeldKeysym(const SSession* session) {
+    SKeycode newest;
     for (const auto& [_, key] : session->keysymKeycodes) {
-        if (key.layout != XKB_LAYOUT_INVALID)
-            return key.layout;
+        if (key.order > newest.order)
+            newest = key;
     }
-    return XKB_LAYOUT_INVALID;
+    return newest;
 }
 
+// Only one level can be in effect: OR-ing every held keysym's modifiers would turn a
+// 'b' pressed while a Shift-selected 'A' is still down into 'B'. Older held keysyms
+// don't repeat anymore, so letting the newest win is safe.
 void CRemoteDesktopPortal::sendSessionModifiers(SSession* session, const SKeycode& pending) {
-    xkb_mod_mask_t modifiers = pending.modifiers;
-    xkb_mod_mask_t dropped   = pending.dropped;
-    for (const auto& [_, key] : session->keysymKeycodes) {
-        modifiers |= key.modifiers;
-        dropped |= key.dropped;
-    }
-
-    const auto LAYOUT = pending.layout != XKB_LAYOUT_INVALID ? pending.layout : activeKeysymLayout(session);
-    sendModifiers(session->virtualKeyboard.get(), session->xkbState->get(), modifiers, LAYOUT, dropped);
+    const auto KEY = pending.keycode ? pending : newestHeldKeysym(session);
+    sendModifiers(session->virtualKeyboard.get(), session->xkbState->get(), KEY.modifiers, KEY.layout, KEY.dropped);
 }
 
 // ─── Keysym → keycode conversion ─────────────────────────────────
