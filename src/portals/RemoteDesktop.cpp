@@ -330,20 +330,13 @@ static std::string issueRestoreToken(const std::string& appID, uint32_t deviceTy
     return token;
 }
 
-static void sendModifiers(CCZwpVirtualKeyboardV1* keyboard, xkb_state* state, xkb_mod_mask_t extraDepressed = 0, xkb_layout_index_t layout = XKB_LAYOUT_INVALID) {
+static void sendModifiers(CCZwpVirtualKeyboardV1* keyboard, xkb_state* state, xkb_mod_mask_t extraDepressed, xkb_layout_index_t layout, xkb_mod_mask_t dropped) {
     if (!keyboard || !state)
         return;
 
     const auto LAYOUT = layout == XKB_LAYOUT_INVALID ? xkb_state_serialize_layout(state, XKB_STATE_LAYOUT_EFFECTIVE) : layout;
-    keyboard->sendModifiers(xkb_state_serialize_mods(state, XKB_STATE_MODS_DEPRESSED) | extraDepressed, xkb_state_serialize_mods(state, XKB_STATE_MODS_LATCHED),
-                            xkb_state_serialize_mods(state, XKB_STATE_MODS_LOCKED), LAYOUT);
-}
-
-static xkb_mod_mask_t activeKeysymModifiers(const std::unordered_map<int32_t, xkb_mod_mask_t>& keysymModifiers) {
-    xkb_mod_mask_t modifiers = 0;
-    for (const auto& [_, mask] : keysymModifiers)
-        modifiers |= mask;
-    return modifiers;
+    keyboard->sendModifiers((xkb_state_serialize_mods(state, XKB_STATE_MODS_DEPRESSED) & ~dropped) | extraDepressed,
+                            xkb_state_serialize_mods(state, XKB_STATE_MODS_LATCHED) & ~dropped, xkb_state_serialize_mods(state, XKB_STATE_MODS_LOCKED) & ~dropped, LAYOUT);
 }
 
 // ─── CRemoteDesktopPortal implementation ─────────────────────────
@@ -1073,7 +1066,7 @@ void CRemoteDesktopPortal::onNotifyKeyboardKeycode(sdbus::ObjectPath sessionHand
     if (!PSESSION->xkbState->key(keycode, state == 1))
         return;
     PSESSION->virtualKeyboard->sendKey(currentTimeMs(), keycode, state);
-    sendModifiers(PSESSION->virtualKeyboard.get(), PSESSION->xkbState->get(), activeKeysymModifiers(PSESSION->keysymModifiers), activeKeysymLayout(PSESSION));
+    sendSessionModifiers(PSESSION, {});
     wl_display_flush(g_pPortalManager->m_sWaylandConnection.display);
 }
 
@@ -1083,7 +1076,7 @@ void CRemoteDesktopPortal::onNotifyKeyboardKeysym(sdbus::ObjectPath sessionHandl
         return;
 
     const auto PRESSED = PSESSION->keysymKeycodes.find(keysym);
-    const auto KEY     = state != 1 && PRESSED != PSESSION->keysymKeycodes.end() ?
+    auto       KEY     = state != 1 && PRESSED != PSESSION->keysymKeycodes.end() ?
         PRESSED->second :
         keycodeFromKeysym(PSESSION->keymap.keymap, keysym, xkb_state_serialize_layout(PSESSION->xkbState->get(), XKB_STATE_LAYOUT_EFFECTIVE));
     if (!KEY.keycode) {
@@ -1092,18 +1085,16 @@ void CRemoteDesktopPortal::onNotifyKeyboardKeysym(sdbus::ObjectPath sessionHandl
     }
 
     if (state == 1) {
-        PSESSION->keysymModifiers[keysym] = KEY.modifiers;
-        PSESSION->keysymKeycodes[keysym]  = KEY;
+        KEY.dropped                      = PSESSION->xkbState->conflictingMods(KEY.keycode, keysym, KEY.modifiers, KEY.layout);
+        PSESSION->keysymKeycodes[keysym] = KEY;
     }
 
-    sendModifiers(PSESSION->virtualKeyboard.get(), PSESSION->xkbState->get(), activeKeysymModifiers(PSESSION->keysymModifiers) | KEY.modifiers, KEY.layout);
+    sendSessionModifiers(PSESSION, KEY);
     PSESSION->virtualKeyboard->sendKey(currentTimeMs(), KEY.keycode, state);
     PSESSION->xkbState->key(KEY.keycode, state == 1);
-    if (state != 1) {
-        PSESSION->keysymModifiers.erase(keysym);
+    if (state != 1)
         PSESSION->keysymKeycodes.erase(keysym);
-    }
-    sendModifiers(PSESSION->virtualKeyboard.get(), PSESSION->xkbState->get(), activeKeysymModifiers(PSESSION->keysymModifiers), activeKeysymLayout(PSESSION));
+    sendSessionModifiers(PSESSION, {});
     wl_display_flush(g_pPortalManager->m_sWaylandConnection.display);
 }
 
@@ -1303,7 +1294,7 @@ void CRemoteDesktopPortal::processEISEvents() {
                         if (!s->xkbState->key(key, state == 1))
                             break;
                         s->virtualKeyboard->sendKey(time, key, state);
-                        sendModifiers(s->virtualKeyboard.get(), s->xkbState->get(), activeKeysymModifiers(s->keysymModifiers), activeKeysymLayout(s.get()));
+                        sendSessionModifiers(s.get(), {});
                     }
                     break;
                 }
@@ -1342,9 +1333,8 @@ void CRemoteDesktopPortal::releaseKeyboardKeys(SSession* session) {
     const auto TIME = currentTimeMs();
     for (const auto KEY : session->xkbState->releaseAll())
         session->virtualKeyboard->sendKey(TIME, KEY, 0);
-    session->keysymModifiers.clear();
     session->keysymKeycodes.clear();
-    sendModifiers(session->virtualKeyboard.get(), session->xkbState->get());
+    sendSessionModifiers(session, {});
     wl_display_flush(g_pPortalManager->m_sWaylandConnection.display);
 }
 
@@ -1368,6 +1358,18 @@ xkb_layout_index_t CRemoteDesktopPortal::activeKeysymLayout(const SSession* sess
             return key.layout;
     }
     return XKB_LAYOUT_INVALID;
+}
+
+void CRemoteDesktopPortal::sendSessionModifiers(SSession* session, const SKeycode& pending) {
+    xkb_mod_mask_t modifiers = pending.modifiers;
+    xkb_mod_mask_t dropped   = pending.dropped;
+    for (const auto& [_, key] : session->keysymKeycodes) {
+        modifiers |= key.modifiers;
+        dropped |= key.dropped;
+    }
+
+    const auto LAYOUT = pending.layout != XKB_LAYOUT_INVALID ? pending.layout : activeKeysymLayout(session);
+    sendModifiers(session->virtualKeyboard.get(), session->xkbState->get(), modifiers, LAYOUT, dropped);
 }
 
 // ─── Keysym → keycode conversion ─────────────────────────────────

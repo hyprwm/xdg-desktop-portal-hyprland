@@ -56,6 +56,8 @@ class CRemoteDesktopPortal {
         uint32_t           keycode   = 0;
         xkb_mod_mask_t     modifiers = 0;
         xkb_layout_index_t layout    = XKB_LAYOUT_INVALID;
+        // Real modifiers withheld while this keysym is held, so they can't change its level.
+        xkb_mod_mask_t dropped = 0;
     };
 
     // One EIS region per output, in the layout's logical coordinate space with the
@@ -105,16 +107,15 @@ class CRemoteDesktopPortal {
         bool                          started  = false;
 
         // Wayland objects (created on Start)
-        SP<CCZwlrVirtualPointerV1>                  virtualPointer;
-        SP<CCZwpVirtualKeyboardV1>                  virtualKeyboard;
+        SP<CCZwlrVirtualPointerV1>            virtualPointer;
+        SP<CCZwpVirtualKeyboardV1>            virtualKeyboard;
 
-        std::unique_ptr<CKeyboardState>             xkbState;
-        bool                                        axisActiveX     = false;
-        bool                                        axisActiveY     = false;
-        int32_t                                     discreteScrollX = 0;
-        int32_t                                     discreteScrollY = 0;
-        std::unordered_map<int32_t, xkb_mod_mask_t> keysymModifiers;
-        std::unordered_map<int32_t, SKeycode>       keysymKeycodes;
+        std::unique_ptr<CKeyboardState>       xkbState;
+        bool                                  axisActiveX     = false;
+        bool                                  axisActiveY     = false;
+        int32_t                               discreteScrollX = 0;
+        int32_t                               discreteScrollY = 0;
+        std::unordered_map<int32_t, SKeycode> keysymKeycodes;
         // Buttons an EIS client is holding, so they can be released if it stops
         // emulating mid-drag instead of leaving the desktop dragging.
         std::unordered_set<uint32_t> eisHeldButtons;
@@ -147,6 +148,8 @@ class CRemoteDesktopPortal {
     static void releasePointerButtons(SSession* session);
     // Layout of a keysym still held, so key repeat keeps resolving in that layout.
     static xkb_layout_index_t activeKeysymLayout(const SSession* session);
+    // Send the session's modifiers with every held keysym's level applied on top.
+    static void sendSessionModifiers(SSession* session, const SKeycode& pending);
 
     // Keysym → keycode conversion (via xkbcommon)
     static SKeycode                        keycodeFromKeysym(struct xkb_keymap* keymap, uint32_t sym, xkb_layout_index_t preferredLayout);

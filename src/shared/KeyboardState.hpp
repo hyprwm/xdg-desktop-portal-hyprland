@@ -15,6 +15,10 @@ class CKeyboardState {
     xkb_state*            get() const;
     bool                  key(uint32_t code, bool pressed);
     std::vector<uint32_t> releaseAll();
+    // Modifiers to drop from the current state so `code`, sent with `levelMods` added,
+    // resolves to `sym` in `layout`. A level's mask selects it from a clean state, so a
+    // locked Caps or a held Shift can otherwise flip what the client sees.
+    xkb_mod_mask_t conflictingMods(uint32_t code, xkb_keysym_t sym, xkb_mod_mask_t levelMods, xkb_layout_index_t layout) const;
 
   private:
     std::unique_ptr<xkb_state, decltype(&xkb_state_unref)> m_state{nullptr, xkb_state_unref};

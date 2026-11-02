@@ -61,5 +61,25 @@ int main() {
     keyboard.key(KEY_LEFTSHIFT, true);
     keyboard.releaseAll();
     require(xkb_state_serialize_mods(keyboard.get(), XKB_STATE_MODS_LOCKED) == LOCKED, "cleanup preserves lock state");
-    std::cout << "PASS: AZERTY, AltGr, duplicate presses, both Ctrl keys, lock state, 100 release/resume cycles\n";
+
+    // Keysym synthesis under Caps Lock: Q is 'a' on AZERTY, Shift selects 'A'.
+    const auto SHIFT  = 1u << xkb_keymap_mod_get_index(KEYMAP.get(), XKB_MOD_NAME_SHIFT);
+    const auto CAPPED = keyboard.conflictingMods(KEY_Q, XKB_KEY_a, 0, 0);
+    require((CAPPED & LOCKED) == LOCKED, "Caps Lock is dropped so a plain keysym stays lowercase");
+    const auto SHIFTED = keyboard.conflictingMods(KEY_Q, XKB_KEY_A, SHIFT, 0);
+    require((SHIFTED & LOCKED) == LOCKED, "Caps Lock is dropped so Shift+Caps can't undo the capital");
+    require(keyboard.conflictingMods(KEY_SPACE, XKB_KEY_space, 0, 0) == 0, "keep Caps Lock when it doesn't change the keysym");
+    keyboard.key(KEY_CAPSLOCK, true);
+    keyboard.key(KEY_CAPSLOCK, false);
+    require(xkb_state_serialize_mods(keyboard.get(), XKB_STATE_MODS_LOCKED) == 0, "Caps Lock disabled");
+    require(keyboard.conflictingMods(KEY_Q, XKB_KEY_A, SHIFT, 0) == 0, "nothing to drop without conflicting modifiers");
+
+    keyboard.key(KEY_LEFTSHIFT, true);
+    require((keyboard.conflictingMods(KEY_Q, XKB_KEY_a, 0, 0) & SHIFT) == SHIFT, "a held Shift is dropped for a lowercase keysym");
+    keyboard.key(KEY_LEFTSHIFT, false);
+
+    xkb_mod_mask_t altGr[1]{};
+    require(xkb_keymap_key_get_mods_for_level(KEYMAP.get(), KEY_0 + 8, 0, 2, altGr, 1) == 1, "find AltGr's level mask");
+    require(keyboard.conflictingMods(KEY_0, XKB_KEY_at, altGr[0], 0) == 0, "the level's own modifiers select AltGr symbols");
+    std::cout << "PASS: AZERTY, AltGr, duplicate presses, both Ctrl keys, lock state, 100 release/resume cycles, keysym modifiers under locks\n";
 }
