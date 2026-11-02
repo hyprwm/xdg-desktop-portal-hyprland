@@ -12,9 +12,11 @@
   hyprtoolkit,
   hyprwayland-scanner,
   libdrm,
+  libei,
   libgbm,
   libuuid,
   libxdmcp,
+  libxkbcommon,
   pipewire,
   sdbus-cpp_2,
   slurp,
@@ -51,9 +53,11 @@ stdenv.mkDerivation {
     hyprutils
     hyprtoolkit
     libdrm
+    libei
     libgbm
     libuuid
     libxdmcp
+    libxkbcommon
     pipewire
     sdbus-cpp_2
     systemd
