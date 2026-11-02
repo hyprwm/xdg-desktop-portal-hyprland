@@ -78,6 +78,15 @@ int main() {
     require((keyboard.conflictingMods(KEY_Q, XKB_KEY_a, 0, 0) & SHIFT) == SHIFT, "a held Shift is dropped for a lowercase keysym");
     keyboard.key(KEY_LEFTSHIFT, false);
 
+    const auto CTRL = 1u << xkb_keymap_mod_get_index(KEYMAP.get(), XKB_MOD_NAME_CTRL);
+    keyboard.key(KEY_LEFTCTRL, true);
+    keyboard.key(KEY_LEFTSHIFT, true);
+    const auto CTRLSHIFT = keyboard.conflictingMods(KEY_Q, XKB_KEY_a, 0, 0);
+    require((CTRLSHIFT & SHIFT) == SHIFT, "Ctrl+Shift held: Shift is dropped for a lowercase keysym");
+    require((CTRLSHIFT & CTRL) == 0, "Ctrl+Shift held: Ctrl stays for the shortcut");
+    keyboard.key(KEY_LEFTSHIFT, false);
+    keyboard.key(KEY_LEFTCTRL, false);
+
     xkb_mod_mask_t altGr[1]{};
     require(xkb_keymap_key_get_mods_for_level(KEYMAP.get(), KEY_0 + 8, 0, 2, altGr, 1) == 1, "find AltGr's level mask");
     require(keyboard.conflictingMods(KEY_0, XKB_KEY_at, altGr[0], 0) == 0, "the level's own modifiers select AltGr symbols");

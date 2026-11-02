@@ -41,10 +41,22 @@ xkb_mod_mask_t CKeyboardState::conflictingMods(uint32_t code, xkb_keysym_t sym, 
 
     // Keep as much of the real state as still yields the keysym: all of it, then
     // without latches and locks, then nothing but the level's own modifiers.
-    for (const auto DROPPED : {xkb_mod_mask_t{0}, LATCHED | LOCKED, DEPRESSED | LATCHED | LOCKED}) {
-        xkb_state_update_mask(SCRATCH.get(), (DEPRESSED & ~DROPPED) | levelMods, LATCHED & ~DROPPED, LOCKED & ~DROPPED, 0, 0, layout);
-        if (xkb_state_key_get_one_sym(SCRATCH.get(), code + 8) == sym)
-            return DROPPED;
+    const auto PRODUCES = [&](xkb_mod_mask_t dropped) {
+        xkb_state_update_mask(SCRATCH.get(), (DEPRESSED & ~dropped) | levelMods, LATCHED & ~dropped, LOCKED & ~dropped, 0, 0, layout);
+        return xkb_state_key_get_one_sym(SCRATCH.get(), code + 8) == sym;
+    };
+
+    for (auto dropped : {xkb_mod_mask_t{0}, LATCHED | LOCKED, DEPRESSED | LATCHED | LOCKED}) {
+        if (!PRODUCES(dropped))
+            continue;
+
+        // Hand back every modifier the keysym doesn't need gone, so a held Ctrl
+        // survives dropping the Shift that would capitalize it.
+        for (xkb_mod_mask_t bit = 1; bit && bit <= dropped; bit <<= 1) {
+            if ((dropped & bit) && PRODUCES(dropped & ~bit))
+                dropped &= ~bit;
+        }
+        return dropped;
     }
 
     return DEPRESSED | LATCHED | LOCKED;
