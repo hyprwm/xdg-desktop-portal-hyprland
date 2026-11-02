@@ -839,9 +839,10 @@ bool CScreencopyPortal::startRemoteDesktopSession(const sdbus::ObjectPath& sessi
     if (!startSharing(PSESSION))
         return false;
 
-    // RemoteDesktop owns persistence for a combined session, so its consent
-    // decision controls whether the selected screen source is restorable.
-    PSESSION->selection.allowToken = persist;
+    // A combined session only remembers the screen if both RemoteDesktop may persist
+    // and the picker's own "remember" choice allowed it: a restored input grant skips
+    // the consent dialog, but must not make an unremembered screen restorable.
+    PSESSION->selection.allowToken = persist && PSESSION->selection.allowToken;
     results                        = buildStartResults(PSESSION);
     return true;
 }
