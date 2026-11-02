@@ -19,6 +19,7 @@
 #include <sys/random.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <tuple>
 #include <unistd.h>
 #include <xkbcommon/xkbcommon.h>
 
@@ -1087,6 +1088,7 @@ void CRemoteDesktopPortal::onNotifyKeyboardKeysym(sdbus::ObjectPath sessionHandl
     if (state == 1) {
         KEY.dropped                      = PSESSION->xkbState->conflictingMods(KEY.keycode, keysym, KEY.modifiers, KEY.layout);
         KEY.order                        = ++PSESSION->keysymPresses;
+        KEY.repeats                      = xkb_keymap_key_repeats(PSESSION->keymap.keymap, KEY.keycode + 8);
         PSESSION->keysymKeycodes[keysym] = KEY;
     }
 
@@ -1356,7 +1358,7 @@ void CRemoteDesktopPortal::releasePointerButtons(SSession* session) {
 CRemoteDesktopPortal::SKeycode CRemoteDesktopPortal::newestHeldKeysym(const SSession* session) {
     SKeycode newest;
     for (const auto& [_, key] : session->keysymKeycodes) {
-        if (key.order > newest.order)
+        if (std::tie(key.repeats, key.order) > std::tie(newest.repeats, newest.order))
             newest = key;
     }
     return newest;
@@ -1364,7 +1366,8 @@ CRemoteDesktopPortal::SKeycode CRemoteDesktopPortal::newestHeldKeysym(const SSes
 
 // Only one level can be in effect: OR-ing every held keysym's modifiers would turn a
 // 'b' pressed while a Shift-selected 'A' is still down into 'B'. Older held keysyms
-// don't repeat anymore, so letting the newest win is safe.
+// don't repeat anymore, so letting the newest win is safe. Non-repeating keys such as
+// Control_L don't take over the repeat, so the newest repeating key wins over them.
 void CRemoteDesktopPortal::sendSessionModifiers(SSession* session, const SKeycode& pending) {
     const auto KEY = pending.keycode ? pending : newestHeldKeysym(session);
     sendModifiers(session->virtualKeyboard.get(), session->xkbState->get(), KEY.modifiers, KEY.layout, KEY.dropped);

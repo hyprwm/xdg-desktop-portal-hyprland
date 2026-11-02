@@ -60,6 +60,8 @@ class CRemoteDesktopPortal {
         xkb_mod_mask_t dropped = 0;
         // Press sequence number; the newest held keysym is the one a client repeats.
         uint64_t order = 0;
+        // Whether the key repeats; a held modifier never takes over a client's key repeat.
+        bool repeats = false;
     };
 
     // One EIS region per output, in the layout's logical coordinate space with the
