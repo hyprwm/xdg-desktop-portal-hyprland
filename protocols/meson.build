@@ -32,6 +32,9 @@ hyprwayland_scanner = find_program(
 client_protocols = [
 	'wlr-screencopy-unstable-v1.xml',
 	'wlr-foreign-toplevel-management-unstable-v1.xml',
+	'wlr-virtual-pointer-unstable-v1.xml',
+	'virtual-keyboard-unstable-v1.xml',
+	'wlr-data-control-unstable-v1.xml',
 	hl_protocol_dir / 'protocols/hyprland-toplevel-export-v1.xml',
 	hl_protocol_dir / 'protocols/hyprland-toplevel-mapping-v1.xml',
 	hl_protocol_dir / 'protocols/hyprland-global-shortcuts-v1.xml',
@@ -43,6 +46,7 @@ client_protocols = [
 	wl_protocol_dir / 'staging/ext-image-copy-capture/ext-image-copy-capture-v1.xml',
 	wl_protocol_dir / 'staging/ext-image-capture-source/ext-image-capture-source-v1.xml',
 	wl_protocol_dir / 'staging/ext-workspace/ext-workspace-v1.xml',
+	wl_protocol_dir / 'staging/ext-data-control/ext-data-control-v1.xml',
 ]
 
 wl_proto_files = []

@@ -72,8 +72,10 @@ class CScreencopyPortal {
     struct SSession {
         std::string                               appid;
         sdbus::ObjectPath                         requestHandle, sessionHandle;
-        uint32_t                                  cursorMode  = HIDDEN;
-        uint32_t                                  persistMode = 0;
+        uint32_t                                  cursorMode      = HIDDEN;
+        uint32_t                                  persistMode     = 0;
+        bool                                      remoteDesktop   = false;
+        bool                                      sourcesSelected = false;
 
         std::unique_ptr<SDBusRequest>             request;
         std::unique_ptr<SDBusSession>             session;
@@ -128,10 +130,15 @@ class CScreencopyPortal {
         void onCloseSession(sdbus::MethodCall&);
     };
 
-    void                                 startFrameCopy(SSession* pSession);
-    void                                 queueNextShareFrame(SSession* pSession);
-    bool                                 hasToplevelCapabilities();
-    bool                                 hasWorkspaceCapabilities();
+    void startFrameCopy(SSession* pSession);
+    void queueNextShareFrame(SSession* pSession);
+    bool hasToplevelCapabilities();
+    bool hasWorkspaceCapabilities();
+    void createRemoteDesktopSession(const std::string& appID, const sdbus::ObjectPath& sessionHandle);
+    void destroyRemoteDesktopSession(const sdbus::ObjectPath& sessionHandle);
+    bool startRemoteDesktopSession(const sdbus::ObjectPath& sessionHandle, bool persist, std::unordered_map<std::string, sdbus::Variant>& results);
+    bool mapRemoteDesktopCoordinates(const sdbus::ObjectPath& sessionHandle, uint32_t stream, double x, double y, uint32_t& mappedX, uint32_t& mappedY, uint32_t& extentW,
+                                     uint32_t& extentH);
 
     std::unique_ptr<CPipewireConnection> m_pPipewire;
 
@@ -140,8 +147,9 @@ class CScreencopyPortal {
 
     std::vector<Hyprutils::Memory::CUniquePointer<SSession>> m_vSessions;
 
-    SSession*                                                getSession(sdbus::ObjectPath& path);
+    SSession*                                                getSession(const sdbus::ObjectPath& path);
     bool                                                     startSharing(SSession* pSession);
+    std::unordered_map<std::string, sdbus::Variant>          buildStartResults(SSession* pSession);
 
     struct {
         SP<CCZwlrScreencopyManagerV1>                      screencopy      = nullptr;

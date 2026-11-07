@@ -17,8 +17,12 @@ static int onCloseRequest(SDBusRequest* req) {
 static int onCloseSession(SDBusSession* sess) {
     Debug::log(TRACE, "[internal] Close Session {}", (void*)sess);
 
-    if (!sess)
+    // A repeated Close before the deferred destroy runs must not queue a second
+    // callback: onDestroy may free sess, leaving that callback dangling.
+    if (!sess || sess->closing)
         return 0;
+
+    sess->closing = true;
 
     auto destroy = std::move(sess->onDestroy);
     g_pPortalManager->addTimer({0, [sess, destroy]() {
