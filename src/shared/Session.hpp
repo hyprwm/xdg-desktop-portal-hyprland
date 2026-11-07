@@ -8,6 +8,7 @@ struct SDBusSession {
     std::unique_ptr<sdbus::IObject> object;
     sdbus::ObjectPath               handle;
     std::function<void()>           onDestroy;
+    bool                            closing = false;
 };
 
 struct SDBusRequest {

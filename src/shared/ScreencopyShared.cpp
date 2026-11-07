@@ -35,7 +35,7 @@ std::string sanitizeNameForWindowList(const std::string& name) {
 
 std::string buildWindowList() {
     std::string result = "";
-    if (!g_pPortalManager->m_sPortals.screencopy->hasToplevelCapabilities())
+    if (!g_pPortalManager->m_sPortals.screencopy || !g_pPortalManager->m_sPortals.screencopy->hasToplevelCapabilities())
         return result;
 
     for (auto& e : g_pPortalManager->m_sHelpers.toplevel->m_vToplevels) {
@@ -238,7 +238,7 @@ static SSelectionData parsePickerSelection(const std::string& output, const std:
     return data;
 }
 
-SSelectionData promptForScreencopySelection() {
+SSelectionData promptForScreencopySelection(bool allowWindows) {
     const char*         WAYLAND_DISPLAY             = getenv("WAYLAND_DISPLAY");
     const char*         XCURSOR_SIZE                = getenv("XCURSOR_SIZE");
     const char*         HYPRLAND_INSTANCE_SIGNATURE = getenv("HYPRLAND_INSTANCE_SIGNATURE");
@@ -260,9 +260,9 @@ SSelectionData promptForScreencopySelection() {
         proc.addEnv("QT_QPA_PLATFORM", "wayland");
     proc.addEnv("XCURSOR_SIZE", XCURSOR_SIZE ? XCURSOR_SIZE : "24");
     proc.addEnv("HYPRLAND_INSTANCE_SIGNATURE", HYPRLAND_INSTANCE_SIGNATURE ? HYPRLAND_INSTANCE_SIGNATURE : "0");
-    proc.addEnv("XDPH_WINDOW_SHARING_LIST", buildWindowList());
+    proc.addEnv("XDPH_WINDOW_SHARING_LIST", allowWindows ? buildWindowList() : "");
     proc.addEnv("XDPH_OUTPUT_SHARING_LIST", buildOutputList());
-    proc.addEnv("XDPH_WORKSPACE_SHARING_LIST_V3", buildWorkspaceList(workspaces, v2Workspaces, legacyWorkspaces));
+    proc.addEnv("XDPH_WORKSPACE_SHARING_LIST_V3", allowWindows ? buildWorkspaceList(workspaces, v2Workspaces, legacyWorkspaces) : "");
     proc.addEnv("XDPH_WORKSPACE_SHARING_LIST_V2", v2Workspaces);
     proc.addEnv("XDPH_WORKSPACE_SHARING_LIST", legacyWorkspaces);
 
@@ -286,6 +286,36 @@ SSelectionData promptForScreencopySelection() {
 
     Debug::log(LOG, "[sc] Selection output: {}", RETVAL);
     return parsePickerSelection(RETVAL, workspaces);
+}
+
+bool promptForRemoteDesktopConsent(const std::string& appID, uint32_t deviceTypes, bool persistRequested, bool* persistGranted) {
+    if (persistGranted)
+        *persistGranted = false;
+
+    const char* WAYLAND_DISPLAY = getenv("WAYLAND_DISPLAY");
+    const char* XCURSOR_SIZE    = getenv("XCURSOR_SIZE");
+
+    std::string devices;
+    if (deviceTypes & 2)
+        devices = "pointer";
+    if (deviceTypes & 1)
+        devices += devices.empty() ? "keyboard" : ",keyboard";
+
+    CProcess proc("hyprland-share-picker", {"--remote-desktop"});
+    proc.addEnv("WAYLAND_DISPLAY", WAYLAND_DISPLAY ? WAYLAND_DISPLAY : "");
+    proc.addEnv("QT_QPA_PLATFORM", "wayland");
+    proc.addEnv("XCURSOR_SIZE", XCURSOR_SIZE ? XCURSOR_SIZE : "24");
+    proc.addEnv("XDPH_REMOTE_DESKTOP_APP_ID", appID);
+    proc.addEnv("XDPH_REMOTE_DESKTOP_DEVICE_TYPES", devices);
+    proc.addEnv("XDPH_REMOTE_DESKTOP_PERSIST", persistRequested ? "1" : "0");
+
+    if (!proc.runSync() || !proc.stdOut().contains("[AUTHORIZED]"))
+        return false;
+
+    if (persistGranted)
+        *persistGranted = persistRequested && proc.stdOut().contains("[PERSIST]");
+
+    return true;
 }
 
 wl_shm_format wlSHMFromDrmFourcc(uint32_t format) {
