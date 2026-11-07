@@ -1,5 +1,5 @@
 #include "Clipboard.hpp"
-#include "RemoteDesktop.hpp"
+#include "../shared/ClipboardHost.hpp"
 #include "../core/PortalManager.hpp"
 #include "../helpers/Log.hpp"
 
@@ -18,8 +18,7 @@ static void flushWayland() {
     wl_display_flush(g_pPortalManager->m_sWaylandConnection.display);
 }
 
-CClipboardPortal::CClipboardPortal(SP<CCExtDataControlManagerV1> manager, SP<CCWlSeat> seat, CRemoteDesktopPortal* remoteDesktop) :
-    m_manager(manager), m_remoteDesktop(remoteDesktop) {
+CClipboardPortal::CClipboardPortal(SP<CCExtDataControlManagerV1> manager, SP<CCWlSeat> seat, std::vector<IClipboardHost*> hosts) : m_manager(manager), m_hosts(std::move(hosts)) {
     if (m_manager && seat) {
         m_device = makeShared<CCExtDataControlDeviceV1>(m_manager->sendGetDataDevice(seat->resource()));
 
@@ -32,8 +31,12 @@ CClipboardPortal::CClipboardPortal(SP<CCExtDataControlManagerV1> manager, SP<CCW
     } else
         Debug::log(WARN, "[clipboard] compositor doesn't support ext_data_control_v1, clipboard will be unavailable");
 
-    if (m_remoteDesktop)
-        m_sessionDestroyedListener = m_remoteDesktop->m_events.sessionDestroyed.listen([this](sdbus::ObjectPath path) { dropSession(path); });
+    for (const auto& host : m_hosts) {
+        m_listeners.emplace_back(host->m_events.sessionDestroyed.listen([this](sdbus::ObjectPath path) { dropSession(path); }));
+        // Tell a session what the clipboard holds as soon as it may use it: it can't have
+        // heard about changes made while it was away.
+        m_listeners.emplace_back(host->m_events.sessionActivated.listen([this](sdbus::ObjectPath path) { emitOwnerChangedTo(path); }));
+    }
 
     m_pObject = sdbus::createObject(*g_pPortalManager->getConnection(), OBJECT_PATH);
 
@@ -122,7 +125,8 @@ void CClipboardPortal::onSelection(wl_proxy* proxy) {
 void CClipboardPortal::onSourceSend(const sdbus::ObjectPath& handle, const std::string& mimeType, int fd) {
     // We own `fd` from here on: it has to be closed on every path out.
     const auto PSESSION = getSession(handle);
-    if (!PSESSION || !m_remoteDesktop->clipboardEnabled(handle)) {
+    const auto PHOST    = hostFor(handle);
+    if (!PSESSION || !PHOST || !PHOST->clipboardEnabled(handle)) {
         close(fd);
         return;
     }
@@ -153,21 +157,30 @@ void CClipboardPortal::onSourceCancelled(const sdbus::ObjectPath& handle, const 
 }
 
 void CClipboardPortal::emitOwnerChanged() {
-    for (const auto& session : m_sessions) {
-        if (!m_remoteDesktop->clipboardEnabled(session->handle))
-            continue;
+    for (const auto& session : m_sessions)
+        emitOwnerChangedTo(session->handle);
+}
 
-        std::unordered_map<std::string, sdbus::Variant> options;
-        options["mime_types"]       = sdbus::Variant{m_selection.mimeTypes};
-        options["session_is_owner"] = sdbus::Variant{m_owner == session->handle};
+void CClipboardPortal::emitOwnerChangedTo(const sdbus::ObjectPath& path) {
+    const auto PHOST = hostFor(path);
+    if (!PHOST || !PHOST->clipboardEnabled(path))
+        return;
 
-        try {
-            m_pObject->emitSignal("SelectionOwnerChanged").onInterface(INTERFACE_NAME).withArguments(session->handle, options);
-        } catch (std::exception& e) { Debug::log(ERR, "[clipboard] failed to emit SelectionOwnerChanged ({})", e.what()); }
-    }
+    std::unordered_map<std::string, sdbus::Variant> options;
+    options["mime_types"]       = sdbus::Variant{m_selection.mimeTypes};
+    options["session_is_owner"] = sdbus::Variant{m_owner == path};
+
+    try {
+        m_pObject->emitSignal("SelectionOwnerChanged").onInterface(INTERFACE_NAME).withArguments(path, options);
+    } catch (std::exception& e) { Debug::log(ERR, "[clipboard] failed to emit SelectionOwnerChanged ({})", e.what()); }
 }
 
 // ─── Sessions ────────────────────────────────────────────────────
+
+IClipboardHost* CClipboardPortal::hostFor(const sdbus::ObjectPath& path) {
+    const auto IT = std::ranges::find_if(m_hosts, [&path](IClipboardHost* host) { return host->hasSession(path); });
+    return IT != m_hosts.end() ? *IT : nullptr;
+}
 
 CClipboardPortal::SSession* CClipboardPortal::getSession(const sdbus::ObjectPath& path) {
     for (auto& session : m_sessions) {
@@ -205,8 +218,12 @@ void CClipboardPortal::requireClipboard(const sdbus::ObjectPath& path) {
     if (!m_device)
         fail("The compositor does not support clipboard access");
 
-    if (!m_remoteDesktop->clipboardEnabled(path))
+    const auto PHOST = hostFor(path);
+    if (!PHOST || !PHOST->clipboardEnabled(path))
         fail("Clipboard access was not granted for this session");
+
+    if (!PHOST->clipboardAccessible(path))
+        fail("The session can't use the clipboard right now");
 }
 
 // ─── D-Bus methods ───────────────────────────────────────────────
@@ -217,8 +234,9 @@ void CClipboardPortal::onRequestClipboard(sdbus::ObjectPath sessionHandle, std::
     if (!m_device)
         fail("The compositor does not support clipboard access");
 
-    if (!m_remoteDesktop->requestClipboard(sessionHandle))
-        fail("Clipboard can only be requested for a RemoteDesktop session that hasn't started");
+    const auto PHOST = hostFor(sessionHandle);
+    if (!PHOST || !PHOST->requestClipboard(sessionHandle))
+        fail("Clipboard can only be requested for a RemoteDesktop or InputCapture session that hasn't started");
 
     if (getSession(sessionHandle))
         return;

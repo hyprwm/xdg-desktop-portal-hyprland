@@ -14,14 +14,14 @@
 #include "ext-data-control-v1.hpp"
 
 class CCWlSeat;
-class CRemoteDesktopPortal;
+class IClipboardHost;
 
 // Implements org.freedesktop.impl.portal.Clipboard. This portal has no sessions of
-// its own: it extends RemoteDesktop sessions with access to the compositor clipboard,
-// through ext-data-control-v1.
+// its own: it extends the sessions of other portals (RemoteDesktop, InputCapture) with
+// access to the compositor clipboard, through ext-data-control-v1.
 class CClipboardPortal {
   public:
-    CClipboardPortal(SP<CCExtDataControlManagerV1> manager, SP<CCWlSeat> seat, CRemoteDesktopPortal* remoteDesktop);
+    CClipboardPortal(SP<CCExtDataControlManagerV1> manager, SP<CCWlSeat> seat, std::vector<IClipboardHost*> hosts);
     ~CClipboardPortal();
 
     void          onRequestClipboard(sdbus::ObjectPath sessionHandle, std::unordered_map<std::string, sdbus::Variant> opts);
@@ -52,14 +52,16 @@ class CClipboardPortal {
     void                            onSelection(wl_proxy* proxy);
     void                            onSourceSend(const sdbus::ObjectPath& handle, const std::string& mimeType, int fd);
     void                            onSourceCancelled(const sdbus::ObjectPath& handle, const CCExtDataControlSourceV1* source);
+    IClipboardHost*                 hostFor(const sdbus::ObjectPath& path);
     void                            emitOwnerChanged();
+    void                            emitOwnerChangedTo(const sdbus::ObjectPath& path);
     void                            dropSession(const sdbus::ObjectPath& path);
     static void                     closePendingWrites(SSession& session);
 
     std::unique_ptr<sdbus::IObject> m_pObject;
     SP<CCExtDataControlManagerV1>   m_manager;
     SP<CCExtDataControlDeviceV1>    m_device;
-    CRemoteDesktopPortal*           m_remoteDesktop = nullptr;
+    std::vector<IClipboardHost*>    m_hosts;
 
     // Offers announced by dataOffer whose selection hasn't been decided yet.
     std::vector<SOffer>                    m_announcedOffers;
@@ -67,10 +69,10 @@ class CClipboardPortal {
     std::vector<std::unique_ptr<SSession>> m_sessions;
     uint32_t                               m_serial = 0;
     // The session whose source is the compositor's current selection, if any.
-    sdbus::ObjectPath                      m_owner;
+    sdbus::ObjectPath                                   m_owner;
 
-    Hyprutils::Signal::CHyprSignalListener m_sessionDestroyedListener;
+    std::vector<Hyprutils::Signal::CHyprSignalListener> m_listeners;
 
-    const sdbus::InterfaceName             INTERFACE_NAME = sdbus::InterfaceName{"org.freedesktop.impl.portal.Clipboard"};
-    const sdbus::ObjectPath                OBJECT_PATH    = sdbus::ObjectPath{"/org/freedesktop/portal/desktop"};
+    const sdbus::InterfaceName                          INTERFACE_NAME = sdbus::InterfaceName{"org.freedesktop.impl.portal.Clipboard"};
+    const sdbus::ObjectPath                             OBJECT_PATH    = sdbus::ObjectPath{"/org/freedesktop/portal/desktop"};
 };

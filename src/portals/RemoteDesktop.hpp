@@ -3,13 +3,13 @@
 #include <memory>
 #include <unordered_set>
 #include <vector>
-#include <hyprutils/signal/Signal.hpp>
 #include <sdbus-c++/sdbus-c++.h>
 #include <xkbcommon/xkbcommon.h>
 
 #include "../includes.hpp"
 #include "../dbusDefines.hpp"
 #include "../shared/Session.hpp"
+#include "../shared/ClipboardHost.hpp"
 #include "../helpers/Log.hpp"
 
 #include "wlr-virtual-pointer-unstable-v1.hpp"
@@ -21,7 +21,7 @@ struct eis_seat;
 struct eis_device;
 class CKeyboardState;
 
-class CRemoteDesktopPortal {
+class CRemoteDesktopPortal : public IClipboardHost {
   public:
     CRemoteDesktopPortal(SP<CCZwlrVirtualPointerManagerV1> pointerMgr, SP<CCZwpVirtualKeyboardManagerV1> keyboardMgr);
     ~CRemoteDesktopPortal();
@@ -52,16 +52,12 @@ class CRemoteDesktopPortal {
     void processEISEvents();
     void updateEISPointerRegions();
 
-    // Session state the Clipboard portal builds on. A clipboard can only be requested
-    // for a session that exists and hasn't been started yet.
-    bool sessionStarted(const sdbus::ObjectPath& path);
-    bool requestClipboard(const sdbus::ObjectPath& path);
-    bool clipboardEnabled(const sdbus::ObjectPath& path);
-
-    struct {
-        // Emitted with the session handle once a session is gone.
-        Hyprutils::Signal::CSignalT<sdbus::ObjectPath> sessionDestroyed;
-    } m_events;
+    // IClipboardHost: a clipboard can only be requested for a session that exists and
+    // hasn't been started yet, and is usable for as long as the session lives.
+    bool hasSession(const sdbus::ObjectPath& path) override;
+    bool requestClipboard(const sdbus::ObjectPath& path) override;
+    bool clipboardEnabled(const sdbus::ObjectPath& path) override;
+    bool clipboardAccessible(const sdbus::ObjectPath& path) override;
 
   private:
     struct SKeycode {

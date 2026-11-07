@@ -1464,9 +1464,8 @@ void CRemoteDesktopPortal::destroySession(const sdbus::ObjectPath& path) {
     m_events.sessionDestroyed.emit(path);
 }
 
-bool CRemoteDesktopPortal::sessionStarted(const sdbus::ObjectPath& path) {
-    const auto PSESSION = getSession(path);
-    return PSESSION && PSESSION->started;
+bool CRemoteDesktopPortal::hasSession(const sdbus::ObjectPath& path) {
+    return getSession(path) != nullptr;
 }
 
 bool CRemoteDesktopPortal::requestClipboard(const sdbus::ObjectPath& path) {
@@ -1481,4 +1480,8 @@ bool CRemoteDesktopPortal::requestClipboard(const sdbus::ObjectPath& path) {
 bool CRemoteDesktopPortal::clipboardEnabled(const sdbus::ObjectPath& path) {
     const auto PSESSION = getSession(path);
     return PSESSION && PSESSION->started && PSESSION->clipboardRequested;
+}
+
+bool CRemoteDesktopPortal::clipboardAccessible(const sdbus::ObjectPath& path) {
+    return clipboardEnabled(path);
 }

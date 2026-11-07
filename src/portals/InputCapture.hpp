@@ -3,6 +3,7 @@
 #include "hyprland-input-capture-v1.hpp"
 #include "../includes.hpp"
 #include "../shared/Session.hpp"
+#include "../shared/ClipboardHost.hpp"
 #include <sdbus-c++/Types.h>
 
 enum ClientStatus : uint8_t {
@@ -23,10 +24,18 @@ struct SBarrier {
 const static sdbus::InterfaceName INTERFACE_NAME = sdbus::InterfaceName{"org.freedesktop.impl.portal.InputCapture"};
 const static sdbus::ObjectPath    OBJECT_PATH    = sdbus::ObjectPath{"/org/freedesktop/portal/desktop"};
 
-class CInputCapturePortal {
+class CInputCapturePortal : public IClipboardHost {
   public:
     CInputCapturePortal(SP<CCHyprlandInputCaptureManagerV1> mgr);
     void zonesChanged();
+
+    // IClipboardHost: only a session made with CreateSession2 can have a clipboard, as
+    // sessions made with CreateSession start straight away. The clipboard may only be
+    // used while the session is active.
+    bool hasSession(const sdbus::ObjectPath& path) override;
+    bool requestClipboard(const sdbus::ObjectPath& path) override;
+    bool clipboardEnabled(const sdbus::ObjectPath& path) override;
+    bool clipboardAccessible(const sdbus::ObjectPath& path) override;
 
   private:
     struct {
@@ -36,11 +45,16 @@ class CInputCapturePortal {
     struct SSession {
         SSession(sdbus::ObjectPath requestHandle, sdbus::ObjectPath sessionHandle, std::string sessionId, uint32_t capabilities, wl_proxy* proxy);
 
-        sdbus::ObjectPath                      requestHandle, sessionHandle;
-        std::string                            sessionId;
-        uint32_t                               capabilities = 0;
-        sdbus::UnixFd                          eisFD;
-        bool                                   dead = false;
+        sdbus::ObjectPath requestHandle, sessionHandle;
+        std::string       sessionId;
+        uint32_t          capabilities = 0;
+        sdbus::UnixFd     eisFD;
+        bool              dead = false;
+        // Sessions made with CreateSession are started from the beginning.
+        bool started            = true;
+        bool clipboardRequested = false;
+        // Between Activated and Deactivated: input is being captured.
+        bool                                   active = false;
         std::unordered_map<uint32_t, uint32_t> barrierIdMap;
 
         //
@@ -57,8 +71,11 @@ class CInputCapturePortal {
     uint32_t                        m_barrierIdCounter = 1;
 
     //
-    dbUasv        onCreateSession(sdbus::ObjectPath requestHandle, sdbus::ObjectPath sessionHandle, std::string appID, std::string parentWindow,
-                                  std::unordered_map<std::string, sdbus::Variant> options);
+    dbUasv                                          onCreateSession(sdbus::ObjectPath requestHandle, sdbus::ObjectPath sessionHandle, std::string appID, std::string parentWindow,
+                                                                    std::unordered_map<std::string, sdbus::Variant> options);
+    std::unordered_map<std::string, sdbus::Variant> onCreateSession2(sdbus::ObjectPath sessionHandle, std::string appID, std::unordered_map<std::string, sdbus::Variant> options);
+    dbUasv                                          onStart(sdbus::ObjectPath requestHandle, sdbus::ObjectPath sessionHandle, std::string appID, std::string parentWindow,
+                                                            std::unordered_map<std::string, sdbus::Variant> options);
     dbUasv        onGetZones(sdbus::ObjectPath requestHandle, sdbus::ObjectPath sessionHandle, std::string appID, std::unordered_map<std::string, sdbus::Variant> opts);
     dbUasv        onSetPointerBarriers(sdbus::ObjectPath requestHandle, sdbus::ObjectPath sessionHandle, std::string appID, std::unordered_map<std::string, sdbus::Variant> opts,
                                        std::vector<std::unordered_map<std::string, sdbus::Variant>> barriers, uint32_t zoneSet);

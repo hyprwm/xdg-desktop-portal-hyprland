@@ -465,8 +465,12 @@ void CPortalManager::init() {
     // Missing input protocols are reported through AvailableDeviceTypes.
     m_sPortals.remoteDesktop = std::make_unique<CRemoteDesktopPortal>(m_sWaylandConnection.virtualPointerMgr, m_sWaylandConnection.virtualKeyboardMgr);
 
-    // Clipboard extends RemoteDesktop sessions, and is advertised by the portal descriptor too.
-    m_sPortals.clipboard = std::make_unique<CClipboardPortal>(m_sWaylandConnection.dataControlMgr, m_sWaylandConnection.seat, m_sPortals.remoteDesktop.get());
+    // Clipboard extends RemoteDesktop and InputCapture sessions, and is advertised by the
+    // portal descriptor too.
+    std::vector<IClipboardHost*> clipboardHosts = {m_sPortals.remoteDesktop.get()};
+    if (m_sPortals.inputCapture)
+        clipboardHosts.emplace_back(m_sPortals.inputCapture.get());
+    m_sPortals.clipboard = std::make_unique<CClipboardPortal>(m_sWaylandConnection.dataControlMgr, m_sWaylandConnection.seat, std::move(clipboardHosts));
 
     // Now that all D-Bus objects are registered, claim our service name.
     // The frontend portal introspects when it sees our name appear; if we claim
