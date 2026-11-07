@@ -10,6 +10,7 @@
 #include "../portals/GlobalShortcuts.hpp"
 #include "../portals/InputCapture.hpp"
 #include "../portals/RemoteDesktop.hpp"
+#include "../portals/Clipboard.hpp"
 #include "../helpers/Timer.hpp"
 #include "../shared/ToplevelManager.hpp"
 #include "../shared/ToplevelMappingManager.hpp"
@@ -104,6 +105,7 @@ class CPortalManager {
         std::unique_ptr<CGlobalShortcutsPortal> globalShortcuts;
         std::unique_ptr<CInputCapturePortal>    inputCapture;
         std::unique_ptr<CRemoteDesktopPortal>   remoteDesktop;
+        std::unique_ptr<CClipboardPortal>       clipboard;
     } m_sPortals;
 
     struct {
@@ -128,6 +130,7 @@ class CPortalManager {
         SP<CCWlKeyboard>                                   keyboard;
         SP<CCZwlrVirtualPointerManagerV1>                  virtualPointerMgr;
         SP<CCZwpVirtualKeyboardManagerV1>                  virtualKeyboardMgr;
+        SP<CCExtDataControlManagerV1>                      dataControlMgr;
         struct {
             void*  formatTable     = nullptr;
             size_t formatTableSize = 0;

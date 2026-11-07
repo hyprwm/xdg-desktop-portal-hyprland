@@ -875,6 +875,8 @@ dbUasv CRemoteDesktopPortal::onStart(sdbus::ObjectPath requestHandle, sdbus::Obj
     // Must be a string, not ObjectPath — frontend expects GVariant string type
     results["session_handle"] = sdbus::Variant{std::string{sessionHandle}};
     results["devices"]        = sdbus::Variant{PSESSION->deviceTypes};
+    if (PSESSION->clipboardRequested)
+        results["clipboard_enabled"] = sdbus::Variant{true};
     if (!persistSession) {
         results.erase("restore_data");
         results.erase("persist_mode");
@@ -1459,4 +1461,24 @@ void CRemoteDesktopPortal::destroySession(const sdbus::ObjectPath& path) {
 
     std::erase_if(m_vSessions, [&](const auto& session) { return session->sessionHandle == path; });
     Debug::log(LOG, "[remotedesktop] session {} destroyed", path.c_str());
+    m_events.sessionDestroyed.emit(path);
+}
+
+bool CRemoteDesktopPortal::sessionStarted(const sdbus::ObjectPath& path) {
+    const auto PSESSION = getSession(path);
+    return PSESSION && PSESSION->started;
+}
+
+bool CRemoteDesktopPortal::requestClipboard(const sdbus::ObjectPath& path) {
+    const auto PSESSION = getSession(path);
+    if (!PSESSION || PSESSION->started)
+        return false;
+
+    PSESSION->clipboardRequested = true;
+    return true;
+}
+
+bool CRemoteDesktopPortal::clipboardEnabled(const sdbus::ObjectPath& path) {
+    const auto PSESSION = getSession(path);
+    return PSESSION && PSESSION->started && PSESSION->clipboardRequested;
 }

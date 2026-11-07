@@ -3,6 +3,7 @@
 #include <memory>
 #include <unordered_set>
 #include <vector>
+#include <hyprutils/signal/Signal.hpp>
 #include <sdbus-c++/sdbus-c++.h>
 #include <xkbcommon/xkbcommon.h>
 
@@ -50,6 +51,17 @@ class CRemoteDesktopPortal {
     // EIS event processing (called from the main event loop)
     void processEISEvents();
     void updateEISPointerRegions();
+
+    // Session state the Clipboard portal builds on. A clipboard can only be requested
+    // for a session that exists and hasn't been started yet.
+    bool sessionStarted(const sdbus::ObjectPath& path);
+    bool requestClipboard(const sdbus::ObjectPath& path);
+    bool clipboardEnabled(const sdbus::ObjectPath& path);
+
+    struct {
+        // Emitted with the session handle once a session is gone.
+        Hyprutils::Signal::CSignalT<sdbus::ObjectPath> sessionDestroyed;
+    } m_events;
 
   private:
     struct SKeycode {
@@ -107,8 +119,9 @@ class CRemoteDesktopPortal {
         uint32_t                      deviceTypes = 0; // bitmask: 1=keyboard, 2=pointer, 4=touchscreen
         uint32_t                      persistMode = 0;
         std::string                   restoreToken;
-        bool                          restored = false;
-        bool                          started  = false;
+        bool                          restored           = false;
+        bool                          started            = false;
+        bool                          clipboardRequested = false;
 
         // Wayland objects (created on Start)
         SP<CCZwlrVirtualPointerV1>            virtualPointer;
