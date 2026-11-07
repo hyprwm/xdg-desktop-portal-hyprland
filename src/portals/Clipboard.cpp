@@ -18,18 +18,16 @@ static void flushWayland() {
     wl_display_flush(g_pPortalManager->m_sWaylandConnection.display);
 }
 
-CClipboardPortal::CClipboardPortal(SP<CCExtDataControlManagerV1> manager, SP<CCWlSeat> seat, std::vector<IClipboardHost*> hosts) : m_manager(manager), m_hosts(std::move(hosts)) {
-    if (m_manager && seat) {
-        m_device = makeShared<CCExtDataControlDeviceV1>(m_manager->sendGetDataDevice(seat->resource()));
-
-        m_device->setDataOffer([this](CCExtDataControlDeviceV1*, wl_proxy* proxy) { onDataOffer(proxy); });
-        m_device->setSelection([this](CCExtDataControlDeviceV1*, wl_proxy* proxy) { onSelection(proxy); });
-        m_device->setFinished([this](CCExtDataControlDeviceV1*) {
+CClipboardPortal::CClipboardPortal(std::unique_ptr<IDataControl> dataControl, std::vector<IClipboardHost*> hosts) :
+    m_dataControl(std::move(dataControl)), m_hosts(std::move(hosts)) {
+    if (m_dataControl) {
+        m_dataControl->m_onSelection = [this](SP<IDataControlOffer> offer) { onSelection(offer); };
+        m_dataControl->m_onFinished  = [this]() {
             Debug::log(WARN, "[clipboard] data control device finished, clipboard sync is unavailable");
-            m_device.reset();
-        });
+            m_finished = true;
+        };
     } else
-        Debug::log(WARN, "[clipboard] compositor doesn't support ext_data_control_v1, clipboard will be unavailable");
+        Debug::log(WARN, "[clipboard] compositor supports neither ext_data_control_v1 nor zwlr_data_control_manager_v1, clipboard will be unavailable");
 
     for (const auto& host : m_hosts) {
         m_listeners.emplace_back(host->m_events.sessionDestroyed.listen([this](sdbus::ObjectPath path) { dropSession(path); }));
@@ -59,64 +57,35 @@ CClipboardPortal::~CClipboardPortal() {
     for (auto& session : m_sessions) {
         closePendingWrites(*session);
         if (session->source)
-            session->source->sendDestroy();
+            session->source->destroy();
     }
 
-    for (auto& announced : m_announcedOffers)
-        announced.offer->sendDestroy();
-
-    if (m_selection.offer)
-        m_selection.offer->sendDestroy();
-
-    if (m_device)
-        m_device->sendDestroy();
-
-    if (m_manager)
-        m_manager->sendDestroy();
+    if (m_selection)
+        m_selection->destroy();
 }
 
 uint32_t CClipboardPortal::version() {
     return 1;
 }
 
-// ─── Wayland side ────────────────────────────────────────────────
-
-void CClipboardPortal::onDataOffer(wl_proxy* proxy) {
-    const auto OFFER = makeShared<CCExtDataControlOfferV1>(proxy);
-
-    // The offer's mime types follow as events, before the selection that uses it.
-    OFFER->setOffer([this, RAW = OFFER.get()](CCExtDataControlOfferV1*, const char* mime) {
-        const auto IT = std::ranges::find_if(m_announcedOffers, [RAW](const SOffer& o) { return o.offer.get() == RAW; });
-        if (IT == m_announcedOffers.end())
-            return;
-
-        IT->mimeTypes.emplace_back(mime);
-    });
-
-    m_announcedOffers.push_back(SOffer{.offer = OFFER});
+bool CClipboardPortal::available() const {
+    return m_dataControl && !m_finished;
 }
 
-void CClipboardPortal::onSelection(wl_proxy* proxy) {
-    if (m_selection.offer)
-        m_selection.offer->sendDestroy();
-    m_selection = {};
+std::vector<std::string> CClipboardPortal::selectionMimeTypes() const {
+    return m_selection ? m_selection->m_mimeTypes : std::vector<std::string>{};
+}
 
-    if (proxy) {
-        const auto IT = std::ranges::find_if(m_announcedOffers, [proxy](const SOffer& o) { return rc<wl_proxy*>(o.offer->resource()) == proxy; });
-        if (IT != m_announcedOffers.end()) {
-            m_selection = std::move(*IT);
-            m_announcedOffers.erase(IT);
-        }
-    }
+// ─── Wayland side ────────────────────────────────────────────────
 
-    // Whatever else was announced (a primary selection, say) is of no use to us.
-    for (auto& announced : m_announcedOffers)
-        announced.offer->sendDestroy();
-    m_announcedOffers.clear();
+void CClipboardPortal::onSelection(SP<IDataControlOffer> offer) {
+    if (m_selection)
+        m_selection->destroy();
+    m_selection = offer;
 
     // Nobody owns the selection but a source of ours, and ours is gone if it's not the
     // compositor's choice any more.
-    if (!m_selection.offer)
+    if (!m_selection)
         m_owner = sdbus::ObjectPath{};
 
     emitOwnerChanged();
@@ -143,7 +112,7 @@ void CClipboardPortal::onSourceSend(const sdbus::ObjectPath& handle, const std::
     }
 }
 
-void CClipboardPortal::onSourceCancelled(const sdbus::ObjectPath& handle, const CCExtDataControlSourceV1* source) {
+void CClipboardPortal::onSourceCancelled(const sdbus::ObjectPath& handle, const IDataControlSource* source) {
     // `handle` lives in the closure of the source's own callback, which goes away with
     // the source: take a copy before letting go of it.
     const sdbus::ObjectPath HANDLE   = handle;
@@ -158,7 +127,7 @@ void CClipboardPortal::onSourceCancelled(const sdbus::ObjectPath& handle, const 
     // as we are running inside one of its events.
     const auto CANCELLED = PSESSION->source;
     PSESSION->source.reset();
-    CANCELLED->sendDestroy();
+    CANCELLED->destroy();
 
     if (m_owner == HANDLE)
         m_owner = sdbus::ObjectPath{};
@@ -175,7 +144,7 @@ void CClipboardPortal::emitOwnerChangedTo(const sdbus::ObjectPath& path) {
         return;
 
     std::unordered_map<std::string, sdbus::Variant> options;
-    options["mime_types"]       = sdbus::Variant{m_selection.mimeTypes};
+    options["mime_types"]       = sdbus::Variant{selectionMimeTypes()};
     options["session_is_owner"] = sdbus::Variant{m_owner == path};
 
     try {
@@ -212,7 +181,7 @@ void CClipboardPortal::dropSession(const sdbus::ObjectPath& path) {
 
     closePendingWrites(*PSESSION);
     if (PSESSION->source)
-        PSESSION->source->sendDestroy();
+        PSESSION->source->destroy();
 
     // Destroying a source we own drops the selection with it.
     if (m_owner == path)
@@ -223,7 +192,7 @@ void CClipboardPortal::dropSession(const sdbus::ObjectPath& path) {
 }
 
 void CClipboardPortal::requireClipboard(const sdbus::ObjectPath& path) {
-    if (!m_device)
+    if (!available())
         fail("The compositor does not support clipboard access");
 
     const auto PHOST = hostFor(path);
@@ -236,7 +205,7 @@ void CClipboardPortal::requireClipboard(const sdbus::ObjectPath& path) {
 void CClipboardPortal::onRequestClipboard(sdbus::ObjectPath sessionHandle, std::unordered_map<std::string, sdbus::Variant> opts) {
     Debug::log(LOG, "[clipboard] RequestClipboard for {}", sessionHandle.c_str());
 
-    if (!m_device)
+    if (!available())
         fail("The compositor does not support clipboard access");
 
     const auto PHOST = hostFor(sessionHandle);
@@ -265,7 +234,7 @@ void CClipboardPortal::onSetSelection(sdbus::ObjectPath sessionHandle, std::unor
 
     // Replace the previous source: destroying it first means it is never cancelled.
     if (PSESSION->source) {
-        PSESSION->source->sendDestroy();
+        PSESSION->source->destroy();
         PSESSION->source.reset();
     }
     closePendingWrites(*PSESSION);
@@ -273,24 +242,23 @@ void CClipboardPortal::onSetSelection(sdbus::ObjectPath sessionHandle, std::unor
     if (mimeTypes.empty()) {
         // Nothing to offer: give up the selection if it's ours.
         if (m_owner == sessionHandle) {
-            m_device->sendSetSelection(nullptr);
+            m_dataControl->setSelection(nullptr);
             m_owner = sdbus::ObjectPath{};
         }
         flushWayland();
         return;
     }
 
-    const auto SOURCE = makeShared<CCExtDataControlSourceV1>(m_manager->sendCreateDataSource());
-    SOURCE->setSend([this, sessionHandle](CCExtDataControlSourceV1*, const char* mime, int32_t fd) { onSourceSend(sessionHandle, mime, fd); });
-    SOURCE->setCancelled([this, sessionHandle](CCExtDataControlSourceV1* source) { onSourceCancelled(sessionHandle, source); });
+    const auto SOURCE = m_dataControl->createSource([this, sessionHandle](const std::string& mime, int fd) { onSourceSend(sessionHandle, mime, fd); },
+                                                    [this, sessionHandle](const IDataControlSource* source) { onSourceCancelled(sessionHandle, source); });
 
     for (const auto& mime : mimeTypes)
-        SOURCE->sendOffer(mime.c_str());
+        SOURCE->offer(mime);
 
     PSESSION->source = SOURCE;
     m_owner          = sessionHandle;
 
-    m_device->sendSetSelection(SOURCE.get());
+    m_dataControl->setSelection(SOURCE.get());
     flushWayland();
 }
 
@@ -335,17 +303,17 @@ void CClipboardPortal::onSelectionWriteDone(sdbus::ObjectPath sessionHandle, uin
 sdbus::UnixFd CClipboardPortal::onSelectionRead(sdbus::ObjectPath sessionHandle, std::string mimeType) {
     requireClipboard(sessionHandle);
 
-    if (!m_selection.offer)
+    if (!m_selection)
         fail("The clipboard is empty");
 
-    if (!std::ranges::contains(m_selection.mimeTypes, mimeType))
+    if (!std::ranges::contains(m_selection->m_mimeTypes, mimeType))
         fail("The clipboard has no content of this mime type");
 
     int fds[2];
     if (pipe2(fds, O_CLOEXEC) != 0)
         fail("Failed to create a pipe");
 
-    m_selection.offer->sendReceive(mimeType.c_str(), fds[1]);
+    m_selection->receive(mimeType, fds[1]);
     flushWayland();
     close(fds[1]);
 

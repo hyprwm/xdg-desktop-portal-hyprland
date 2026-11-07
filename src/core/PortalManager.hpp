@@ -26,6 +26,8 @@
 #include "wlr-screencopy-unstable-v1.hpp"
 #include "wlr-virtual-pointer-unstable-v1.hpp"
 #include "virtual-keyboard-unstable-v1.hpp"
+#include "ext-data-control-v1.hpp"
+#include "wlr-data-control-unstable-v1.hpp"
 
 #include "../includes.hpp"
 #include "../dbusDefines.hpp"
@@ -131,6 +133,7 @@ class CPortalManager {
         SP<CCZwlrVirtualPointerManagerV1>                  virtualPointerMgr;
         SP<CCZwpVirtualKeyboardManagerV1>                  virtualKeyboardMgr;
         SP<CCExtDataControlManagerV1>                      dataControlMgr;
+        SP<CCZwlrDataControlManagerV1>                     wlrDataControlMgr;
         struct {
             void*  formatTable     = nullptr;
             size_t formatTableSize = 0;
