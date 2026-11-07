@@ -144,15 +144,23 @@ void CClipboardPortal::onSourceSend(const sdbus::ObjectPath& handle, const std::
 }
 
 void CClipboardPortal::onSourceCancelled(const sdbus::ObjectPath& handle, const CCExtDataControlSourceV1* source) {
-    const auto PSESSION = getSession(handle);
+    // `handle` lives in the closure of the source's own callback, which goes away with
+    // the source: take a copy before letting go of it.
+    const sdbus::ObjectPath HANDLE   = handle;
+    const auto              PSESSION = getSession(HANDLE);
 
     // A source we replaced ourselves is destroyed before it can be cancelled, so this
     // is another client taking the selection.
     if (!PSESSION || PSESSION->source.get() != source)
         return;
 
+    // The protocol wants a cancelled source destroyed. Keep it alive until we return,
+    // as we are running inside one of its events.
+    const auto CANCELLED = PSESSION->source;
     PSESSION->source.reset();
-    if (m_owner == handle)
+    CANCELLED->sendDestroy();
+
+    if (m_owner == HANDLE)
         m_owner = sdbus::ObjectPath{};
 }
 
@@ -221,9 +229,6 @@ void CClipboardPortal::requireClipboard(const sdbus::ObjectPath& path) {
     const auto PHOST = hostFor(path);
     if (!PHOST || !PHOST->clipboardEnabled(path))
         fail("Clipboard access was not granted for this session");
-
-    if (!PHOST->clipboardAccessible(path))
-        fail("The session can't use the clipboard right now");
 }
 
 // ─── D-Bus methods ───────────────────────────────────────────────

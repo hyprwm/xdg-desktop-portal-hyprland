@@ -1481,7 +1481,3 @@ bool CRemoteDesktopPortal::clipboardEnabled(const sdbus::ObjectPath& path) {
     const auto PSESSION = getSession(path);
     return PSESSION && PSESSION->started && PSESSION->clipboardRequested;
 }
-
-bool CRemoteDesktopPortal::clipboardAccessible(const sdbus::ObjectPath& path) {
-    return clipboardEnabled(path);
-}

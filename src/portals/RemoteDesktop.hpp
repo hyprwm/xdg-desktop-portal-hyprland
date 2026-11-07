@@ -57,7 +57,6 @@ class CRemoteDesktopPortal : public IClipboardHost {
     bool hasSession(const sdbus::ObjectPath& path) override;
     bool requestClipboard(const sdbus::ObjectPath& path) override;
     bool clipboardEnabled(const sdbus::ObjectPath& path) override;
-    bool clipboardAccessible(const sdbus::ObjectPath& path) override;
 
   private:
     struct SKeycode {

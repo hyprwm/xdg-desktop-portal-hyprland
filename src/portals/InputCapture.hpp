@@ -30,12 +30,12 @@ class CInputCapturePortal : public IClipboardHost {
     void zonesChanged();
 
     // IClipboardHost: only a session made with CreateSession2 can have a clipboard, as
-    // sessions made with CreateSession start straight away. The clipboard may only be
-    // used while the session is active.
+    // sessions made with CreateSession start straight away. The frontend is what keeps
+    // the clipboard off limits while the session is inactive; answering a paste has to
+    // work then, so this side doesn't.
     bool hasSession(const sdbus::ObjectPath& path) override;
     bool requestClipboard(const sdbus::ObjectPath& path) override;
     bool clipboardEnabled(const sdbus::ObjectPath& path) override;
-    bool clipboardAccessible(const sdbus::ObjectPath& path) override;
 
   private:
     struct {

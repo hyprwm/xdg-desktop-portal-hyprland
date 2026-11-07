@@ -665,7 +665,3 @@ bool CInputCapturePortal::clipboardEnabled(const sdbus::ObjectPath& path) {
     const auto& session = m_sessions[path];
     return session->started && session->clipboardRequested;
 }
-
-bool CInputCapturePortal::clipboardAccessible(const sdbus::ObjectPath& path) {
-    return clipboardEnabled(path) && m_sessions[path]->active;
-}
