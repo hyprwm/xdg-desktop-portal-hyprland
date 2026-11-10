@@ -4,14 +4,10 @@
   cmake,
   makeWrapper,
   pkg-config,
-  aquamarine,
-  hyprgraphics,
   hyprland-protocols,
   hyprlang,
-  hyprutils,
   hyprtoolkit,
   hyprwayland-scanner,
-  libdrm,
   libgbm,
   libuuid,
   libxdmcp,
@@ -19,7 +15,6 @@
   sdbus-cpp_2,
   slurp,
   systemd,
-  wayland,
   wayland-protocols,
   wayland-scanner,
   debug ? false,
@@ -44,20 +39,15 @@ stdenv.mkDerivation {
   ];
 
   buildInputs = [
-    aquamarine
-    hyprgraphics
     hyprland-protocols
     hyprlang
-    hyprutils
     hyprtoolkit
-    libdrm
     libgbm
     libuuid
     libxdmcp
     pipewire
     sdbus-cpp_2
     systemd
-    wayland
     wayland-protocols
     wayland-scanner
   ];
