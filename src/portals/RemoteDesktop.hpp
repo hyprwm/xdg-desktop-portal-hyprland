@@ -110,6 +110,9 @@ class CRemoteDesktopPortal {
         bool                          restored = false;
         bool                          started  = false;
 
+        // Full restore blob, so a restored grant can hand the screencast half its selection.
+        std::unordered_map<std::string, sdbus::Variant> restoreData;
+
         // Wayland objects (created on Start)
         SP<CCZwlrVirtualPointerV1>            virtualPointer;
         SP<CCZwpVirtualKeyboardV1>            virtualKeyboard;

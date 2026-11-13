@@ -11,6 +11,7 @@
 #include "../shared/Session.hpp"
 #include "../dbusDefines.hpp"
 #include <chrono>
+#include <optional>
 
 enum cursorModes {
     HIDDEN   = 1,
@@ -82,12 +83,15 @@ class CScreencopyPortal {
         SSelectionData                            selection;
         Hyprutils::Memory::CWeakPointer<SSession> self;
 
-        void                                      startCopy();
-        void                                      initCallbacks();
-        bool                                      initWorkspaceCapture();
-        void                                      updateWorkspaceConstraints();
-        void                                      startWorkspaceCopy();
-        void                                      stopWorkspaceCapture();
+        // Screen selection carried by a restored RemoteDesktop grant, see restoreRemoteDesktopSelection.
+        std::optional<std::unordered_map<std::string, sdbus::Variant>> remoteDesktopRestoreData;
+
+        void                                                           startCopy();
+        void                                                           initCallbacks();
+        bool                                                           initWorkspaceCapture();
+        void                                                           updateWorkspaceConstraints();
+        void                                                           startWorkspaceCopy();
+        void                                                           stopWorkspaceCapture();
 
         struct {
             bool                                  active              = false;
@@ -136,6 +140,7 @@ class CScreencopyPortal {
     bool hasWorkspaceCapabilities();
     void createRemoteDesktopSession(const std::string& appID, const sdbus::ObjectPath& sessionHandle);
     void destroyRemoteDesktopSession(const sdbus::ObjectPath& sessionHandle);
+    void restoreRemoteDesktopSelection(const sdbus::ObjectPath& sessionHandle, const std::unordered_map<std::string, sdbus::Variant>& restoreData);
     bool startRemoteDesktopSession(const sdbus::ObjectPath& sessionHandle, bool persist, std::unordered_map<std::string, sdbus::Variant>& results);
     bool mapRemoteDesktopCoordinates(const sdbus::ObjectPath& sessionHandle, uint32_t stream, double x, double y, uint32_t& mappedX, uint32_t& mappedY, uint32_t& extentW,
                                      uint32_t& extentH);

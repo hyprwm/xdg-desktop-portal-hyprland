@@ -115,6 +115,47 @@ dbUasv CScreencopyPortal::onSelectSources(sdbus::ObjectPath requestHandle, sdbus
         } geometry;
     } restoreData;
 
+    const auto parseRestoreDataV3 = [&restoreData](const std::unordered_map<std::string, sdbus::Variant>& sv) {
+        restoreData.exists = true;
+
+        for (auto& [tkkey, tkval] : sv) {
+            if (tkkey == "output")
+                restoreData.output = tkval.get<std::string>();
+            else if (tkkey == "windowHandle")
+                restoreData.windowHandle = tkval.get<uint64_t>();
+            else if (tkkey == "windowClass")
+                restoreData.windowClass = tkval.get<std::string>();
+            else if (tkkey == "workspace") {
+                restoreData.workspace    = tkval.get<std::string>();
+                restoreData.hasWorkspace = true;
+            } else if (tkkey == "withCursor")
+                restoreData.withCursor = tkval.get<uint32_t>() == EMBEDDED;
+            else if (tkkey == "timeIssued")
+                restoreData.timeIssued = tkval.get<uint64_t>();
+            else if (tkkey == "token")
+                restoreData.token = tkval.get<std::string>();
+            else if (tkkey == "geometry") {
+                auto geo               = tkval.get<sdbus::Struct<uint32_t, uint32_t, uint32_t, uint32_t>>();
+                restoreData.geometry.x = geo.get<0>();
+                restoreData.geometry.y = geo.get<1>();
+                restoreData.geometry.w = geo.get<2>();
+                restoreData.geometry.h = geo.get<3>();
+            } else
+                Debug::log(LOG, "[screencopy] restore token v3, unknown prop {}", tkkey);
+        }
+
+        Debug::log(LOG, "[screencopy] Restore token v3 {} with data: {} {} {} {} {}", restoreData.token, restoreData.windowHandle, restoreData.windowClass, restoreData.output,
+                   restoreData.withCursor, restoreData.timeIssued);
+    };
+
+    // xdg-desktop-portal refuses restore tokens on the ScreenCast half of a RemoteDesktop
+    // session, so its screen selection arrives inside the RemoteDesktop restore data.
+    if (PSESSION->remoteDesktop && PSESSION->remoteDesktopRestoreData) {
+        try {
+            parseRestoreDataV3(*PSESSION->remoteDesktopRestoreData);
+        } catch (const std::exception& e) { Debug::log(WARN, "[screencopy] malformed RemoteDesktop restore data: {}", e.what()); }
+    }
+
     for (auto& [key, val] : options) {
 
         if (key == "cursor_mode") {
@@ -163,41 +204,8 @@ dbUasv CScreencopyPortal::onSelectSources(sdbus::ObjectPath requestHandle, sdbus
 
                 Debug::log(LOG, "[screencopy] Restore token v2 {} with data: {} {} {} {}", restoreData.token, restoreData.windowHandle, restoreData.output, restoreData.withCursor,
                            restoreData.timeIssued);
-            } else {
-                // ver 3
-                auto sv = data.get<std::unordered_map<std::string, sdbus::Variant>>();
-
-                restoreData.exists = true;
-
-                for (auto& [tkkey, tkval] : sv) {
-                    if (tkkey == "output")
-                        restoreData.output = tkval.get<std::string>();
-                    else if (tkkey == "windowHandle")
-                        restoreData.windowHandle = tkval.get<uint64_t>();
-                    else if (tkkey == "windowClass")
-                        restoreData.windowClass = tkval.get<std::string>();
-                    else if (tkkey == "workspace") {
-                        restoreData.workspace    = tkval.get<std::string>();
-                        restoreData.hasWorkspace = true;
-                    } else if (tkkey == "withCursor")
-                        restoreData.withCursor = tkval.get<uint32_t>() == EMBEDDED;
-                    else if (tkkey == "timeIssued")
-                        restoreData.timeIssued = tkval.get<uint64_t>();
-                    else if (tkkey == "token")
-                        restoreData.token = tkval.get<std::string>();
-                    else if (tkkey == "geometry") {
-                        auto geo               = tkval.get<sdbus::Struct<uint32_t, uint32_t, uint32_t, uint32_t>>();
-                        restoreData.geometry.x = geo.get<0>();
-                        restoreData.geometry.y = geo.get<1>();
-                        restoreData.geometry.w = geo.get<2>();
-                        restoreData.geometry.h = geo.get<3>();
-                    } else
-                        Debug::log(LOG, "[screencopy] restore token v3, unknown prop {}", tkkey);
-                }
-
-                Debug::log(LOG, "[screencopy] Restore token v3 {} with data: {} {} {} {} {}", restoreData.token, restoreData.windowHandle, restoreData.windowClass,
-                           restoreData.output, restoreData.withCursor, restoreData.timeIssued);
-            }
+            } else // ver 3
+                parseRestoreDataV3(data.get<std::unordered_map<std::string, sdbus::Variant>>());
         } else if (key == "persist_mode") {
             PSESSION->persistMode = val.get<uint32_t>();
             Debug::log(LOG, "[screencopy] option persist_mode to {}", PSESSION->persistMode);
@@ -827,6 +835,14 @@ void CScreencopyPortal::destroyRemoteDesktopSession(const sdbus::ObjectPath& ses
             m_pPipewire->destroyStream(session.get());
         return true;
     });
+}
+
+void CScreencopyPortal::restoreRemoteDesktopSelection(const sdbus::ObjectPath& sessionHandle, const std::unordered_map<std::string, sdbus::Variant>& restoreData) {
+    const auto PSESSION = getSession(sessionHandle);
+    if (!PSESSION || !PSESSION->remoteDesktop)
+        return;
+
+    PSESSION->remoteDesktopRestoreData = restoreData;
 }
 
 bool CScreencopyPortal::startRemoteDesktopSession(const sdbus::ObjectPath& sessionHandle, bool persist, std::unordered_map<std::string, sdbus::Variant>& results) {

@@ -731,6 +731,7 @@ dbUasv CRemoteDesktopPortal::onSelectDevices(sdbus::ObjectPath requestHandle, sd
                     const auto MAP = DATA.get<2>().get<std::unordered_map<std::string, sdbus::Variant>>();
                     if (const auto IT = MAP.find(RESTORE_DATA_TOKEN_KEY); IT != MAP.end())
                         PSESSION->restoreToken = IT->second.get<std::string>();
+                    PSESSION->restoreData = MAP;
                 }
             } catch (const std::exception& e) { Debug::log(WARN, "[remotedesktop] malformed restore data: {}", e.what()); }
         }
@@ -754,8 +755,13 @@ dbUasv CRemoteDesktopPortal::onSelectDevices(sdbus::ObjectPath requestHandle, sd
     // session should be remembered, and says nothing about whether the token the app
     // just presented is good.
     PSESSION->restored = validateRestoreToken(PSESSION->restoreToken, appID, PSESSION->deviceTypes);
-    if (PSESSION->restored)
+    if (PSESSION->restored) {
         Debug::log(LOG, "[remotedesktop] valid restore token, skipping consent dialog");
+        // The screencast half was saved into the same blob; only a still-valid grant may
+        // restore it. NOTE: this needs SelectDevices before SelectSources, as clients do.
+        if (g_pPortalManager->m_sPortals.screencopy)
+            g_pPortalManager->m_sPortals.screencopy->restoreRemoteDesktopSelection(sessionHandle, PSESSION->restoreData);
+    }
 
     return {0, {}};
 }
