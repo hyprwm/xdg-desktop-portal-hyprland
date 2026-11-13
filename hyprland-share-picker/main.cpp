@@ -52,7 +52,8 @@ static int runRemoteDesktopConsent(const CSharedPointer<IBackend>& backend) {
     const bool  KEYBOARD     = DEVICE_TYPES.contains("keyboard");
     const auto  WHAT         = POINTER && !KEYBOARD ? "pointer" : (KEYBOARD && !POINTER ? "keyboard" : "pointer and keyboard");
     // App IDs are caller-controlled: escape markup to prevent spoofing the dialog.
-    const auto APP = escapeMarkup(APPID && *APPID ? APPID : "An application");
+    const bool HAS_APP = APPID && *APPID;
+    const auto APP     = escapeMarkup(HAS_APP ? APPID : "An application");
     LAYOUT->addChild(CTextBuilder::begin()->text(APP + " wants to control your " + WHAT + ".")->color([backend] { return backend->getPalette()->m_colors.text; })->commence());
 
     // Persistence is offered only when requested, and is never selected by default.
@@ -62,8 +63,10 @@ static int runRemoteDesktopConsent(const CSharedPointer<IBackend>& backend) {
         const auto ROW = CRowLayoutBuilder::begin()->gap(8)->commence();
         persistBox     = CCheckboxBuilder::begin()->toggled(false)->commence();
         ROW->addChild(persistBox);
-        ROW->addChild(
-            CTextBuilder::begin()->text("Allow " + APP + " to skip this prompt in the future")->color([backend] { return backend->getPalette()->m_colors.text; })->commence());
+        ROW->addChild(CTextBuilder::begin()
+                          ->text("Allow " + (HAS_APP ? APP : std::string{"this application"}) + " to skip this prompt in the future")
+                          ->color([backend] { return backend->getPalette()->m_colors.text; })
+                          ->commence());
         LAYOUT->addChild(ROW);
     }
 
