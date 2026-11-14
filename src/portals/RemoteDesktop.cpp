@@ -1092,7 +1092,7 @@ void CRemoteDesktopPortal::onNotifyKeyboardKeysym(sdbus::ObjectPath sessionHandl
         return;
 
     const auto PRESSED = PSESSION->keysymKeycodes.find(keysym);
-    auto       KEY     = state != 1 && PRESSED != PSESSION->keysymKeycodes.end() ?
+    auto       KEY     = PRESSED != PSESSION->keysymKeycodes.end() ?
         PRESSED->second :
         keycodeFromKeysym(PSESSION->keymap.keymap, keysym, xkb_state_serialize_layout(PSESSION->xkbState->get(), XKB_STATE_LAYOUT_EFFECTIVE));
     if (!KEY.keycode) {
