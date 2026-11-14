@@ -7,6 +7,7 @@
 #include "xdg-output-unstable-v1.hpp"
 
 #include <pipewire/pipewire.h>
+#include <sdbus-c++/Types.h>
 #include <sys/mman.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -154,13 +155,14 @@ void CPortalManager::onGlobal(uint32_t name, const char* interface, uint32_t ver
         });
         m_sWaylandConnection.linuxDmabufFeedback->setFormatTable([this](CCZwpLinuxDmabufFeedbackV1* r, int fd, uint32_t size) {
             Debug::log(TRACE, "[core] dmabufFeedbackFormatTable");
+            const sdbus::UnixFd tableFd{fd, sdbus::adopt_fd};
 
             if (m_sWaylandConnection.dma.done)
                 return;
 
             m_vDMABUFMods.clear();
 
-            m_sWaylandConnection.dma.formatTable = mmap(NULL, size, PROT_READ, MAP_PRIVATE, fd, 0);
+            m_sWaylandConnection.dma.formatTable = mmap(NULL, size, PROT_READ, MAP_PRIVATE, tableFd.get(), 0);
 
             if (m_sWaylandConnection.dma.formatTable == MAP_FAILED) {
                 Debug::log(ERR, "[core] format table failed to mmap");
