@@ -1100,6 +1100,18 @@ void CRemoteDesktopPortal::onNotifyKeyboardKeysym(sdbus::ObjectPath sessionHandl
         return;
     }
 
+    // Keysyms such as 'a' and 'A' can share one keycode, which the compositor sees as a
+    // single key: a newer press takes it over, and the older keysym's release is dropped.
+    const auto ALIAS = std::ranges::find_if(PSESSION->keysymKeycodes, [&](const auto& held) { return held.first != keysym && held.second.keycode == KEY.keycode; });
+    if (ALIAS != PSESSION->keysymKeycodes.end()) {
+        if (state != 1)
+            return;
+
+        PSESSION->keysymKeycodes.erase(ALIAS);
+        PSESSION->virtualKeyboard->sendKey(currentTimeMs(), KEY.keycode, 0);
+        PSESSION->xkbState->key(KEY.keycode, false);
+    }
+
     if (state == 1) {
         KEY.keysym                       = keysym;
         KEY.order                        = ++PSESSION->keysymPresses;
