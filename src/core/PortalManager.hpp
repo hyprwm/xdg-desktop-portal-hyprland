@@ -153,6 +153,8 @@ class CPortalManager {
     // Falls back to physical dimensions if logical not yet computed.
     void getOutputExtents(uint32_t& w, uint32_t& h);
     void getOutputLayout(int32_t& x, int32_t& y, uint32_t& w, uint32_t& h);
+    // Whether every usable output has reported xdg-output geometry, so layouts may use it.
+    bool hasCompleteLogicalLayout();
 
     // terminate after the event loop has been created. Before we can exit()
     void terminate();

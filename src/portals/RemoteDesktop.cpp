@@ -441,7 +441,11 @@ std::vector<CRemoteDesktopPortal::SEISRegion> CRemoteDesktopPortal::pointerRegio
 
     // Mirror getOutputLayout's preference: logical geometry for every output, or
     // wl_output geometry for every output, never a mix of the two spaces.
+    const bool LOGICAL_COMPLETE = g_pPortalManager->hasCompleteLogicalLayout();
     for (const bool LOGICAL : {true, false}) {
+        if (LOGICAL && !LOGICAL_COMPLETE)
+            continue;
+
         for (const auto& OUTPUT : g_pPortalManager->getAllOutputs()) {
             int32_t x = 0, y = 0, w = 0, h = 0;
             if (!(LOGICAL ? OUTPUT->logicalGeometry(x, y, w, h) : OUTPUT->fallbackGeometry(x, y, w, h)))

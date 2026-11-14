@@ -755,10 +755,31 @@ void CPortalManager::getOutputExtents(uint32_t& w, uint32_t& h) {
     getOutputLayout(x, y, w, h);
 }
 
+bool CPortalManager::hasCompleteLogicalLayout() {
+    bool found = false;
+    for (auto& o : m_vOutputs) {
+        int32_t oX = 0, oY = 0, oW = 0, oH = 0;
+        if (o->logicalGeometry(oX, oY, oW, oH)) {
+            found = true;
+            continue;
+        }
+
+        // Usable through wl_output but not yet through xdg-output, e.g. just after a hot-plug.
+        if (o->fallbackGeometry(oX, oY, oW, oH))
+            return false;
+    }
+    return found;
+}
+
 void CPortalManager::getOutputLayout(int32_t& x, int32_t& y, uint32_t& w, uint32_t& h) {
-    // Logical geometry first; only fall back to wl_output geometry when xdg-output has
-    // reported for none of the outputs, so the layout never mixes the two spaces.
+    // Logical geometry only once xdg-output has reported for every usable output;
+    // otherwise wl_output geometry for all of them, so the layout never mixes the two
+    // spaces or leaves out an output that hasn't reported yet.
+    const bool LOGICAL_COMPLETE = hasCompleteLogicalLayout();
     for (const bool LOGICAL : {true, false}) {
+        if (LOGICAL && !LOGICAL_COMPLETE)
+            continue;
+
         int32_t minX = 0, minY = 0, maxX = 0, maxY = 0;
         bool    found = false;
 
