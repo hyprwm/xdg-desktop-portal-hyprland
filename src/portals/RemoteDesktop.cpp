@@ -479,6 +479,7 @@ void CRemoteDesktopPortal::removeEISPointerDevice(SSession* session, bool notify
         return;
 
     releasePointerButtons(session);
+    resetPointerScroll(session);
     if (notifyClient)
         eis_device_remove(session->eisPointer);
     eis_device_unref(session->eisPointer);
@@ -1259,10 +1260,12 @@ void CRemoteDesktopPortal::processEISEvents() {
                         if (dy != 0.0) {
                             s->virtualPointer->sendAxisSource(2);
                             s->virtualPointer->sendAxis(time, 0, wl_fixed_from_double(dy));
+                            s->axisActiveY = true;
                         }
                         if (dx != 0.0) {
                             s->virtualPointer->sendAxisSource(2);
                             s->virtualPointer->sendAxis(time, 1, wl_fixed_from_double(dx));
+                            s->axisActiveX = true;
                         }
                     }
                     break;
@@ -1289,10 +1292,14 @@ void CRemoteDesktopPortal::processEISEvents() {
                 case EIS_EVENT_SCROLL_STOP:
                 case EIS_EVENT_SCROLL_CANCEL: {
                     if (s->virtualPointer) {
-                        if (eis_event_scroll_get_stop_y(event))
+                        if (eis_event_scroll_get_stop_y(event)) {
                             s->virtualPointer->sendAxisStop(time, 0);
-                        if (eis_event_scroll_get_stop_x(event))
+                            s->axisActiveY = false;
+                        }
+                        if (eis_event_scroll_get_stop_x(event)) {
                             s->virtualPointer->sendAxisStop(time, 1);
+                            s->axisActiveX = false;
+                        }
                     }
                     break;
                 }
@@ -1300,8 +1307,10 @@ void CRemoteDesktopPortal::processEISEvents() {
                     // Each device only releases its own held input.
                     if (eis_event_get_device(event) == s->eisKeyboard)
                         releaseKeyboardKeys(s.get());
-                    else if (eis_event_get_device(event) == s->eisPointer)
+                    else if (eis_event_get_device(event) == s->eisPointer) {
                         releasePointerButtons(s.get());
+                        resetPointerScroll(s.get());
+                    }
                     break;
                 }
                 case EIS_EVENT_KEYBOARD_KEY: {
@@ -1367,6 +1376,25 @@ void CRemoteDesktopPortal::releasePointerButtons(SSession* session) {
         wl_display_flush(g_pPortalManager->m_sWaylandConnection.display);
     }
     session->eisHeldButtons.clear();
+}
+
+void CRemoteDesktopPortal::resetPointerScroll(SSession* session) {
+    session->discreteScrollX = 0;
+    session->discreteScrollY = 0;
+    if (!session->axisActiveX && !session->axisActiveY)
+        return;
+
+    if (session->virtualPointer) {
+        const auto TIME = currentTimeMs();
+        if (session->axisActiveY)
+            session->virtualPointer->sendAxisStop(TIME, 0);
+        if (session->axisActiveX)
+            session->virtualPointer->sendAxisStop(TIME, 1);
+        session->virtualPointer->sendFrame();
+        wl_display_flush(g_pPortalManager->m_sWaylandConnection.display);
+    }
+    session->axisActiveX = false;
+    session->axisActiveY = false;
 }
 
 CRemoteDesktopPortal::SKeycode CRemoteDesktopPortal::newestHeldKeysym(const SSession* session) {

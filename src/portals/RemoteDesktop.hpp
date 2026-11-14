@@ -154,6 +154,8 @@ class CRemoteDesktopPortal {
     static void releaseKeymap(SKeymap& keymap);
     static void releaseKeyboardKeys(SSession* session);
     static void releasePointerButtons(SSession* session);
+    // End any scroll an EIS pointer left running and drop its partial wheel steps.
+    static void resetPointerScroll(SSession* session);
     // The most recently pressed keysym still held, or an empty key if none is.
     static SKeycode newestHeldKeysym(const SSession* session);
     // Send the session's modifiers with `pending`'s level applied on top, or else the
