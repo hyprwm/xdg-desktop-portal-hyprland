@@ -900,9 +900,13 @@ dbUasv CRemoteDesktopPortal::onStart(sdbus::ObjectPath requestHandle, sdbus::Obj
         // A restored grant is already in the store — hand the same one back rather than
         // appending a duplicate entry on every restore.
         const auto TOKEN = PSESSION->restored ? PSESSION->restoreToken : issueRestoreToken(appID, PSESSION->deviceTypes);
-        if (TOKEN.empty())
+        if (TOKEN.empty()) {
+            // Without the grant the screencast half would never be restored either, so
+            // don't hand out a restore token at all.
             Debug::log(WARN, "[remotedesktop] failed to persist restore token");
-        else {
+            results.erase("restore_data");
+            results.erase("persist_mode");
+        } else {
             // The screencast half of a combined session may already have written its own
             // blob into results; merge into it rather than clobbering it.
             std::unordered_map<std::string, sdbus::Variant> restoreData;
