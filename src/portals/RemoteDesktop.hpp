@@ -56,8 +56,9 @@ class CRemoteDesktopPortal {
         uint32_t           keycode   = 0;
         xkb_mod_mask_t     modifiers = 0;
         xkb_layout_index_t layout    = XKB_LAYOUT_INVALID;
-        // Real modifiers withheld while this keysym is held, so they can't change its level.
-        xkb_mod_mask_t dropped = 0;
+        // The keysym this key was pressed for; its conflicting modifiers are recomputed
+        // against the current state whenever modifiers are sent.
+        xkb_keysym_t keysym = XKB_KEY_NoSymbol;
         // Press sequence number; the newest held keysym is the one a client repeats.
         uint64_t order = 0;
         // Whether the key repeats; a held modifier never takes over a client's key repeat.

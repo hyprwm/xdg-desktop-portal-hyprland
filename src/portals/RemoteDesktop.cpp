@@ -1101,7 +1101,7 @@ void CRemoteDesktopPortal::onNotifyKeyboardKeysym(sdbus::ObjectPath sessionHandl
     }
 
     if (state == 1) {
-        KEY.dropped                      = PSESSION->xkbState->conflictingMods(KEY.keycode, keysym, KEY.modifiers, KEY.layout);
+        KEY.keysym                       = keysym;
         KEY.order                        = ++PSESSION->keysymPresses;
         KEY.repeats                      = xkb_keymap_key_repeats(PSESSION->keymap.keymap, KEY.keycode + 8);
         PSESSION->keysymKeycodes[keysym] = KEY;
@@ -1410,9 +1410,12 @@ CRemoteDesktopPortal::SKeycode CRemoteDesktopPortal::newestHeldKeysym(const SSes
 // 'b' pressed while a Shift-selected 'A' is still down into 'B'. Older held keysyms
 // don't repeat anymore, so letting the newest win is safe. Non-repeating keys such as
 // Control_L don't take over the repeat, so the newest repeating key wins over them.
+// Conflicts are resolved against the current state rather than at press time, so a
+// real modifier or lock that changes while the keysym is held can't flip its repeats.
 void CRemoteDesktopPortal::sendSessionModifiers(SSession* session, const SKeycode& pending) {
-    const auto KEY = pending.keycode ? pending : newestHeldKeysym(session);
-    sendModifiers(session->virtualKeyboard.get(), session->xkbState->get(), KEY.modifiers, KEY.layout, KEY.dropped);
+    const auto KEY     = pending.keycode ? pending : newestHeldKeysym(session);
+    const auto DROPPED = KEY.keycode && KEY.keysym != XKB_KEY_NoSymbol ? session->xkbState->conflictingMods(KEY.keycode, KEY.keysym, KEY.modifiers, KEY.layout) : 0;
+    sendModifiers(session->virtualKeyboard.get(), session->xkbState->get(), KEY.modifiers, KEY.layout, DROPPED);
 }
 
 // ─── Keysym → keycode conversion ─────────────────────────────────
