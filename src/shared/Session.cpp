@@ -1,6 +1,7 @@
 #include "Session.hpp"
 #include "../core/PortalManager.hpp"
 #include "../helpers/Log.hpp"
+#include <chrono>
 
 static int onCloseRequest(SDBusRequest* req) {
     Debug::log(TRACE, "[internal] Close Request {}", (void*)req);
@@ -20,8 +21,22 @@ static int onCloseSession(SDBusSession* sess) {
     if (!sess)
         return 0;
 
+    // A repeated Close before the deferred destroy runs must not queue a second
+    // callback: onDestroy may free sess, leaving that callback dangling.
+    if (sess->closing) {
+        Debug::log(LOG, "[internal] Close Session {}: already closing, ignored", sess->handle.c_str());
+        return 0;
+    }
+
+    sess->closing = true;
+    Debug::log(LOG, "[internal] Close Session {}: received, destroy deferred", sess->handle.c_str());
+
+    // The teardown waits for the event loop; log how long, so a busy loop (e.g. a
+    // synchronous picker) shows up next to the frontend's close timeouts.
     auto destroy = std::move(sess->onDestroy);
-    g_pPortalManager->addTimer({0, [sess, destroy]() {
+    g_pPortalManager->addTimer({0, [sess, destroy, received = std::chrono::steady_clock::now()]() {
+                                    const auto DELAY = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - received);
+                                    Debug::log(LOG, "[internal] Close Session {}: destroying after {}ms", sess->handle.c_str(), DELAY.count());
                                     sess->object.reset();
                                     if (destroy)
                                         destroy();
@@ -36,6 +51,7 @@ std::unique_ptr<SDBusSession> createDBusSession(sdbus::ObjectPath handle) {
     std::unique_ptr<SDBusSession> pSession = std::make_unique<SDBusSession>();
     const auto                    PSESSION = pSession.get();
 
+    pSession->handle = handle;
     pSession->object = sdbus::createObject(*g_pPortalManager->getConnection(), handle);
 
     pSession->object->addVTable(sdbus::registerMethod("Close").implementedAs([PSESSION]() { onCloseSession(PSESSION); })).forInterface("org.freedesktop.impl.portal.Session");
