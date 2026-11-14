@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <charconv>
+#include <chrono>
 #include <cmath>
 #include <limits>
 #include <optional>
@@ -266,7 +267,11 @@ SSelectionData promptForScreencopySelection(bool allowWindows) {
     proc.addEnv("XDPH_WORKSPACE_SHARING_LIST_V2", v2Workspaces);
     proc.addEnv("XDPH_WORKSPACE_SHARING_LIST", legacyWorkspaces);
 
-    if (!proc.runSync())
+    const auto PICKERSTART = std::chrono::steady_clock::now();
+    const bool PICKEROK    = proc.runSync();
+    Debug::log(LOG, "[screencopy] share picker blocked the event loop for {}ms",
+               std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - PICKERSTART).count());
+    if (!PICKEROK)
         return {};
 
     const auto RETVAL    = proc.stdOut();
@@ -309,7 +314,11 @@ bool promptForRemoteDesktopConsent(const std::string& appID, uint32_t deviceType
     proc.addEnv("XDPH_REMOTE_DESKTOP_DEVICE_TYPES", devices);
     proc.addEnv("XDPH_REMOTE_DESKTOP_PERSIST", persistRequested ? "1" : "0");
 
-    if (!proc.runSync() || !proc.stdOut().contains("[AUTHORIZED]"))
+    const auto PICKERSTART = std::chrono::steady_clock::now();
+    const bool PICKEROK    = proc.runSync();
+    Debug::log(LOG, "[remotedesktop] consent dialog blocked the event loop for {}ms",
+               std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - PICKERSTART).count());
+    if (!PICKEROK || !proc.stdOut().contains("[AUTHORIZED]"))
         return false;
 
     if (persistGranted)

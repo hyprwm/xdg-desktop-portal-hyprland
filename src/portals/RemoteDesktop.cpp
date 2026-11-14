@@ -1515,5 +1515,5 @@ void CRemoteDesktopPortal::destroySession(const sdbus::ObjectPath& path) {
         g_pPortalManager->m_sPortals.screencopy->destroyRemoteDesktopSession(path);
 
     std::erase_if(m_vSessions, [&](const auto& session) { return session->sessionHandle == path; });
-    Debug::log(LOG, "[remotedesktop] session {} destroyed", path.c_str());
+    Debug::log(LOG, "[remotedesktop] session {} destroyed, {} still alive", path.c_str(), m_vSessions.size());
 }
