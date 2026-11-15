@@ -334,8 +334,21 @@ dbUasv CScreencopyPortal::onStart(sdbus::ObjectPath requestHandle, sdbus::Object
     std::vector<sdbus::Struct<uint32_t, std::unordered_map<std::string, sdbus::Variant>>> streams;
 
     std::unordered_map<std::string, sdbus::Variant>                                       streamData;
-    streamData["position"]    = sdbus::Variant{sdbus::Struct<int32_t, int32_t>{0, 0}};
-    streamData["size"]        = sdbus::Variant{sdbus::Struct<int32_t, int32_t>{PSESSION->sharingData.frameInfoSHM.w, PSESSION->sharingData.frameInfoSHM.h}};
+    int32_t                                                                               x = 0, y = 0;
+    int32_t                                                                               w = PSESSION->sharingData.frameInfoSHM.w, h = PSESSION->sharingData.frameInfoSHM.h;
+
+    if (PSESSION->selection.type == TYPE_OUTPUT) {
+        const auto POUTPUT = g_pPortalManager->getOutputFromName(PSESSION->selection.output);
+        if (POUTPUT && POUTPUT->logicalPositionValid && POUTPUT->logicalSizeValid) {
+            x = POUTPUT->logicalX;
+            y = POUTPUT->logicalY;
+            w = POUTPUT->logicalWidth;
+            h = POUTPUT->logicalHeight;
+        }
+    }
+
+    streamData["position"]    = sdbus::Variant{sdbus::Struct<int32_t, int32_t>{x, y}};
+    streamData["size"]        = sdbus::Variant{sdbus::Struct<int32_t, int32_t>{w, h}};
     streamData["source_type"] = sdbus::Variant{uint32_t{type}};
 
     if (PSESSION->selection.type == TYPE_OUTPUT && !PSESSION->selection.output.empty())
