@@ -41,5 +41,6 @@ int main(int argc, char** argv, char** envp) {
 
     g_pPortalManager->init();
 
-    return 0;
+    // Initialization and the event loop only return after a fatal error.
+    return 1;
 }

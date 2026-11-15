@@ -285,8 +285,6 @@ void CPortalManager::onGlobalRemoved(uint32_t name) {
 }
 
 void CPortalManager::init() {
-    m_iPID = getpid();
-
     try {
         m_pConnection = sdbus::createSessionBusConnection(sdbus::ServiceName{"org.freedesktop.impl.portal.desktop.hyprland"});
     } catch (std::exception& e) {
@@ -328,10 +326,16 @@ void CPortalManager::init() {
 
     Debug::log(LOG, "Gathering exported interfaces");
 
-    wl_display_roundtrip(m_sWaylandConnection.display);
+    if (wl_display_roundtrip(m_sWaylandConnection.display) < 0) {
+        Debug::log(CRIT, "[core] Wayland registry roundtrip failed: {}", strerror(errno));
+        return;
+    }
     // A second roundtrip lets per-output protocol objects created from registry
     // globals, such as xdg_output, receive their initial state.
-    wl_display_roundtrip(m_sWaylandConnection.display);
+    if (wl_display_roundtrip(m_sWaylandConnection.display) < 0) {
+        Debug::log(CRIT, "[core] Wayland output roundtrip failed: {}", strerror(errno));
+        return;
+    }
 
     if (!m_sPortals.screencopy)
         Debug::log(WARN, "Screencopy not started: compositor doesn't support zwlr_screencopy_v1 or pw refused a loop");
@@ -358,9 +362,46 @@ void CPortalManager::init() {
             Debug::log(INFO, "hyprpicker not found. We suggest to use hyprpicker for color picking to be less meh.");
     }
 
-    wl_display_roundtrip(m_sWaylandConnection.display);
+    if (wl_display_roundtrip(m_sWaylandConnection.display) < 0) {
+        Debug::log(CRIT, "[core] Wayland initialization roundtrip failed: {}", strerror(errno));
+        return;
+    }
 
     startEventLoop();
+}
+
+bool CPortalManager::processWaylandEvents(bool read) {
+    const auto DISPLAY = m_sWaylandConnection.display;
+
+    if (read) {
+        if (wl_display_prepare_read(DISPLAY) == 0) {
+            if (wl_display_read_events(DISPLAY) < 0) {
+                Debug::log(CRIT, "[core] Wayland read failed: {}", strerror(errno));
+                return false;
+            }
+        } else if (errno != EAGAIN) {
+            Debug::log(CRIT, "[core] Wayland prepare read failed: {}", strerror(errno));
+            return false;
+        }
+        // EAGAIN means there are already queued events. Dispatch them below
+        // without a blocking read; poll will report any remaining socket data.
+    }
+
+    int dispatched = 0;
+    do {
+        dispatched = wl_display_dispatch_pending(DISPLAY);
+        if (dispatched < 0) {
+            Debug::log(CRIT, "[core] Wayland dispatch failed: {}", strerror(errno));
+            return false;
+        }
+
+        if (wl_display_flush(DISPLAY) < 0 && errno != EAGAIN) {
+            Debug::log(CRIT, "[core] Wayland flush failed: {}", strerror(errno));
+            return false;
+        }
+    } while (dispatched > 0);
+
+    return true;
 }
 
 void CPortalManager::startEventLoop() {
@@ -369,10 +410,13 @@ void CPortalManager::startEventLoop() {
     addFdToEventLoop(pw_loop_get_fd(m_sPipewire.loop), POLLIN, nullptr);
 
     std::thread pollThr([this]() {
-        while (1) {
+        while (!m_bTerminate) {
 
             int ret = poll(m_sEventLoopInternals.pollFds.data(), m_sEventLoopInternals.pollFds.size(), 5000 /* 5 seconds, reasonable. It's because we might need to terminate */);
             if (ret < 0) {
+                if (errno == EINTR)
+                    continue;
+
                 Debug::log(CRIT, "[core] Polling fds failed with {}", strerror(errno));
                 g_pPortalManager->terminate();
                 break;
@@ -400,21 +444,23 @@ void CPortalManager::startEventLoop() {
     });
 
     m_sTimersThread.thread = std::make_unique<std::thread>([this] {
-        while (1) {
-            std::unique_lock lk(m_sTimersThread.loopMutex);
-
+        while (!m_bTerminate) {
             // find nearest timer ms
-            m_mEventLock.lock();
             float nearest = 60000; /* reasonable timeout */
-            for (auto& t : m_sTimersThread.timers) {
-                float until = t->duration() - t->passedMs();
-                if (until < nearest)
-                    nearest = until;
+            {
+                std::lock_guard eventLock(m_mEventLock);
+                for (auto& t : m_sTimersThread.timers) {
+                    float until = t->duration() - t->passedMs();
+                    if (until < nearest)
+                        nearest = until;
+                }
             }
-            m_mEventLock.unlock();
 
-            m_sTimersThread.loopSignal.wait_for(lk, std::chrono::milliseconds((int)nearest), [this] { return m_sTimersThread.shouldProcess; });
-            m_sTimersThread.shouldProcess = false;
+            {
+                std::unique_lock lk(m_sTimersThread.loopMutex);
+                m_sTimersThread.loopSignal.wait_for(lk, std::chrono::milliseconds((int)nearest), [this] { return m_sTimersThread.shouldProcess || m_bTerminate; });
+                m_sTimersThread.shouldProcess = false;
+            }
 
             if (m_bTerminate)
                 break;
@@ -452,7 +498,7 @@ void CPortalManager::startEventLoop() {
 
         m_sEventLoopInternals.shouldProcess = false;
 
-        m_mEventLock.lock();
+        std::lock_guard eventLock(m_mEventLock);
 
         if (m_sEventLoopInternals.pollFds[0].revents & POLLIN /* dbus */) {
             while (m_pConnection->processPendingEvent()) {
@@ -460,14 +506,9 @@ void CPortalManager::startEventLoop() {
             }
         }
 
-        if (m_sEventLoopInternals.pollFds[1].revents & POLLIN /* wl */) {
-            wl_display_flush(m_sWaylandConnection.display);
-            if (wl_display_prepare_read(m_sWaylandConnection.display) == 0) {
-                wl_display_read_events(m_sWaylandConnection.display);
-                wl_display_dispatch_pending(m_sWaylandConnection.display);
-            } else {
-                wl_display_dispatch(m_sWaylandConnection.display);
-            }
+        if (!processWaylandEvents(m_sEventLoopInternals.pollFds[1].revents & POLLIN /* wl */)) {
+            terminate();
+            break;
         }
 
         if (m_sEventLoopInternals.pollFds[2].revents & POLLIN /* pw */) {
@@ -493,18 +534,21 @@ void CPortalManager::startEventLoop() {
             timer->m_fnCallback();
         }
 
-        int ret = 0;
-        do {
-            ret = wl_display_dispatch_pending(m_sWaylandConnection.display);
-            wl_display_flush(m_sWaylandConnection.display);
-        } while (ret > 0);
+        if (!processWaylandEvents(false)) {
+            terminate();
+            break;
+        }
 
         if (!toRemove.empty())
             std::erase_if(m_sTimersThread.timers,
                           [&](const auto& t) { return std::find_if(toRemove.begin(), toRemove.end(), [&](const auto& other) { return other == t.get(); }) != toRemove.end(); });
-
-        m_mEventLock.unlock();
     }
+
+    // Workers must stop using the event loop and timers before their resources
+    // are destroyed. The poll thread checks termination at least every 5s.
+    pollThr.join();
+    m_sTimersThread.thread->join();
+    m_sTimersThread.thread.reset();
 
     Debug::log(ERR, "[core] Terminated");
 
@@ -513,14 +557,12 @@ void CPortalManager::startEventLoop() {
     m_sPortals.screenshot.reset();
     m_sHelpers.toplevel.reset();
     m_sHelpers.toplevelMapping.reset();
+    m_sHelpers.workspaceTracker.reset();
     m_sPortals.inputCapture.reset();
 
     m_pConnection.reset();
     pw_loop_destroy(m_sPipewire.loop);
     releaseWayland();
-
-    m_sTimersThread.thread.release();
-    pollThr.join(); // wait for poll to exit
 }
 
 sdbus::IConnection* CPortalManager::getConnection() {
@@ -584,7 +626,10 @@ gbm_device* CPortalManager::createGBMDevice(drmDevice* dev) {
 void CPortalManager::addTimer(const CTimer& timer) {
     Debug::log(TRACE, "[core] adding timer for {}ms", timer.duration());
     m_sTimersThread.timers.emplace_back(std::make_unique<CTimer>(timer));
-    m_sTimersThread.shouldProcess = true;
+    {
+        std::lock_guard lk(m_sTimersThread.loopMutex);
+        m_sTimersThread.shouldProcess = true;
+    }
     m_sTimersThread.loopSignal.notify_all();
 }
 
@@ -604,6 +649,8 @@ void CPortalManager::removeFdFromEventLoop(int fd) {
 
 void CPortalManager::releaseWayland() {
     m_vOutputs.clear();
+    m_sWaylandConnection.icc.reset();
+    m_sWaylandConnection.workspaceSource.reset();
     m_sWaylandConnection.linuxDmabufFeedback.reset();
     m_sWaylandConnection.linuxDmabuf.reset();
     m_sWaylandConnection.hyprlandToplevelMgr.reset();
@@ -619,18 +666,17 @@ void CPortalManager::releaseWayland() {
 }
 
 void CPortalManager::terminate() {
-    m_bTerminate = true;
-
-    // if we don't exit in 5s, we'll kill by force. Nuclear option. PIDs are not reused in linux until a wrap-around,
-    // and I doubt anyone will make 4.2M PIDs within 5s.
-    if (fork() == 0)
-        execl("/bin/sh", "/bin/sh", "-c", std::format("sleep 5 && kill -9 {}", m_iPID).c_str(), nullptr);
+    if (m_bTerminate.exchange(true))
+        return;
 
     {
         m_sEventLoopInternals.shouldProcess = true;
         m_sEventLoopInternals.loopSignal.notify_all();
     }
 
-    m_sTimersThread.shouldProcess = true;
+    {
+        std::lock_guard lk(m_sTimersThread.loopMutex);
+        m_sTimersThread.shouldProcess = true;
+    }
     m_sTimersThread.loopSignal.notify_all();
 }
