@@ -331,10 +331,20 @@ dbUasv CScreencopyPortal::onStart(sdbus::ObjectPath requestHandle, sdbus::Object
     }
     options["source_type"] = sdbus::Variant{type};
 
+    // position is in the compositor's logical coordinate space, so prefer xdg-output over wl_output
+    int32_t positionX = 0;
+    int32_t positionY = 0;
+    if (PSESSION->selection.type == TYPE_OUTPUT) {
+        if (const auto POUTPUT = g_pPortalManager->getOutputFromName(PSESSION->selection.output); POUTPUT) {
+            positionX = POUTPUT->logicalPositionValid ? POUTPUT->logicalX : POUTPUT->x;
+            positionY = POUTPUT->logicalPositionValid ? POUTPUT->logicalY : POUTPUT->y;
+        }
+    }
+
     std::vector<sdbus::Struct<uint32_t, std::unordered_map<std::string, sdbus::Variant>>> streams;
 
     std::unordered_map<std::string, sdbus::Variant>                                       streamData;
-    streamData["position"]    = sdbus::Variant{sdbus::Struct<int32_t, int32_t>{0, 0}};
+    streamData["position"]    = sdbus::Variant{sdbus::Struct<int32_t, int32_t>{positionX, positionY}};
     streamData["size"]        = sdbus::Variant{sdbus::Struct<int32_t, int32_t>{PSESSION->sharingData.frameInfoSHM.w, PSESSION->sharingData.frameInfoSHM.h}};
     streamData["source_type"] = sdbus::Variant{uint32_t{type}};
 
