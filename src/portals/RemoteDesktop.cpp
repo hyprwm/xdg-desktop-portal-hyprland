@@ -1022,6 +1022,10 @@ void CRemoteDesktopPortal::onNotifyPointerButton(sdbus::ObjectPath sessionHandle
     if (!PSESSION || !PSESSION->virtualPointer)
         return;
 
+    if (state)
+        PSESSION->heldButtons.insert(sc<uint32_t>(button));
+    else
+        PSESSION->heldButtons.erase(sc<uint32_t>(button));
     PSESSION->virtualPointer->sendButton(currentTimeMs(), button, state);
     PSESSION->virtualPointer->sendFrame();
     wl_display_flush(g_pPortalManager->m_sWaylandConnection.display);
@@ -1258,9 +1262,9 @@ void CRemoteDesktopPortal::processEISEvents() {
                         uint32_t button = eis_event_button_get_button(event);
                         uint32_t state  = eis_event_button_get_is_press(event) ? 1 : 0;
                         if (state)
-                            s->eisHeldButtons.insert(button);
+                            s->heldButtons.insert(button);
                         else
-                            s->eisHeldButtons.erase(button);
+                            s->heldButtons.erase(button);
                         s->virtualPointer->sendButton(time, button, state);
                     }
                     break;
@@ -1377,17 +1381,17 @@ void CRemoteDesktopPortal::releaseKeyboardKeys(SSession* session) {
 }
 
 void CRemoteDesktopPortal::releasePointerButtons(SSession* session) {
-    if (session->eisHeldButtons.empty())
+    if (session->heldButtons.empty())
         return;
 
     if (session->virtualPointer) {
         const auto TIME = currentTimeMs();
-        for (const auto BUTTON : session->eisHeldButtons)
+        for (const auto BUTTON : session->heldButtons)
             session->virtualPointer->sendButton(TIME, BUTTON, 0);
         session->virtualPointer->sendFrame();
         wl_display_flush(g_pPortalManager->m_sWaylandConnection.display);
     }
-    session->eisHeldButtons.clear();
+    session->heldButtons.clear();
 }
 
 void CRemoteDesktopPortal::resetPointerScroll(SSession* session) {

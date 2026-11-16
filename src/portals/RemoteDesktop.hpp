@@ -125,9 +125,9 @@ class CRemoteDesktopPortal {
         int32_t                               discreteScrollY = 0;
         std::unordered_map<int32_t, SKeycode> keysymKeycodes;
         uint64_t                              keysymPresses = 0;
-        // Buttons an EIS client is holding, so they can be released if it stops
-        // emulating mid-drag instead of leaving the desktop dragging.
-        std::unordered_set<uint32_t> eisHeldButtons;
+        // Buttons a D-Bus or EIS client is holding, so they can be released if it stops
+        // emulating or closes the session mid-drag instead of leaving the desktop dragging.
+        std::unordered_set<uint32_t> heldButtons;
 
         SKeymap                      keymap;
 
