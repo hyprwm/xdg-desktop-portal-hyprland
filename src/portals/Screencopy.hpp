@@ -12,12 +12,6 @@
 #include "../dbusDefines.hpp"
 #include <chrono>
 
-enum cursorModes {
-    HIDDEN   = 1,
-    EMBEDDED = 2,
-    METADATA = 4,
-};
-
 enum sourceTypes {
     MONITOR = 1,
     WINDOW  = 2,
@@ -55,10 +49,12 @@ class CPipewireConnection;
 class CImageCopyCapture;
 class CCExtImageCopyCaptureManagerV1;
 class CCHyprlandWorkspaceImageCaptureSourceManagerV1;
+class CRestoreTokenStore;
 
 class CScreencopyPortal {
   public:
     CScreencopyPortal(SP<CCZwlrScreencopyManagerV1>);
+    ~CScreencopyPortal();
 
     void   appendToplevelExport(SP<CCHyprlandToplevelExportManagerV1>);
     void   appendICC(SP<CCExtImageCopyCaptureManagerV1>);
@@ -137,6 +133,7 @@ class CScreencopyPortal {
 
   private:
     std::unique_ptr<sdbus::IObject>                          m_pObject;
+    Hyprutils::Memory::CUniquePointer<CRestoreTokenStore>    m_pRestoreTokens;
 
     std::vector<Hyprutils::Memory::CUniquePointer<SSession>> m_vSessions;
 

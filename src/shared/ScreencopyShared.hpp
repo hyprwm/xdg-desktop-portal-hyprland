@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ScreencopyTypes.hpp"
 #include <string>
 #include <cstdint>
 extern "C" {
@@ -19,14 +20,6 @@ extern "C" {
 #define XDPH_PWR_BUFFERS     4
 #define XDPH_PWR_BUFFERS_MIN 2
 #define XDPH_PWR_ALIGN       16
-
-enum eSelectionType {
-    TYPE_INVALID = -1,
-    TYPE_OUTPUT  = 0,
-    TYPE_WINDOW,
-    TYPE_GEOMETRY,
-    TYPE_WORKSPACE,
-};
 
 struct zwlr_foreign_toplevel_handle_v1;
 class CTrackedWorkspace;
