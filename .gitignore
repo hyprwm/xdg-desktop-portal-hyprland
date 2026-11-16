@@ -69,3 +69,5 @@ result-man
 
 # MISCELLANEOUS
 .cache
+.envrc
+.direnv/
