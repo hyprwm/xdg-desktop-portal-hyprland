@@ -565,11 +565,11 @@ bool CRemoteDesktopPortal::acquireKeymap(SKeymap& keymap) {
         return false;
 
     const auto& SOURCE = g_pPortalManager->getCompositorKeymap();
-    if (SOURCE.fd >= 0 && SOURCE.size > 0) {
+    if (SOURCE.fd.isValid() && SOURCE.size > 0) {
         // wl_keyboard only allows a private mapping of this fd, and we want our own
         // descriptor regardless: the mirror is replaced whenever the user's layout
         // changes, and a session has to keep emulating the map it was started with.
-        void* data = mmap(nullptr, SOURCE.size, PROT_READ, MAP_PRIVATE, SOURCE.fd, 0);
+        void* data = mmap(nullptr, SOURCE.size, PROT_READ, MAP_PRIVATE, SOURCE.fd.get(), 0);
         if (data == MAP_FAILED)
             Debug::log(WARN, "[remotedesktop] could not map the compositor keymap: {}", strerror(errno));
         else {
@@ -582,7 +582,7 @@ bool CRemoteDesktopPortal::acquireKeymap(SKeymap& keymap) {
 
             std::unique_ptr<xkb_keymap, decltype(&xkb_keymap_unref)> compiled{
                 xkb_keymap_new_from_string(m_xkbCtx.get(), text.c_str(), XKB_KEYMAP_FORMAT_TEXT_V1, XKB_KEYMAP_COMPILE_NO_FLAGS), xkb_keymap_unref};
-            Hyprutils::OS::CFileDescriptor fd{fcntl(SOURCE.fd, F_DUPFD_CLOEXEC, 0)};
+            Hyprutils::OS::CFileDescriptor fd{fcntl(SOURCE.fd.get(), F_DUPFD_CLOEXEC, 0)};
             if (compiled && fd.isValid()) {
                 keymap.fd     = std::move(fd);
                 keymap.size   = SOURCE.size;

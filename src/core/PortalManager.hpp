@@ -3,6 +3,7 @@
 #include <memory>
 #include <sdbus-c++/sdbus-c++.h>
 #include <hyprlang.hpp>
+#include <hyprutils/os/FileDescriptor.hpp>
 
 #include "wayland.hpp"
 #include "../portals/Screencopy.hpp"
@@ -89,8 +90,8 @@ class CPortalManager {
     // falling back to a generated `us` map. The fd is replaced whenever the compositor
     // reports a new keymap, so consumers that need to keep one take their own copy.
     struct SCompositorKeymap {
-        int      fd   = -1;
-        uint32_t size = 0;
+        Hyprutils::OS::CFileDescriptor fd;
+        uint32_t                       size = 0;
     };
 
     const SCompositorKeymap& getCompositorKeymap() const;
@@ -180,7 +181,7 @@ class CPortalManager {
         std::mutex                           pollMutex;
         std::vector<pollfd>                  pollFds;
         std::map<int, std::function<void()>> pollCallbacks;
-        int                                  wakeFd = -1;
+        Hyprutils::OS::CFileDescriptor       wakeFd;
     } m_sEventLoopInternals;
 
     struct {

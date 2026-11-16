@@ -110,18 +110,15 @@ void CPortalManager::setupSeatKeyboard() {
 
     m_sWaylandConnection.keyboard = makeShared<CCWlKeyboard>(PROXY);
     m_sWaylandConnection.keyboard->setKeymap([this](CCWlKeyboard* r, uint32_t format, int32_t fd, uint32_t size) {
+        // libwayland hands us the only reference to this fd, so keep it rather than
+        // duping: consumers take their own copy when they need one.
+        Hyprutils::OS::CFileDescriptor keymapFd{fd};
         if (format != WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1 || size == 0) {
             Debug::log(WARN, "[core] ignoring compositor keymap in unusable format {} ({} bytes)", format, size);
-            close(fd);
             return;
         }
 
-        // libwayland hands us the only reference to this fd, so keep it rather than
-        // duping: consumers take their own copy when they need one.
-        if (m_sCompositorKeymap.fd >= 0)
-            close(m_sCompositorKeymap.fd);
-
-        m_sCompositorKeymap.fd   = fd;
+        m_sCompositorKeymap.fd   = std::move(keymapFd);
         m_sCompositorKeymap.size = size;
 
         Debug::log(LOG, "[core] compositor keymap mirrored ({} bytes)", size);
@@ -521,8 +518,8 @@ bool CPortalManager::processWaylandEvents(bool read) {
 }
 
 void CPortalManager::startEventLoop() {
-    m_sEventLoopInternals.wakeFd = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
-    if (m_sEventLoopInternals.wakeFd < 0) {
+    m_sEventLoopInternals.wakeFd = Hyprutils::OS::CFileDescriptor{eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK)};
+    if (!m_sEventLoopInternals.wakeFd.isValid()) {
         Debug::log(CRIT, "[core] Failed to create poll wake fd: {}", strerror(errno));
         exit(1);
     }
@@ -543,7 +540,7 @@ void CPortalManager::startEventLoop() {
             ;
         }
     });
-    addFdToEventLoop(m_sEventLoopInternals.wakeFd, POLLIN, nullptr);
+    addFdToEventLoop(m_sEventLoopInternals.wakeFd.get(), POLLIN, nullptr);
 
     std::thread pollThr([this]() {
         while (!m_bTerminate) {
@@ -571,9 +568,9 @@ void CPortalManager::startEventLoop() {
                     if (!polled.revents)
                         continue;
 
-                    if (polled.fd == m_sEventLoopInternals.wakeFd) {
+                    if (polled.fd == m_sEventLoopInternals.wakeFd.get()) {
                         uint64_t value = 0;
-                        while (read(m_sEventLoopInternals.wakeFd, &value, sizeof(value)) > 0) {
+                        while (read(m_sEventLoopInternals.wakeFd.get(), &value, sizeof(value)) > 0) {
                             ;
                         }
                         continue;
@@ -731,13 +728,8 @@ void CPortalManager::startEventLoop() {
     pw_loop_destroy(m_sPipewire.loop);
     releaseWayland();
 
-    if (m_sCompositorKeymap.fd >= 0) {
-        close(m_sCompositorKeymap.fd);
-        m_sCompositorKeymap.fd = -1;
-    }
-
-    close(m_sEventLoopInternals.wakeFd);
-    m_sEventLoopInternals.wakeFd = -1;
+    m_sCompositorKeymap.fd.reset();
+    m_sEventLoopInternals.wakeFd.reset();
 }
 
 sdbus::IConnection* CPortalManager::getConnection() {
@@ -873,9 +865,9 @@ void CPortalManager::addFdToEventLoop(int fd, short events, std::function<void()
             m_sEventLoopInternals.pollCallbacks[fd] = callback;
     }
 
-    if (m_sEventLoopInternals.wakeFd >= 0 && fd != m_sEventLoopInternals.wakeFd) {
+    if (m_sEventLoopInternals.wakeFd.isValid() && fd != m_sEventLoopInternals.wakeFd.get()) {
         const uint64_t value = 1;
-        write(m_sEventLoopInternals.wakeFd, &value, sizeof(value));
+        write(m_sEventLoopInternals.wakeFd.get(), &value, sizeof(value));
     }
 }
 
@@ -886,9 +878,9 @@ void CPortalManager::removeFdFromEventLoop(int fd) {
         m_sEventLoopInternals.pollCallbacks.erase(fd);
     }
 
-    if (m_sEventLoopInternals.wakeFd >= 0) {
+    if (m_sEventLoopInternals.wakeFd.isValid()) {
         const uint64_t value = 1;
-        write(m_sEventLoopInternals.wakeFd, &value, sizeof(value));
+        write(m_sEventLoopInternals.wakeFd.get(), &value, sizeof(value));
     }
 }
 
@@ -919,9 +911,9 @@ void CPortalManager::terminate() {
     if (m_bTerminate.exchange(true))
         return;
 
-    if (m_sEventLoopInternals.wakeFd >= 0) {
+    if (m_sEventLoopInternals.wakeFd.isValid()) {
         const uint64_t value = 1;
-        write(m_sEventLoopInternals.wakeFd, &value, sizeof(value));
+        write(m_sEventLoopInternals.wakeFd.get(), &value, sizeof(value));
     }
 
     {
