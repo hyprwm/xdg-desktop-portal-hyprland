@@ -30,6 +30,7 @@
 #include "../dbusDefines.hpp"
 
 #include <mutex>
+#include <atomic>
 
 struct pw_loop;
 
@@ -163,13 +164,13 @@ class CPortalManager {
 
   private:
     void              startEventLoop();
+    bool              processWaylandEvents(bool read);
     void              setupXDGOutput(SOutput* output);
     void              setupSeatKeyboard();
 
     SCompositorKeymap m_sCompositorKeymap;
 
     std::atomic<bool> m_bTerminate = false;
-    pid_t             m_iPID       = 0;
 
     struct {
         std::condition_variable              loopSignal;
