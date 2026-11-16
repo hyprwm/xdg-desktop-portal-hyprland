@@ -872,8 +872,14 @@ bool CScreencopyPortal::mapRemoteDesktopCoordinates(const sdbus::ObjectPath& ses
         if (!POUTPUT)
             return false;
 
-        globalX += POUTPUT->logicalPositionValid ? POUTPUT->logicalX : POUTPUT->x;
-        globalY += POUTPUT->logicalPositionValid ? POUTPUT->logicalY : POUTPUT->y;
+        // The origin must come from the same geometry space getOutputLayout() picked.
+        int32_t    outputX = 0, outputY = 0, outputW = 0, outputH = 0;
+        const bool LOGICAL = g_pPortalManager->hasCompleteLogicalLayout();
+        if (!(LOGICAL ? POUTPUT->logicalGeometry(outputX, outputY, outputW, outputH) : POUTPUT->fallbackGeometry(outputX, outputY, outputW, outputH)))
+            return false;
+
+        globalX += outputX;
+        globalY += outputY;
         if (PSESSION->selection.type == TYPE_GEOMETRY) {
             globalX += PSESSION->selection.x;
             globalY += PSESSION->selection.y;
