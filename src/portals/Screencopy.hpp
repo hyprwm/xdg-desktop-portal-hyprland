@@ -77,6 +77,8 @@ class CScreencopyPortal {
         uint32_t                                  persistMode     = 0;
         bool                                      remoteDesktop   = false;
         bool                                      sourcesSelected = false;
+        int32_t                                   advertisedW     = 0; // output stream size advertised at Start, the
+        int32_t                                   advertisedH     = 0; // space RemoteDesktop absolute motion arrives in
 
         std::unique_ptr<SDBusRequest>             request;
         std::unique_ptr<SDBusSession>             session;

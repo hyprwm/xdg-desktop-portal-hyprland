@@ -370,6 +370,8 @@ std::unordered_map<std::string, sdbus::Variant> CScreencopyPortal::buildStartRes
             height = outputH;
         }
     }
+    pSession->advertisedW     = width;
+    pSession->advertisedH     = height;
     streamData["position"]    = sdbus::Variant{sdbus::Struct<int32_t, int32_t>{positionX, positionY}};
     streamData["size"]        = sdbus::Variant{sdbus::Struct<int32_t, int32_t>{width, height}};
     streamData["source_type"] = sdbus::Variant{uint32_t{type}};
@@ -874,6 +876,13 @@ bool CScreencopyPortal::mapRemoteDesktopCoordinates(const sdbus::ObjectPath& ses
         const bool LOGICAL = g_pPortalManager->hasCompleteLogicalLayout();
         if (!(LOGICAL ? POUTPUT->logicalGeometry(outputX, outputY, outputW, outputH) : POUTPUT->fallbackGeometry(outputX, outputY, outputW, outputH)))
             return false;
+
+        // The client keeps using the size advertised at Start; rescale if the output's
+        // logical size has changed since, e.g. after a scale change.
+        if (PSESSION->selection.type == TYPE_OUTPUT && PSESSION->advertisedW > 0 && PSESSION->advertisedH > 0) {
+            globalX *= sc<double>(outputW) / PSESSION->advertisedW;
+            globalY *= sc<double>(outputH) / PSESSION->advertisedH;
+        }
 
         globalX += outputX;
         globalY += outputY;
