@@ -411,21 +411,24 @@ CRemoteDesktopPortal::SSession::~SSession() {
     releaseKeymap(keymap);
     if (eisFd >= 0)
         g_pPortalManager->removeFdFromEventLoop(eisFd);
-    if (eisPointer) {
-        eis_device_remove(eisPointer);
-        eis_device_unref(eisPointer);
-    }
-    if (eisKeyboard) {
-        eis_device_remove(eisKeyboard);
-        eis_device_unref(eisKeyboard);
-    }
-    if (eisSeat)
-        eis_seat_unref(eisSeat);
-    if (eis) {
-        eis_unref(eis);
-        eis = nullptr;
-    }
+    if (eisPointer)
+        eis_device_remove(eisPointer.get());
+    if (eisKeyboard)
+        eis_device_remove(eisKeyboard.get());
+    // Members drop their references in reverse order: devices, seat, then the context.
     eisFd = -1;
+}
+
+void CRemoteDesktopPortal::SEISDeleter::operator()(struct eis* p) const {
+    eis_unref(p);
+}
+
+void CRemoteDesktopPortal::SEISDeleter::operator()(struct eis_seat* p) const {
+    eis_seat_unref(p);
+}
+
+void CRemoteDesktopPortal::SEISDeleter::operator()(struct eis_device* p) const {
+    eis_device_unref(p);
 }
 
 // Regions are advertised per output rather than as one bounding box, so a client can
@@ -490,9 +493,8 @@ void CRemoteDesktopPortal::removeEISPointerDevice(SSession* session, bool notify
     releasePointerButtons(session);
     resetPointerScroll(session);
     if (notifyClient)
-        eis_device_remove(session->eisPointer);
-    eis_device_unref(session->eisPointer);
-    session->eisPointer = nullptr;
+        eis_device_remove(session->eisPointer.get());
+    session->eisPointer.reset();
     session->eisPointerRegions.clear();
 }
 
@@ -500,7 +502,7 @@ void CRemoteDesktopPortal::createEISPointerDevice(SSession* session) {
     if (!session->eisSeat)
         return;
 
-    auto* dev = eis_seat_new_device(session->eisSeat);
+    auto* dev = eis_seat_new_device(session->eisSeat.get());
     if (!dev)
         return;
 
@@ -528,7 +530,7 @@ void CRemoteDesktopPortal::createEISPointerDevice(SSession* session) {
 
     eis_device_add(dev);
     eis_device_resume(dev);
-    session->eisPointer        = dev;
+    session->eisPointer.reset(dev);
     session->eisPointerRegions = std::move(regions);
     Debug::log(LOG, "[remotedesktop] EIS pointer device added & resumed with {} region(s)", session->eisPointerRegions.size());
 }
@@ -539,9 +541,8 @@ void CRemoteDesktopPortal::removeEISKeyboardDevice(SSession* session, bool notif
 
     releaseKeyboardKeys(session);
     if (notifyClient)
-        eis_device_remove(session->eisKeyboard);
-    eis_device_unref(session->eisKeyboard);
-    session->eisKeyboard = nullptr;
+        eis_device_remove(session->eisKeyboard.get());
+    session->eisKeyboard.reset();
 }
 
 void CRemoteDesktopPortal::createEISKeyboardDevice(SSession* session) {
@@ -555,7 +556,7 @@ void CRemoteDesktopPortal::createEISKeyboardDevice(SSession* session) {
         return;
     }
 
-    auto* dev = eis_seat_new_device(session->eisSeat);
+    auto* dev = eis_seat_new_device(session->eisSeat.get());
     if (!dev)
         return;
 
@@ -576,7 +577,7 @@ void CRemoteDesktopPortal::createEISKeyboardDevice(SSession* session) {
 
     eis_device_add(dev);
     eis_device_resume(dev);
-    session->eisKeyboard = dev;
+    session->eisKeyboard.reset(dev);
     Debug::log(LOG, "[remotedesktop] EIS keyboard device added & resumed");
 }
 
@@ -956,33 +957,31 @@ sdbus::UnixFd CRemoteDesktopPortal::onConnectToEIS(sdbus::ObjectPath sessionHand
     }
 
     // Create EIS context
-    PSESSION->eis = eis_new(this);
+    PSESSION->eis.reset(eis_new(this));
     if (!PSESSION->eis) {
         Debug::log(ERR, "[remotedesktop] failed to create EIS context");
         throw sdbus::Error{sdbus::Error::Name{"org.freedesktop.portal.Error.Failed"}, "Failed to create EIS context"};
     }
 
-    eis_set_user_data(PSESSION->eis, this);
+    eis_set_user_data(PSESSION->eis.get(), this);
 
     // Set up fd backend (events are dispatched via processEISEvents)
-    if (eis_setup_backend_fd(PSESSION->eis) != 0) {
+    if (eis_setup_backend_fd(PSESSION->eis.get()) != 0) {
         Debug::log(ERR, "[remotedesktop] eis_setup_backend_fd failed");
-        eis_unref(PSESSION->eis);
-        PSESSION->eis = nullptr;
+        PSESSION->eis.reset();
         throw sdbus::Error{sdbus::Error::Name{"org.freedesktop.portal.Error.Failed"}, "Failed to set up EIS backend"};
     }
 
     // Get client fd to pass to caller
-    int clientFd = eis_backend_fd_add_client(PSESSION->eis);
+    int clientFd = eis_backend_fd_add_client(PSESSION->eis.get());
     if (clientFd < 0) {
         Debug::log(ERR, "[remotedesktop] eis_backend_fd_add_client failed");
-        eis_unref(PSESSION->eis);
-        PSESSION->eis = nullptr;
+        PSESSION->eis.reset();
         throw sdbus::Error{sdbus::Error::Name{"org.freedesktop.portal.Error.Failed"}, "Failed to add EIS client"};
     }
 
     // Get the EIS fd to poll for events
-    PSESSION->eisFd = eis_get_fd(PSESSION->eis);
+    PSESSION->eisFd = eis_get_fd(PSESSION->eis.get());
 
     Debug::log(LOG, "[remotedesktop] ConnectToEIS CALLED: client_fd={}, eis_fd={}", clientFd, PSESSION->eisFd);
 
@@ -1150,12 +1149,12 @@ void CRemoteDesktopPortal::processEISEvents() {
             continue;
 
         // Dispatch to process incoming data
-        eis_dispatch(s->eis);
+        eis_dispatch(s->eis.get());
 
         // Process events (pull model)
         bool              disconnected = false;
         struct eis_event* event;
-        while (!disconnected && (event = eis_get_event(s->eis))) {
+        while (!disconnected && (event = eis_get_event(s->eis.get()))) {
             auto     eventType = eis_event_get_type(event);
 
             auto*    client = eis_event_get_client(event);
@@ -1190,10 +1189,7 @@ void CRemoteDesktopPortal::processEISEvents() {
                     Debug::log(LOG, "[remotedesktop] EIS client disconnect");
                     removeEISPointerDevice(s.get(), false);
                     removeEISKeyboardDevice(s.get(), false);
-                    if (s->eisSeat) {
-                        eis_seat_unref(s->eisSeat);
-                        s->eisSeat = nullptr;
-                    }
+                    s->eisSeat.reset();
                     // The rest of the context is torn down after the event loop:
                     // eis_get_event must not run on an unref'd context.
                     disconnected = true;
@@ -1201,12 +1197,10 @@ void CRemoteDesktopPortal::processEISEvents() {
                 }
                 case EIS_EVENT_SEAT_BIND: {
                     Debug::log(LOG, "[remotedesktop] EIS seat bind");
-                    if (s->eisSeat != seat) {
+                    if (s->eisSeat.get() != seat) {
                         removeEISPointerDevice(s.get());
                         removeEISKeyboardDevice(s.get());
-                        if (s->eisSeat)
-                            eis_seat_unref(s->eisSeat);
-                        s->eisSeat = eis_seat_ref(seat);
+                        s->eisSeat.reset(eis_seat_ref(seat));
                     }
 
                     // Create and announce a pointer device if requested. libeis fixes a device's
@@ -1234,9 +1228,9 @@ void CRemoteDesktopPortal::processEISEvents() {
                     break;
                 }
                 case EIS_EVENT_DEVICE_CLOSED: {
-                    if (eis_event_get_device(event) == s->eisPointer)
+                    if (eis_event_get_device(event) == s->eisPointer.get())
                         removeEISPointerDevice(s.get(), false);
-                    else if (eis_event_get_device(event) == s->eisKeyboard)
+                    else if (eis_event_get_device(event) == s->eisKeyboard.get())
                         removeEISKeyboardDevice(s.get(), false);
                     break;
                 }
@@ -1330,9 +1324,9 @@ void CRemoteDesktopPortal::processEISEvents() {
                 }
                 case EIS_EVENT_DEVICE_STOP_EMULATING: {
                     // Each device only releases its own held input.
-                    if (eis_event_get_device(event) == s->eisKeyboard)
+                    if (eis_event_get_device(event) == s->eisKeyboard.get())
                         releaseKeyboardKeys(s.get());
-                    else if (eis_event_get_device(event) == s->eisPointer) {
+                    else if (eis_event_get_device(event) == s->eisPointer.get()) {
                         releasePointerButtons(s.get());
                         resetPointerScroll(s.get());
                     }
@@ -1371,8 +1365,7 @@ void CRemoteDesktopPortal::processEISEvents() {
                 g_pPortalManager->removeFdFromEventLoop(s->eisFd);
                 s->eisFd = -1;
             }
-            eis_unref(s->eis);
-            s->eis = nullptr;
+            s->eis.reset();
         }
     }
 }

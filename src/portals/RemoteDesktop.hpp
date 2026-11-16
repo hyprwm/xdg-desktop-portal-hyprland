@@ -65,6 +65,13 @@ class CRemoteDesktopPortal {
         bool repeats = false;
     };
 
+    // Drops an owned libeis reference.
+    struct SEISDeleter {
+        void operator()(struct eis* p) const;
+        void operator()(struct eis_seat* p) const;
+        void operator()(struct eis_device* p) const;
+    };
+
     // One EIS region per output, in the layout's logical coordinate space with the
     // layout's top-left at the origin (EIS offsets are unsigned, so a monitor left of
     // or above 0,0 could not be expressed otherwise). Advertising the outputs
@@ -132,14 +139,14 @@ class CRemoteDesktopPortal {
         SKeymap                      keymap;
 
         // EIS/libei state (created by ConnectToEIS)
-        struct eis*             eis            = nullptr;
-        struct eis_seat*        eisSeat        = nullptr;
-        struct eis_device*      eisPointer     = nullptr;
-        struct eis_device*      eisKeyboard    = nullptr;
-        uint32_t                eisPointerCaps = 0; // pointer-family caps bound when eisPointer was created
-        std::vector<SEISRegion> eisPointerRegions;
-        int                     eisFd    = -1; // fd to poll for EIS events
-        bool                    eisReady = false;
+        std::unique_ptr<struct eis, SEISDeleter>        eis;
+        std::unique_ptr<struct eis_seat, SEISDeleter>   eisSeat;
+        std::unique_ptr<struct eis_device, SEISDeleter> eisPointer;
+        std::unique_ptr<struct eis_device, SEISDeleter> eisKeyboard;
+        uint32_t                                        eisPointerCaps = 0; // pointer-family caps bound when eisPointer was created
+        std::vector<SEISRegion>                         eisPointerRegions;
+        int                                             eisFd    = -1; // fd to poll for EIS events
+        bool                                            eisReady = false;
     };
 
     SSession*               getSession(const sdbus::ObjectPath& path);
