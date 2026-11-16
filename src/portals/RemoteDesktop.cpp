@@ -74,30 +74,26 @@ static std::string newRestoreToken() {
 }
 
 static bool readTokenStore(const std::filesystem::path& path, std::string& contents) {
-    const int fd = open(path.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
-    if (fd < 0)
+    Hyprutils::OS::CFileDescriptor fd{open(path.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW)};
+    if (!fd.isValid())
         return false;
 
     struct stat info;
-    if (fstat(fd, &info) != 0 || !S_ISREG(info.st_mode) || info.st_uid != getuid()) {
-        close(fd);
+    if (fstat(fd.get(), &info) != 0 || !S_ISREG(info.st_mode) || info.st_uid != getuid())
         return false;
-    }
 
     std::array<char, 4096> buffer;
     while (true) {
-        const auto count = read(fd, buffer.data(), buffer.size());
+        const auto count = read(fd.get(), buffer.data(), buffer.size());
         if (count < 0 && errno == EINTR)
             continue;
-        if (count < 0) {
-            close(fd);
+        if (count < 0)
             return false;
-        }
         if (count == 0)
             break;
         contents.append(buffer.data(), sc<size_t>(count));
     }
-    return close(fd) == 0;
+    return close(fd.take()) == 0;
 }
 
 // Issuance appends to the store and revocation replaces it, so two backends sharing
@@ -107,7 +103,6 @@ static bool readTokenStore(const std::filesystem::path& path, std::string& conte
 class CTokenStoreLock {
   public:
     explicit CTokenStoreLock(const std::filesystem::path& store);
-    ~CTokenStoreLock();
 
     CTokenStoreLock(const CTokenStoreLock&)            = delete;
     CTokenStoreLock& operator=(const CTokenStoreLock&) = delete;
@@ -115,38 +110,31 @@ class CTokenStoreLock {
     bool             locked() const;
 
   private:
-    int m_fd = -1;
+    Hyprutils::OS::CFileDescriptor m_fd; // closing the last descriptor drops the flock
 };
 
 CTokenStoreLock::CTokenStoreLock(const std::filesystem::path& store) {
     const auto lockPath = store.string() + ".lock";
-    m_fd                = open(lockPath.c_str(), O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0600);
-    if (m_fd < 0)
+    m_fd                = Hyprutils::OS::CFileDescriptor{open(lockPath.c_str(), O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0600)};
+    if (!m_fd.isValid())
         return;
 
     struct stat info;
-    if (fstat(m_fd, &info) != 0 || !S_ISREG(info.st_mode) || info.st_uid != getuid()) {
-        close(m_fd);
-        m_fd = -1;
+    if (fstat(m_fd.get(), &info) != 0 || !S_ISREG(info.st_mode) || info.st_uid != getuid()) {
+        m_fd.reset();
         return;
     }
 
-    while (flock(m_fd, LOCK_EX) != 0) {
+    while (flock(m_fd.get(), LOCK_EX) != 0) {
         if (errno == EINTR)
             continue;
-        close(m_fd);
-        m_fd = -1;
+        m_fd.reset();
         return;
     }
-}
-
-CTokenStoreLock::~CTokenStoreLock() {
-    if (m_fd >= 0)
-        close(m_fd); // closing the last descriptor drops the flock
 }
 
 bool CTokenStoreLock::locked() const {
-    return m_fd >= 0;
+    return m_fd.isValid();
 }
 
 static bool writeAll(int fd, const std::string& contents) {
@@ -235,13 +223,13 @@ static bool revokeRestoreToken(const std::string& token) {
     if (suffix.empty())
         return false;
 
-    const auto temporary = path.string() + ".tmp-" + suffix;
-    const int  fd        = open(temporary.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0600);
-    if (fd < 0)
+    const auto                     temporary = path.string() + ".tmp-" + suffix;
+    Hyprutils::OS::CFileDescriptor fd{open(temporary.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0600)};
+    if (!fd.isValid())
         return false;
 
-    const bool flushed = writeAll(fd, remaining) && fsync(fd) == 0;
-    const bool closed  = close(fd) == 0;
+    const bool flushed = writeAll(fd.get(), remaining) && fsync(fd.get()) == 0;
+    const bool closed  = close(fd.take()) == 0;
     if (!flushed || !closed) {
         unlink(temporary.c_str());
         return false;
@@ -251,12 +239,8 @@ static bool revokeRestoreToken(const std::string& token) {
         return false;
     }
 
-    const int directory = open(path.parent_path().c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
-    if (directory < 0)
-        return false;
-    const bool durable = fsync(directory) == 0;
-    close(directory);
-    return durable;
+    const Hyprutils::OS::CFileDescriptor directory{open(path.parent_path().c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC)};
+    return directory.isValid() && fsync(directory.get()) == 0;
 }
 
 static std::string issueRestoreToken(const std::string& appID, uint32_t deviceTypes) {
@@ -283,50 +267,32 @@ static std::string issueRestoreToken(const std::string& appID, uint32_t deviceTy
     if (!LOCK.locked())
         return {};
 
-    const int fd = open(path.c_str(), O_WRONLY | O_APPEND | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0600);
-    if (fd < 0)
+    Hyprutils::OS::CFileDescriptor fd{open(path.c_str(), O_WRONLY | O_APPEND | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0600)};
+    if (!fd.isValid())
         return {};
 
     struct stat info;
-    if (fstat(fd, &info) != 0 || !S_ISREG(info.st_mode) || info.st_uid != getuid() || fchmod(fd, 0600) != 0) {
-        close(fd);
+    if (fstat(fd.get(), &info) != 0 || !S_ISREG(info.st_mode) || info.st_uid != getuid() || fchmod(fd.get(), 0600) != 0)
         return {};
-    }
 
-    const auto record  = std::format("{}\t{}\t{}\n", token, appID, deviceTypes);
-    size_t     offset  = 0;
-    bool       written = true;
-    while (offset < record.size()) {
-        const auto count = write(fd, record.data() + offset, record.size() - offset);
-        if (count < 0 && errno == EINTR)
-            continue;
-        if (count <= 0) {
-            written = false;
-            break;
-        }
-        offset += sc<size_t>(count);
-    }
+    const bool written = writeAll(fd.get(), std::format("{}\t{}\t{}\n", token, appID, deviceTypes));
 
     // A half-written record has no trailing newline, so the next append would glue
     // itself onto it and take that token down too. Roll back to what we found.
-    if (!written || fsync(fd) != 0) {
-        if (ftruncate(fd, info.st_size) != 0)
+    if (!written || fsync(fd.get()) != 0) {
+        if (ftruncate(fd.get(), info.st_size) != 0)
             Debug::log(WARN, "[remotedesktop] could not roll back a partial token record");
-        close(fd);
         return {};
     }
 
-    if (close(fd) != 0)
+    if (close(fd.take()) != 0)
         return {};
 
     // fsync on the file does not make a freshly created file's directory entry
     // durable, and the revoke path already pays for this.
-    const int directory = open(path.parent_path().c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
-    if (directory >= 0) {
-        if (fsync(directory) != 0)
-            Debug::log(WARN, "[remotedesktop] could not flush the token store directory");
-        close(directory);
-    }
+    const Hyprutils::OS::CFileDescriptor directory{open(path.parent_path().c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC)};
+    if (directory.isValid() && fsync(directory.get()) != 0)
+        Debug::log(WARN, "[remotedesktop] could not flush the token store directory");
 
     return token;
 }
