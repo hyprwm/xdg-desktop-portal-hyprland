@@ -353,24 +353,21 @@ std::unordered_map<std::string, sdbus::Variant> CScreencopyPortal::buildStartRes
     int32_t                                                                               width  = sc<int32_t>(pSession->sharingData.frameInfoSHM.w);
     int32_t                                                                               height = sc<int32_t>(pSession->sharingData.frameInfoSHM.h);
     if (const auto POUTPUT = g_pPortalManager->getOutputFromName(pSession->selection.output)) {
-        positionX = POUTPUT->logicalPositionValid ? POUTPUT->logicalX : POUTPUT->x;
-        positionY = POUTPUT->logicalPositionValid ? POUTPUT->logicalY : POUTPUT->y;
+        // Position and size in the same geometry space getOutputLayout() picked.
+        int32_t    outputX = 0, outputY = 0, outputW = 0, outputH = 0;
+        const bool LOGICAL = g_pPortalManager->hasCompleteLogicalLayout();
+        const bool HASGEOM = LOGICAL ? POUTPUT->logicalGeometry(outputX, outputY, outputW, outputH) : POUTPUT->fallbackGeometry(outputX, outputY, outputW, outputH);
+        positionX          = HASGEOM ? outputX : POUTPUT->x;
+        positionY          = HASGEOM ? outputY : POUTPUT->y;
         if (pSession->selection.type == TYPE_GEOMETRY) {
             positionX += sc<int32_t>(pSession->selection.x);
             positionY += sc<int32_t>(pSession->selection.y);
             width  = sc<int32_t>(pSession->selection.w);
             height = sc<int32_t>(pSession->selection.h);
-        } else if (pSession->selection.type == TYPE_OUTPUT) {
-            // Stream size is in compositor coordinates, matching getOutputLayout(), so
-            // without xdg-output use the scaled wl_output size rather than the frame's pixels.
-            int32_t fallbackX = 0, fallbackY = 0, fallbackW = 0, fallbackH = 0;
-            if (POUTPUT->logicalSizeValid) {
-                width  = POUTPUT->logicalWidth;
-                height = POUTPUT->logicalHeight;
-            } else if (POUTPUT->fallbackGeometry(fallbackX, fallbackY, fallbackW, fallbackH)) {
-                width  = fallbackW;
-                height = fallbackH;
-            }
+        } else if (pSession->selection.type == TYPE_OUTPUT && HASGEOM) {
+            // Stream size is in compositor coordinates, matching getOutputLayout(), not the frame's pixels.
+            width  = outputW;
+            height = outputH;
         }
     }
     streamData["position"]    = sdbus::Variant{sdbus::Struct<int32_t, int32_t>{positionX, positionY}};
