@@ -3,6 +3,8 @@
 #include "../helpers/Log.hpp"
 #include "../helpers/MiscFunctions.hpp"
 #include "../shared/ImageCopyCapture.hpp"
+#include "../shared/RestoreTokenStore.hpp"
+#include "../shared/ScreencopyRestore.hpp"
 
 #include <cerrno>
 #include <cstdlib>
@@ -21,34 +23,8 @@ using namespace Hyprutils::Math;
 constexpr static int MAX_RETRIES        = 10;
 constexpr static int MAX_DMABUF_RETRIES = 2;
 
-//
-static sdbus::Struct<std::string, uint32_t, sdbus::Variant> getFullRestoreStruct(const SSelectionData& data, uint32_t cursor) {
-    std::unordered_map<std::string, sdbus::Variant> mapData;
-
-    switch (data.type) {
-        case TYPE_GEOMETRY:
-            mapData["output"]   = sdbus::Variant{data.output};
-            mapData["geometry"] = sdbus::Variant{sdbus::Struct<uint32_t, uint32_t, uint32_t, uint32_t>{data.x, data.y, data.w, data.h}};
-            break;
-        case TYPE_OUTPUT: mapData["output"] = sdbus::Variant{data.output}; break;
-        case TYPE_WORKSPACE: mapData["workspace"] = sdbus::Variant{data.workspace}; break;
-        case TYPE_WINDOW:
-            mapData["windowHandle"] = sdbus::Variant{(uint64_t)data.windowHandle->resource()};
-            mapData["windowClass"]  = sdbus::Variant{data.windowClass};
-            break;
-        default: Debug::log(ERR, "[screencopy] wonk selection in token saving"); break;
-    }
-    mapData["timeIssued"] = sdbus::Variant{uint64_t(time(nullptr))};
-    mapData["token"]      = sdbus::Variant{std::string("todo")};
-    mapData["withCursor"] = sdbus::Variant{cursor};
-
-    sdbus::Variant restoreData{mapData};
-
-    return sdbus::Struct<std::string, uint32_t, sdbus::Variant>{"hyprland", 3, restoreData};
-}
-
-dbUasv CScreencopyPortal::onCreateSession(sdbus::ObjectPath requestHandle, sdbus::ObjectPath sessionHandle, std::string appID,
-                                          std::unordered_map<std::string, sdbus::Variant> opts) {
+dbUasv               CScreencopyPortal::onCreateSession(sdbus::ObjectPath requestHandle, sdbus::ObjectPath sessionHandle, std::string appID,
+                                                        std::unordered_map<std::string, sdbus::Variant> opts) {
     g_pPortalManager->m_sHelpers.toplevel->activate();
 
     Debug::log(LOG, "[screencopy] New session:");
@@ -94,28 +70,18 @@ dbUasv CScreencopyPortal::onSelectSources(sdbus::ObjectPath requestHandle, sdbus
         return {1, {}};
     }
 
+    if (PSESSION->appid != appID)
+        return {2, {}};
+
     if (**PCURSORMODE == HIDDEN || **PCURSORMODE == EMBEDDED) {
         PSESSION->cursorMode = **PCURSORMODE;
         Debug::log(LOG, "[screencopy] default cursor_mode to {}", PSESSION->cursorMode);
     }
 
-    struct {
-        bool        exists       = false;
-        bool        hasWorkspace = false;
-        std::string token, output;
-        uint64_t    windowHandle = 0;
-        bool        withCursor   = false;
-        uint64_t    timeIssued   = 0;
-        std::string windowClass, workspace;
-        struct {
-            uint32_t x = 0;
-            uint32_t y = 0;
-            uint32_t w = 0;
-            uint32_t h = 0;
-        } geometry;
-    } restoreData;
-
+    PSESSION->persistMode = 0;
     for (auto& [key, val] : options) {
+        if (key == "restore_data")
+            continue;
 
         if (key == "cursor_mode") {
             auto mode = val.get<uint32_t>();
@@ -126,132 +92,60 @@ dbUasv CScreencopyPortal::onSelectSources(sdbus::ObjectPath requestHandle, sdbus
                 PSESSION->cursorMode = mode;
                 Debug::log(LOG, "[screencopy] option cursor_mode to {}", PSESSION->cursorMode);
             }
-        } else if (key == "restore_data") {
-            // suv
-            // v -> r(susbt) -> v2
-            // v -> a(sv) -> v3
-            std::string issuer;
-            uint32_t    version;
-            auto        suv = val.get<sdbus::Struct<std::string, uint32_t, sdbus::Variant>>();
-            issuer          = suv.get<0>();
-            version         = suv.get<1>();
-
-            sdbus::Variant data = suv.get<2>();
-
-            if (issuer != "hyprland") {
-                Debug::log(LOG, "[screencopy] Restore token from {}, ignoring", issuer);
-                continue;
-            }
-
-            Debug::log(LOG, "[screencopy] Restore token from {} ver {}", issuer, version);
-
-            if (version != 2 && version != 3) {
-                Debug::log(LOG, "[screencopy] Restore token ver unsupported, skipping", issuer);
-                continue;
-            }
-
-            if (version == 2) {
-                auto susbt = data.get<sdbus::Struct<std::string, uint32_t, std::string, bool, uint64_t>>();
-
-                restoreData.exists = true;
-
-                restoreData.token        = susbt.get<0>();
-                restoreData.windowHandle = susbt.get<1>();
-                restoreData.output       = susbt.get<2>();
-                restoreData.withCursor   = susbt.get<3>();
-                restoreData.timeIssued   = susbt.get<4>();
-
-                Debug::log(LOG, "[screencopy] Restore token v2 {} with data: {} {} {} {}", restoreData.token, restoreData.windowHandle, restoreData.output, restoreData.withCursor,
-                           restoreData.timeIssued);
-            } else {
-                // ver 3
-                auto sv = data.get<std::unordered_map<std::string, sdbus::Variant>>();
-
-                restoreData.exists = true;
-
-                for (auto& [tkkey, tkval] : sv) {
-                    if (tkkey == "output")
-                        restoreData.output = tkval.get<std::string>();
-                    else if (tkkey == "windowHandle")
-                        restoreData.windowHandle = tkval.get<uint64_t>();
-                    else if (tkkey == "windowClass")
-                        restoreData.windowClass = tkval.get<std::string>();
-                    else if (tkkey == "workspace") {
-                        restoreData.workspace    = tkval.get<std::string>();
-                        restoreData.hasWorkspace = true;
-                    } else if (tkkey == "withCursor")
-                        restoreData.withCursor = tkval.get<uint32_t>() == EMBEDDED;
-                    else if (tkkey == "timeIssued")
-                        restoreData.timeIssued = tkval.get<uint64_t>();
-                    else if (tkkey == "token")
-                        restoreData.token = tkval.get<std::string>();
-                    else if (tkkey == "geometry") {
-                        auto geo               = tkval.get<sdbus::Struct<uint32_t, uint32_t, uint32_t, uint32_t>>();
-                        restoreData.geometry.x = geo.get<0>();
-                        restoreData.geometry.y = geo.get<1>();
-                        restoreData.geometry.w = geo.get<2>();
-                        restoreData.geometry.h = geo.get<3>();
-                    } else
-                        Debug::log(LOG, "[screencopy] restore token v3, unknown prop {}", tkkey);
-                }
-
-                Debug::log(LOG, "[screencopy] Restore token v3 {} with data: {} {} {} {} {}", restoreData.token, restoreData.windowHandle, restoreData.windowClass,
-                           restoreData.output, restoreData.withCursor, restoreData.timeIssued);
-            }
         } else if (key == "persist_mode") {
             PSESSION->persistMode = val.get<uint32_t>();
+            if (PSESSION->persistMode > 2)
+                return {2, {}};
             Debug::log(LOG, "[screencopy] option persist_mode to {}", PSESSION->persistMode);
-        } else {
+        } else
             Debug::log(LOG, "[screencopy] unused option {}", key);
-        }
     }
 
-    // clang-format off
-    const bool     RESTOREDATAVALID = restoreData.exists &&
-    (
-        (!restoreData.output.empty() && g_pPortalManager->getOutputFromName(restoreData.output)) || // output exists
-        (!restoreData.windowClass.empty() && g_pPortalManager->m_sHelpers.toplevel->handleFromClass(restoreData.windowClass)) || // window exists
-        (restoreData.hasWorkspace && hasWorkspaceCapabilities() && g_pPortalManager->m_sHelpers.workspaceTracker->fromName(restoreData.workspace))
-    );
-    // clang-format on
-
     SSelectionData SHAREDATA;
-    if (RESTOREDATAVALID) {
-        Debug::log(LOG, "[screencopy] restore data valid, not prompting");
-
-        const bool WINDOW      = !restoreData.windowClass.empty();
-        const bool WORKSPACE   = restoreData.hasWorkspace;
-        const bool GEOMETRY    = restoreData.geometry.w > 0 && restoreData.geometry.h > 0;
-        const auto HANDLEMATCH = WINDOW && restoreData.windowHandle != 0 ? g_pPortalManager->m_sHelpers.toplevel->handleFromHandleFull(restoreData.windowHandle) : nullptr;
-
-        if (WORKSPACE) {
-            const auto WS = hasWorkspaceCapabilities() ? g_pPortalManager->m_sHelpers.workspaceTracker->fromName(restoreData.workspace) : nullptr;
-            if (WS) {
-                SHAREDATA.workspace       = restoreData.workspace;
-                SHAREDATA.workspaceHandle = WS;
-                SHAREDATA.type            = TYPE_WORKSPACE;
+    // Process after all options: persist_mode must not depend on map iteration order.
+    if (const auto RESTORE = options.find("restore_data"); RESTORE != options.end()) {
+        const auto DATA = ScreencopyRestore::consume(*m_pRestoreTokens, RESTORE->second, PSESSION->appid, PSESSION->persistMode);
+        if (DATA) {
+            switch (DATA->type) {
+                case TYPE_WORKSPACE: {
+                    const auto WS = hasWorkspaceCapabilities() ? g_pPortalManager->m_sHelpers.workspaceTracker->fromName(DATA->workspace) : nullptr;
+                    if (WS && !WS->m_removed && WS->m_handle) {
+                        SHAREDATA.workspace       = DATA->workspace;
+                        SHAREDATA.workspaceHandle = WS;
+                        SHAREDATA.type            = TYPE_WORKSPACE;
+                    }
+                    break;
+                }
+                case TYPE_WINDOW: {
+                    const auto HANDLE = hasToplevelCapabilities() ? g_pPortalManager->m_sHelpers.toplevel->handleFromClass(DATA->windowClass) : nullptr;
+                    if (HANDLE) {
+                        SHAREDATA.windowClass  = DATA->windowClass;
+                        SHAREDATA.windowHandle = HANDLE->handle;
+                        SHAREDATA.type         = TYPE_WINDOW;
+                    }
+                    break;
+                }
+                case TYPE_OUTPUT:
+                case TYPE_GEOMETRY:
+                    if (g_pPortalManager->getOutputFromName(DATA->output)) {
+                        SHAREDATA.output = DATA->output;
+                        SHAREDATA.type   = DATA->type;
+                        SHAREDATA.x      = DATA->x;
+                        SHAREDATA.y      = DATA->y;
+                        SHAREDATA.w      = DATA->w;
+                        SHAREDATA.h      = DATA->h;
+                    }
+                    break;
+                default: break;
             }
-        } else if (WINDOW) {
-            const auto HANDLE = HANDLEMATCH ? HANDLEMATCH : g_pPortalManager->m_sHelpers.toplevel->handleFromClass(restoreData.windowClass);
-            if (HANDLE) {
-                SHAREDATA.windowClass  = restoreData.windowClass;
-                SHAREDATA.windowHandle = HANDLE->handle;
-                SHAREDATA.type         = TYPE_WINDOW;
-            }
-        } else {
-            SHAREDATA.output = restoreData.output;
-            SHAREDATA.type   = GEOMETRY ? TYPE_GEOMETRY : TYPE_OUTPUT;
 
-            if (GEOMETRY) {
-                SHAREDATA.x = restoreData.geometry.x;
-                SHAREDATA.y = restoreData.geometry.y;
-                SHAREDATA.w = restoreData.geometry.w;
-                SHAREDATA.h = restoreData.geometry.h;
+            if (SHAREDATA.type != TYPE_INVALID) {
+                Debug::log(LOG, "[screencopy] restore grant consumed, not prompting");
+                SHAREDATA.allowToken  = true;
+                PSESSION->cursorMode  = DATA->cursorMode;
+                PSESSION->persistMode = DATA->persistMode;
             }
         }
-
-        SHAREDATA.allowToken = true; // user allowed token before
-        PSESSION->cursorMode = restoreData.withCursor ? EMBEDDED : HIDDEN;
     }
 
     if (SHAREDATA.type == TYPE_INVALID) {
@@ -306,20 +200,33 @@ dbUasv CScreencopyPortal::onStart(sdbus::ObjectPath requestHandle, sdbus::Object
         return {1, {}};
     }
 
+    if (PSESSION->appid != appID)
+        return {2, {}};
+
     if (PSESSION->sharingData.active || !startSharing(PSESSION))
         return {2, {}};
 
     PSESSION->sharingData.started = true;
 
-    std::unordered_map<std::string, sdbus::Variant> options;
-
-    if (PSESSION->selection.allowToken) {
-        // give them a token :)
-        options["restore_data"] = sdbus::Variant{getFullRestoreStruct(PSESSION->selection, PSESSION->cursorMode)};
-        options["persist_mode"] = sdbus::Variant{uint32_t{2}};
-
+    const auto&        SELECTION = PSESSION->selection;
+    const SRestoreData RESTORE   = {
+        .appID       = PSESSION->appid,
+        .type        = SELECTION.type,
+        .output      = SELECTION.output,
+        .windowClass = SELECTION.windowClass,
+        .workspace   = SELECTION.workspace,
+        .x           = SELECTION.x,
+        .y           = SELECTION.y,
+        .w           = SELECTION.w,
+        .h           = SELECTION.h,
+        .cursorMode  = PSESSION->cursorMode,
+        .persistMode = PSESSION->persistMode,
+    };
+    auto options = ScreencopyRestore::issue(*m_pRestoreTokens, RESTORE, SELECTION.allowToken);
+    if (options.contains("restore_data"))
         Debug::log(LOG, "[screencopy] Sent restore token to {}", PSESSION->sessionHandle.c_str());
-    }
+    else if (SELECTION.allowToken && PSESSION->persistMode != 0)
+        Debug::log(WARN, "[screencopy] Could not issue restore grant; sharing without persistence");
 
     uint32_t type = 0;
     switch (PSESSION->selection.type) {
@@ -778,6 +685,10 @@ CScreencopyPortal::SSession* CScreencopyPortal::getSession(sdbus::ObjectPath& pa
 }
 
 CScreencopyPortal::CScreencopyPortal(SP<CCZwlrScreencopyManagerV1> mgr) {
+    m_pRestoreTokens = Hyprutils::Memory::makeUnique<CRestoreTokenStore>();
+    if (!m_pRestoreTokens->persistentAvailable())
+        Debug::log(WARN, "[screencopy] Persistent restore token storage is unavailable");
+
     m_pObject = sdbus::createObject(*g_pPortalManager->getConnection(), OBJECT_PATH);
 
     m_pObject
@@ -801,6 +712,8 @@ CScreencopyPortal::CScreencopyPortal(SP<CCZwlrScreencopyManagerV1> mgr) {
 
     Debug::log(LOG, "[screencopy] init successful");
 }
+
+CScreencopyPortal::~CScreencopyPortal() = default;
 
 void CScreencopyPortal::appendToplevelExport(SP<CCHyprlandToplevelExportManagerV1> proto) {
     m_sState.toplevel = proto;
