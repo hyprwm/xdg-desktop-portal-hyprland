@@ -5,6 +5,7 @@
 #include <vector>
 #include <sdbus-c++/sdbus-c++.h>
 #include <xkbcommon/xkbcommon.h>
+#include <hyprutils/os/FileDescriptor.hpp>
 
 #include "../includes.hpp"
 #include "../dbusDefines.hpp"
@@ -94,9 +95,9 @@ class CRemoteDesktopPortal {
     // a generated default otherwise. Sessions hold their own copy so a keymap change
     // mid-session can't desync keycode lookups from what the compositor was handed.
     struct SKeymap {
-        int                fd     = -1;
-        uint32_t           size   = 0;
-        struct xkb_keymap* keymap = nullptr;
+        Hyprutils::OS::CFileDescriptor                           fd;
+        uint32_t                                                 size = 0;
+        std::unique_ptr<xkb_keymap, decltype(&xkb_keymap_unref)> keymap{nullptr, xkb_keymap_unref};
     };
 
     struct SSession {
@@ -159,7 +160,6 @@ class CRemoteDesktopPortal {
 
     // Take a private copy of the keymap emulated input should speak.
     bool        acquireKeymap(SKeymap& keymap);
-    static void releaseKeymap(SKeymap& keymap);
     static void releaseKeyboardKeys(SSession* session);
     static void releasePointerButtons(SSession* session);
     // End any scroll an EIS pointer left running and drop its partial wheel steps.
@@ -182,8 +182,8 @@ class CRemoteDesktopPortal {
     } m_sState;
 
     // XKB context used to compile the keymaps handed to sessions
-    struct xkb_context*        m_xkbCtx = nullptr;
+    std::unique_ptr<xkb_context, decltype(&xkb_context_unref)> m_xkbCtx{nullptr, xkb_context_unref};
 
-    const sdbus::InterfaceName INTERFACE_NAME = sdbus::InterfaceName{"org.freedesktop.impl.portal.RemoteDesktop"};
-    const sdbus::ObjectPath    OBJECT_PATH    = sdbus::ObjectPath{"/org/freedesktop/portal/desktop"};
+    const sdbus::InterfaceName                                 INTERFACE_NAME = sdbus::InterfaceName{"org.freedesktop.impl.portal.RemoteDesktop"};
+    const sdbus::ObjectPath                                    OBJECT_PATH    = sdbus::ObjectPath{"/org/freedesktop/portal/desktop"};
 };

@@ -347,7 +347,7 @@ CRemoteDesktopPortal::CRemoteDesktopPortal(SP<CCZwlrVirtualPointerManagerV1> poi
     m_sState.keyboard = keyboardMgr;
 
     // Sessions compile their own keymap out of this context on Start.
-    m_xkbCtx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+    m_xkbCtx.reset(xkb_context_new(XKB_CONTEXT_NO_FLAGS));
 
     m_pObject = sdbus::createObject(*g_pPortalManager->getConnection(), OBJECT_PATH);
 
@@ -394,8 +394,7 @@ CRemoteDesktopPortal::CRemoteDesktopPortal(SP<CCZwlrVirtualPointerManagerV1> poi
 }
 
 CRemoteDesktopPortal::~CRemoteDesktopPortal() {
-    if (m_xkbCtx)
-        xkb_context_unref(m_xkbCtx);
+    ;
 }
 
 // ─── Session management ──────────────────────────────────────────
@@ -408,7 +407,6 @@ CRemoteDesktopPortal::SSession::SSession(const std::string& app, const sdbus::Ob
 CRemoteDesktopPortal::SSession::~SSession() {
     releaseKeyboardKeys(this);
     releasePointerButtons(this);
-    releaseKeymap(keymap);
     if (eisFd >= 0)
         g_pPortalManager->removeFdFromEventLoop(eisFd);
     if (eisPointer)
@@ -551,7 +549,7 @@ void CRemoteDesktopPortal::createEISKeyboardDevice(SSession* session) {
 
     // The client needs a keymap to make sense of the keycodes it sends; without one,
     // ei_device_keyboard_get_keymap() hands it NULL and it typically crashes.
-    if (session->keymap.fd < 0) {
+    if (!session->keymap.fd.isValid()) {
         Debug::log(ERR, "[remotedesktop] session has no keymap, withholding the EIS keyboard device");
         return;
     }
@@ -565,7 +563,7 @@ void CRemoteDesktopPortal::createEISKeyboardDevice(SSession* session) {
     eis_device_configure_capability(dev, EIS_DEVICE_CAP_KEYBOARD);
 
     // libeis takes its own copy of the fd, so the session keeps ownership of it.
-    auto* eisKm = eis_device_new_keymap(dev, EIS_KEYMAP_TYPE_XKB, session->keymap.fd, session->keymap.size);
+    auto* eisKm = eis_device_new_keymap(dev, EIS_KEYMAP_TYPE_XKB, session->keymap.fd.get(), session->keymap.size);
     if (!eisKm) {
         Debug::log(ERR, "[remotedesktop] failed to create EIS keyboard keymap, withholding device");
         eis_device_unref(dev);
@@ -595,7 +593,7 @@ void CRemoteDesktopPortal::updateEISPointerRegions() {
 }
 
 bool CRemoteDesktopPortal::acquireKeymap(SKeymap& keymap) {
-    releaseKeymap(keymap);
+    keymap = {};
 
     if (!m_xkbCtx)
         return false;
@@ -616,33 +614,29 @@ bool CRemoteDesktopPortal::acquireKeymap(SKeymap& keymap) {
             if (const auto NUL = text.find('\0'); NUL != std::string::npos)
                 text.resize(NUL);
 
-            auto*     compiled = xkb_keymap_new_from_string(m_xkbCtx, text.c_str(), XKB_KEYMAP_FORMAT_TEXT_V1, XKB_KEYMAP_COMPILE_NO_FLAGS);
-            const int FD       = fcntl(SOURCE.fd, F_DUPFD_CLOEXEC, 0);
-            if (compiled && FD >= 0) {
-                keymap.fd     = FD;
+            std::unique_ptr<xkb_keymap, decltype(&xkb_keymap_unref)> compiled{
+                xkb_keymap_new_from_string(m_xkbCtx.get(), text.c_str(), XKB_KEYMAP_FORMAT_TEXT_V1, XKB_KEYMAP_COMPILE_NO_FLAGS), xkb_keymap_unref};
+            Hyprutils::OS::CFileDescriptor fd{fcntl(SOURCE.fd, F_DUPFD_CLOEXEC, 0)};
+            if (compiled && fd.isValid()) {
+                keymap.fd     = std::move(fd);
                 keymap.size   = SOURCE.size;
-                keymap.keymap = compiled;
+                keymap.keymap = std::move(compiled);
                 Debug::log(LOG, "[remotedesktop] session emulating with the compositor keymap ({} bytes)", SOURCE.size);
                 return true;
             }
 
-            if (compiled)
-                xkb_keymap_unref(compiled);
-            if (FD >= 0)
-                close(FD);
             Debug::log(WARN, "[remotedesktop] could not adopt the compositor keymap, falling back to a generated one");
         }
     }
 
-    auto* generated = xkb_keymap_new_from_names(m_xkbCtx, nullptr, XKB_KEYMAP_COMPILE_NO_FLAGS);
+    std::unique_ptr<xkb_keymap, decltype(&xkb_keymap_unref)> generated{xkb_keymap_new_from_names(m_xkbCtx.get(), nullptr, XKB_KEYMAP_COMPILE_NO_FLAGS), xkb_keymap_unref};
     if (!generated) {
         Debug::log(ERR, "[remotedesktop] could not generate a default keymap");
         return false;
     }
 
-    char* serialized = xkb_keymap_get_as_string(generated, XKB_KEYMAP_FORMAT_TEXT_V1);
+    char* serialized = xkb_keymap_get_as_string(generated.get(), XKB_KEYMAP_FORMAT_TEXT_V1);
     if (!serialized) {
-        xkb_keymap_unref(generated);
         Debug::log(ERR, "[remotedesktop] could not serialize the generated keymap");
         return false;
     }
@@ -653,39 +647,24 @@ bool CRemoteDesktopPortal::acquireKeymap(SKeymap& keymap) {
 
     // Everything that reads this fd mmaps it, so the file can go straight after
     // creation rather than sitting in /tmp for the life of the session.
-    char      tmpName[] = "/tmp/xdph-kb-XXXXXX";
-    const int FD        = mkstemp(tmpName);
-    if (FD < 0) {
-        xkb_keymap_unref(generated);
+    char                           tmpName[] = "/tmp/xdph-kb-XXXXXX";
+    Hyprutils::OS::CFileDescriptor fd{mkstemp(tmpName)};
+    if (!fd.isValid()) {
         Debug::log(ERR, "[remotedesktop] could not create a keymap file: {}", strerror(errno));
         return false;
     }
     unlink(tmpName);
 
-    if (!writeAll(FD, TEXT)) {
-        close(FD);
-        xkb_keymap_unref(generated);
+    if (!writeAll(fd.get(), TEXT)) {
         Debug::log(ERR, "[remotedesktop] could not write the generated keymap");
         return false;
     }
 
-    keymap.fd     = FD;
+    keymap.fd     = std::move(fd);
     keymap.size   = sc<uint32_t>(TEXT.size());
-    keymap.keymap = generated;
+    keymap.keymap = std::move(generated);
     Debug::log(LOG, "[remotedesktop] no compositor keymap available, session emulating with a generated default");
     return true;
-}
-
-void CRemoteDesktopPortal::releaseKeymap(SKeymap& keymap) {
-    if (keymap.keymap) {
-        xkb_keymap_unref(keymap.keymap);
-        keymap.keymap = nullptr;
-    }
-    if (keymap.fd >= 0) {
-        close(keymap.fd);
-        keymap.fd = -1;
-    }
-    keymap.size = 0;
 }
 
 dbUasv CRemoteDesktopPortal::onCreateSession(sdbus::ObjectPath requestHandle, sdbus::ObjectPath sessionHandle, std::string appID,
@@ -858,8 +837,8 @@ dbUasv CRemoteDesktopPortal::onStart(sdbus::ObjectPath requestHandle, sdbus::Obj
                 if (!acquireKeymap(PSESSION->keymap))
                     initialized = false;
                 else {
-                    PSESSION->virtualKeyboard->sendKeymap(WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1, PSESSION->keymap.fd, PSESSION->keymap.size);
-                    PSESSION->xkbState = std::make_unique<CKeyboardState>(PSESSION->keymap.keymap);
+                    PSESSION->virtualKeyboard->sendKeymap(WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1, PSESSION->keymap.fd.get(), PSESSION->keymap.size);
+                    PSESSION->xkbState = std::make_unique<CKeyboardState>(PSESSION->keymap.keymap.get());
                     if (!PSESSION->xkbState->get())
                         initialized = false;
                     else {
@@ -874,7 +853,7 @@ dbUasv CRemoteDesktopPortal::onStart(sdbus::ObjectPath requestHandle, sdbus::Obj
 
     if (!initialized) {
         PSESSION->xkbState.reset();
-        releaseKeymap(PSESSION->keymap);
+        PSESSION->keymap = {};
         PSESSION->virtualPointer.reset();
         PSESSION->virtualKeyboard.reset();
         Debug::log(ERR, "[remotedesktop] failed to initialize all requested devices");
@@ -885,7 +864,7 @@ dbUasv CRemoteDesktopPortal::onStart(sdbus::ObjectPath requestHandle, sdbus::Obj
     const bool                                      persistSession = PSESSION->persistMode == 2 && persistAllowed;
     if (g_pPortalManager->m_sPortals.screencopy && !g_pPortalManager->m_sPortals.screencopy->startRemoteDesktopSession(sessionHandle, persistSession, results)) {
         PSESSION->xkbState.reset();
-        releaseKeymap(PSESSION->keymap);
+        PSESSION->keymap = {};
         PSESSION->virtualPointer.reset();
         PSESSION->virtualKeyboard.reset();
         Debug::log(ERR, "[remotedesktop] failed to start the selected screencast");
@@ -1106,7 +1085,7 @@ void CRemoteDesktopPortal::onNotifyKeyboardKeysym(sdbus::ObjectPath sessionHandl
     const auto PRESSED = PSESSION->keysymKeycodes.find(keysym);
     auto       KEY     = PRESSED != PSESSION->keysymKeycodes.end() ?
         PRESSED->second :
-        keycodeFromKeysym(PSESSION->keymap.keymap, keysym, xkb_state_serialize_layout(PSESSION->xkbState->get(), XKB_STATE_LAYOUT_EFFECTIVE));
+        keycodeFromKeysym(PSESSION->keymap.keymap.get(), keysym, xkb_state_serialize_layout(PSESSION->xkbState->get(), XKB_STATE_LAYOUT_EFFECTIVE));
     if (!KEY.keycode) {
         Debug::log(WARN, "[remotedesktop] keysym 0x{:x} not found in keymap", keysym);
         return;
@@ -1127,7 +1106,7 @@ void CRemoteDesktopPortal::onNotifyKeyboardKeysym(sdbus::ObjectPath sessionHandl
     if (state == 1) {
         KEY.keysym                       = keysym;
         KEY.order                        = ++PSESSION->keysymPresses;
-        KEY.repeats                      = xkb_keymap_key_repeats(PSESSION->keymap.keymap, KEY.keycode + 8);
+        KEY.repeats                      = xkb_keymap_key_repeats(PSESSION->keymap.keymap.get(), KEY.keycode + 8);
         PSESSION->keysymKeycodes[keysym] = KEY;
     }
 
