@@ -454,12 +454,21 @@ std::vector<CRemoteDesktopPortal::SEISRegion> CRemoteDesktopPortal::pointerRegio
             if (w <= 0 || h <= 0) // a region without a size is invalid to EIS
                 continue;
 
+            // wl_output.scale is only the integer buffer hint; with logical geometry the
+            // effective (possibly fractional) scale is the native mode over the logical size.
+            double scale = OUTPUT->scale > 0.0 ? OUTPUT->scale : 1.0;
+            if (LOGICAL && OUTPUT->width > 0) {
+                const bool ROTATED = OUTPUT->transform == WL_OUTPUT_TRANSFORM_90 || OUTPUT->transform == WL_OUTPUT_TRANSFORM_270 ||
+                    OUTPUT->transform == WL_OUTPUT_TRANSFORM_FLIPPED_90 || OUTPUT->transform == WL_OUTPUT_TRANSFORM_FLIPPED_270;
+                scale = sc<double>(ROTATED ? OUTPUT->height : OUTPUT->width) / w;
+            }
+
             regions.emplace_back(SEISRegion{
                 .x         = x - originX,
                 .y         = y - originY,
                 .w         = sc<uint32_t>(w),
                 .h         = sc<uint32_t>(h),
-                .scale     = OUTPUT->scale > 0.0 ? OUTPUT->scale : 1.0,
+                .scale     = scale,
                 .mappingId = OUTPUT->name,
             });
         }
