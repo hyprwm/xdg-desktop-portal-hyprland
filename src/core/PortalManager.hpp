@@ -180,6 +180,8 @@ class CPortalManager {
         std::mutex                           loopRequestMutex;
         std::mutex                           pollMutex;
         std::vector<pollfd>                  pollFds;
+        std::vector<uint64_t>                pollIds; // one per pollFds entry, unique per registration
+        uint64_t                             lastPollId = 0;
         std::map<int, std::function<void()>> pollCallbacks;
         Hyprutils::OS::CFileDescriptor       wakeFd;
     } m_sEventLoopInternals;

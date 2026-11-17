@@ -544,10 +544,12 @@ void CPortalManager::startEventLoop() {
 
     std::thread pollThr([this]() {
         while (!m_bTerminate) {
-            std::vector<pollfd> pollFds;
+            std::vector<pollfd>   pollFds;
+            std::vector<uint64_t> pollIds;
             {
                 std::lock_guard<std::mutex> lg(m_sEventLoopInternals.pollMutex);
                 pollFds = m_sEventLoopInternals.pollFds;
+                pollIds = m_sEventLoopInternals.pollIds;
             }
 
             int ret = poll(pollFds.data(), pollFds.size(), -1);
@@ -564,7 +566,8 @@ void CPortalManager::startEventLoop() {
             bool fatal     = false;
             {
                 std::lock_guard<std::mutex> lg(m_sEventLoopInternals.pollMutex);
-                for (const auto& polled : pollFds) {
+                for (size_t i = 0; i < pollFds.size(); ++i) {
+                    const auto& polled = pollFds[i];
                     if (!polled.revents)
                         continue;
 
@@ -576,11 +579,13 @@ void CPortalManager::startEventLoop() {
                         continue;
                     }
 
-                    const auto CURRENT = std::ranges::find(m_sEventLoopInternals.pollFds, polled.fd, &pollfd::fd);
-                    if (CURRENT == m_sEventLoopInternals.pollFds.end())
+                    // Match the registration, not just the fd number: a removed fd can be closed
+                    // and its number reused by a new registration while we were polling.
+                    const auto CURRENT = std::ranges::find(m_sEventLoopInternals.pollIds, pollIds[i]);
+                    if (CURRENT == m_sEventLoopInternals.pollIds.end())
                         continue;
 
-                    CURRENT->revents |= polled.revents;
+                    m_sEventLoopInternals.pollFds[CURRENT - m_sEventLoopInternals.pollIds.begin()].revents |= polled.revents;
                     hasEvents = true;
                     if (!(polled.revents & (POLLHUP | POLLERR | POLLNVAL)))
                         continue;
@@ -860,6 +865,7 @@ void CPortalManager::addFdToEventLoop(int fd, short events, std::function<void()
     {
         std::lock_guard<std::mutex> lg(m_sEventLoopInternals.pollMutex);
         m_sEventLoopInternals.pollFds.emplace_back(pollfd{.fd = fd, .events = events});
+        m_sEventLoopInternals.pollIds.emplace_back(++m_sEventLoopInternals.lastPollId);
 
         if (callback)
             m_sEventLoopInternals.pollCallbacks[fd] = callback;
@@ -874,7 +880,13 @@ void CPortalManager::addFdToEventLoop(int fd, short events, std::function<void()
 void CPortalManager::removeFdFromEventLoop(int fd) {
     {
         std::lock_guard<std::mutex> lg(m_sEventLoopInternals.pollMutex);
-        std::erase_if(m_sEventLoopInternals.pollFds, [fd](const pollfd& p) { return p.fd == fd; });
+        for (size_t i = m_sEventLoopInternals.pollFds.size(); i-- > 0;) {
+            if (m_sEventLoopInternals.pollFds[i].fd != fd)
+                continue;
+
+            m_sEventLoopInternals.pollFds.erase(m_sEventLoopInternals.pollFds.begin() + i);
+            m_sEventLoopInternals.pollIds.erase(m_sEventLoopInternals.pollIds.begin() + i);
+        }
         m_sEventLoopInternals.pollCallbacks.erase(fd);
     }
 
