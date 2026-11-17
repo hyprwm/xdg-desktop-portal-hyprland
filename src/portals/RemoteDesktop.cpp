@@ -1381,15 +1381,19 @@ CRemoteDesktopPortal::SKeycode CRemoteDesktopPortal::newestHeldKeysym(const SSes
 // 'a' and 'A', or a keysym and a raw keycode, can land on the same one. The newest press
 // takes the key over, and the previous owner's release is then dropped.
 void CRemoteDesktopPortal::takeOverKey(SSession* session, uint32_t keycode, int32_t keysym) {
-    bool       held  = session->rawKeys.erase(keycode) != 0;
+    const bool RAW   = session->rawKeys.erase(keycode) != 0;
     const auto ALIAS = std::ranges::find_if(session->keysymKeycodes, [&](const auto& other) { return other.first != keysym && other.second.keycode == keycode; });
-    if (ALIAS != session->keysymKeycodes.end()) {
-        session->keysymKeycodes.erase(ALIAS);
-        held = true;
-    }
-
-    if (!held)
+    if (!RAW && ALIAS == session->keysymKeycodes.end())
         return;
+
+    // Release in the state the previous owner was pressed in, so the key-up resolves to
+    // the same keysym as its key-down (e.g. Alt_L, not Meta_L under a keysym's Shift).
+    // The caller then sends the new owner's state.
+    if (ALIAS != session->keysymKeycodes.end()) {
+        sendSessionModifiers(session, ALIAS->second);
+        session->keysymKeycodes.erase(ALIAS);
+    } else if (!session->keysymKeycodes.empty())
+        sendModifiers(session->virtualKeyboard.get(), session->xkbState->get(), 0, XKB_LAYOUT_INVALID, 0);
 
     session->virtualKeyboard->sendKey(currentTimeMs(), keycode, 0);
     session->xkbState->key(keycode, false);
