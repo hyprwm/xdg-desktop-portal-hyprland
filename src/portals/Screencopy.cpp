@@ -884,12 +884,18 @@ bool CScreencopyPortal::mapRemoteDesktopCoordinates(const sdbus::ObjectPath& ses
             globalY *= sc<double>(outputH) / PSESSION->advertisedH;
         }
 
-        globalX += outputX;
-        globalY += outputY;
         if (PSESSION->selection.type == TYPE_GEOMETRY) {
             globalX += PSESSION->selection.x;
             globalY += PSESSION->selection.y;
         }
+
+        // A region can extend past its output (e.g. after a scale change); Hyprland fills
+        // that part of the frame black, so never let it reach a neighbouring screen.
+        globalX = std::clamp(globalX, 0.0, sc<double>(std::max(outputW - 1, 0)));
+        globalY = std::clamp(globalY, 0.0, sc<double>(std::max(outputH - 1, 0)));
+
+        globalX += outputX;
+        globalY += outputY;
     } else if (PSESSION->selection.type != TYPE_WORKSPACE)
         return false;
 
