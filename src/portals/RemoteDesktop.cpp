@@ -573,8 +573,9 @@ bool CRemoteDesktopPortal::acquireKeymap(SKeymap& keymap) {
         if (data == MAP_FAILED)
             Debug::log(WARN, "[remotedesktop] could not map the compositor keymap: {}", strerror(errno));
         else {
-            std::string text{sc<const char*>(data), SOURCE.size};
-            munmap(data, SOURCE.size);
+            const auto                                   UNMAP = [size = SOURCE.size](void* p) { munmap(p, size); };
+            const std::unique_ptr<void, decltype(UNMAP)> MAPPING{data, UNMAP};
+            std::string                                  text{sc<const char*>(MAPPING.get()), SOURCE.size};
 
             // The keymap arrives NUL-terminated; xkbcommon wants the text without it.
             if (const auto NUL = text.find('\0'); NUL != std::string::npos)
@@ -601,15 +602,14 @@ bool CRemoteDesktopPortal::acquireKeymap(SKeymap& keymap) {
         return false;
     }
 
-    char* serialized = xkb_keymap_get_as_string(generated.get(), XKB_KEYMAP_FORMAT_TEXT_V1);
-    if (!serialized) {
+    const std::unique_ptr<char, decltype(&free)> SERIALIZED{xkb_keymap_get_as_string(generated.get(), XKB_KEYMAP_FORMAT_TEXT_V1), free};
+    if (!SERIALIZED) {
         Debug::log(ERR, "[remotedesktop] could not serialize the generated keymap");
         return false;
     }
 
     // Keep the trailing NUL: both the compositor and libeis expect the size to cover it.
-    const std::string TEXT{serialized, strlen(serialized) + 1};
-    free(serialized);
+    const std::string TEXT{SERIALIZED.get(), strlen(SERIALIZED.get()) + 1};
 
     // Everything that reads this fd mmaps it, so the file can go straight after
     // creation rather than sitting in /tmp for the life of the session.
