@@ -132,8 +132,8 @@ class CRemoteDesktopPortal {
         int32_t                               discreteScrollX = 0;
         int32_t                               discreteScrollY = 0;
         std::unordered_map<int32_t, SKeycode> keysymKeycodes;
-        // Repeating keys pressed by raw keycode, with their press order.
-        std::unordered_map<uint32_t, uint64_t> rawRepeatKeys;
+        // Keys currently owned by a raw keycode press, with their press order.
+        std::unordered_map<uint32_t, uint64_t> rawKeys;
         uint64_t                               keyPresses = 0;
         // Buttons a D-Bus or EIS client is holding, so they can be released if it stops
         // emulating or closes the session mid-drag instead of leaving the desktop dragging.
@@ -169,6 +169,9 @@ class CRemoteDesktopPortal {
     // The most recently pressed keysym still held, or an empty key if none is or a
     // repeating raw key was pressed after it.
     static SKeycode newestHeldKeysym(const SSession* session);
+    // Hand `keycode` to a new press, releasing it from whichever raw key or other keysym
+    // held it. `keysym` is the keysym taking it over, or XKB_KEY_NoSymbol for a raw press.
+    static void takeOverKey(SSession* session, uint32_t keycode, int32_t keysym);
     // Forward a key pressed by raw keycode, from D-Bus or EIS.
     static void sendRawKey(SSession* session, uint32_t keycode, uint32_t state, uint32_t time);
     // Send the session's modifiers with `pending`'s level applied on top, or else the

@@ -1054,17 +1054,12 @@ void CRemoteDesktopPortal::onNotifyKeyboardKeysym(sdbus::ObjectPath sessionHandl
         return;
     }
 
-    // Keysyms such as 'a' and 'A' can share one keycode, which the compositor sees as a
-    // single key: a newer press takes it over, and the older keysym's release is dropped.
-    const auto ALIAS = std::ranges::find_if(PSESSION->keysymKeycodes, [&](const auto& held) { return held.first != keysym && held.second.keycode == KEY.keycode; });
-    if (ALIAS != PSESSION->keysymKeycodes.end()) {
-        if (state != 1)
-            return;
+    // Only the current owner of a key may release it; see takeOverKey().
+    if (state != 1 && PRESSED == PSESSION->keysymKeycodes.end())
+        return;
 
-        PSESSION->keysymKeycodes.erase(ALIAS);
-        PSESSION->virtualKeyboard->sendKey(currentTimeMs(), KEY.keycode, 0);
-        PSESSION->xkbState->key(KEY.keycode, false);
-    }
+    if (state == 1)
+        takeOverKey(PSESSION, KEY.keycode, keysym);
 
     if (state == 1) {
         KEY.keysym                       = keysym;
@@ -1317,7 +1312,7 @@ void CRemoteDesktopPortal::releaseKeyboardKeys(SSession* session) {
     for (const auto KEY : session->xkbState->releaseAll())
         session->virtualKeyboard->sendKey(TIME, KEY, 0);
     session->keysymKeycodes.clear();
-    session->rawRepeatKeys.clear();
+    session->rawKeys.clear();
     sendSessionModifiers(session, {});
     wl_display_flush(g_pPortalManager->m_sWaylandConnection.display);
 }
@@ -1363,25 +1358,47 @@ CRemoteDesktopPortal::SKeycode CRemoteDesktopPortal::newestHeldKeysym(const SSes
     }
 
     // A newer repeating raw key owns the repeat, and it was asked for in the real state.
-    for (const auto& [_, order] : session->rawRepeatKeys) {
-        if (!newest.repeats || order > newest.order)
+    for (const auto& [code, order] : session->rawKeys) {
+        if (xkb_keymap_key_repeats(session->keymap.keymap.get(), code + 8) && (!newest.repeats || order > newest.order))
             return {};
     }
     return newest;
 }
 
-void CRemoteDesktopPortal::sendRawKey(SSession* session, uint32_t keycode, uint32_t state, uint32_t time) {
-    if (!session->xkbState->key(keycode, state == 1))
-        return;
-
-    if (state != 1)
-        session->rawRepeatKeys.erase(keycode);
-    else if (xkb_keymap_key_repeats(session->keymap.keymap.get(), keycode + 8)) {
-        // Drop a held keysym's synthetic level before the key lands, or it would pick it up.
-        session->rawRepeatKeys[keycode] = ++session->keyPresses;
-        sendSessionModifiers(session, {});
+// The compositor sees one key per keycode, whichever way it was pressed: keysyms such as
+// 'a' and 'A', or a keysym and a raw keycode, can land on the same one. The newest press
+// takes the key over, and the previous owner's release is then dropped.
+void CRemoteDesktopPortal::takeOverKey(SSession* session, uint32_t keycode, int32_t keysym) {
+    bool       held  = session->rawKeys.erase(keycode) != 0;
+    const auto ALIAS = std::ranges::find_if(session->keysymKeycodes, [&](const auto& other) { return other.first != keysym && other.second.keycode == keycode; });
+    if (ALIAS != session->keysymKeycodes.end()) {
+        session->keysymKeycodes.erase(ALIAS);
+        held = true;
     }
 
+    if (!held)
+        return;
+
+    session->virtualKeyboard->sendKey(currentTimeMs(), keycode, 0);
+    session->xkbState->key(keycode, false);
+}
+
+void CRemoteDesktopPortal::sendRawKey(SSession* session, uint32_t keycode, uint32_t state, uint32_t time) {
+    if (state != 1) {
+        if (!session->rawKeys.erase(keycode))
+            return;
+    } else {
+        if (session->rawKeys.contains(keycode))
+            return;
+
+        takeOverKey(session, keycode, XKB_KEY_NoSymbol);
+        session->rawKeys[keycode] = ++session->keyPresses;
+        // Drop a held keysym's synthetic level before the key lands, or it would pick it up.
+        if (xkb_keymap_key_repeats(session->keymap.keymap.get(), keycode + 8))
+            sendSessionModifiers(session, {});
+    }
+
+    session->xkbState->key(keycode, state == 1);
     session->virtualKeyboard->sendKey(time, keycode, state);
     sendSessionModifiers(session, {});
 }
