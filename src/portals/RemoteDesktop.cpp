@@ -927,8 +927,8 @@ sdbus::UnixFd CRemoteDesktopPortal::onConnectToEIS(sdbus::ObjectPath sessionHand
     }
 
     // Get client fd to pass to caller
-    int clientFd = eis_backend_fd_add_client(PSESSION->eis.get());
-    if (clientFd < 0) {
+    Hyprutils::OS::CFileDescriptor clientFd{eis_backend_fd_add_client(PSESSION->eis.get())};
+    if (!clientFd.isValid()) {
         Debug::log(ERR, "[remotedesktop] eis_backend_fd_add_client failed");
         PSESSION->eis.reset();
         throw sdbus::Error{sdbus::Error::Name{"org.freedesktop.portal.Error.Failed"}, "Failed to add EIS client"};
@@ -937,14 +937,14 @@ sdbus::UnixFd CRemoteDesktopPortal::onConnectToEIS(sdbus::ObjectPath sessionHand
     // Get the EIS fd to poll for events
     PSESSION->eisFd = eis_get_fd(PSESSION->eis.get());
 
-    Debug::log(LOG, "[remotedesktop] ConnectToEIS CALLED: client_fd={}, eis_fd={}", clientFd, PSESSION->eisFd);
+    Debug::log(LOG, "[remotedesktop] ConnectToEIS CALLED: client_fd={}, eis_fd={}", clientFd.get(), PSESSION->eisFd);
 
     // Register the EIS fd with PortalManager's poll loop
     g_pPortalManager->addFdToEventLoop(PSESSION->eisFd, POLLIN, [this] { processEISEvents(); });
 
     // Adopt rather than dup: we own clientFd, and a leftover copy here would keep the
     // client end open, so EIS would never see the client disconnect.
-    return sdbus::UnixFd{clientFd, sdbus::adopt_fd};
+    return sdbus::UnixFd{clientFd.take(), sdbus::adopt_fd};
 }
 
 // ─── Input notification handlers ─────────────────────────────────
