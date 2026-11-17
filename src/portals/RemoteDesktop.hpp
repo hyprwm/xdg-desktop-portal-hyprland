@@ -176,7 +176,8 @@ class CRemoteDesktopPortal {
     static void sendRawKey(SSession* session, uint32_t keycode, uint32_t state, uint32_t time);
     // Send the session's modifiers with `pending`'s level applied on top, or else the
     // newest held keysym's, so key repeat keeps resolving the symbol it asked for.
-    static void sendSessionModifiers(SSession* session, const SKeycode& pending);
+    // Returns the real modifiers it dropped to do so.
+    static xkb_mod_mask_t sendSessionModifiers(SSession* session, const SKeycode& pending);
 
     // Keysym → keycode conversion (via xkbcommon)
     static SKeycode                        keycodeFromKeysym(struct xkb_keymap* keymap, uint32_t sym, xkb_layout_index_t preferredLayout);

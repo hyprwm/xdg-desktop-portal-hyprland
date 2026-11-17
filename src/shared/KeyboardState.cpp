@@ -20,6 +20,32 @@ bool CKeyboardState::key(uint32_t code, bool pressed) {
     return true;
 }
 
+bool CKeyboardState::key(uint32_t code, bool pressed, xkb_mod_mask_t levelMods, xkb_mod_mask_t dropped, xkb_layout_index_t layout) {
+    if (!m_state || pressed == m_pressed.contains(code))
+        return false;
+
+    const auto DEPRESSED    = xkb_state_serialize_mods(m_state.get(), XKB_STATE_MODS_DEPRESSED);
+    const auto LATCHED      = xkb_state_serialize_mods(m_state.get(), XKB_STATE_MODS_LATCHED);
+    const auto LOCKED       = xkb_state_serialize_mods(m_state.get(), XKB_STATE_MODS_LOCKED);
+    const auto BASEGROUP    = xkb_state_serialize_layout(m_state.get(), XKB_STATE_LAYOUT_DEPRESSED);
+    const auto LATCHEDGROUP = xkb_state_serialize_layout(m_state.get(), XKB_STATE_LAYOUT_LATCHED);
+    const auto LOCKEDGROUP  = xkb_state_serialize_layout(m_state.get(), XKB_STATE_LAYOUT_LOCKED);
+    const auto GROUP        = layout == XKB_LAYOUT_INVALID ? xkb_state_serialize_layout(m_state.get(), XKB_STATE_LAYOUT_EFFECTIVE) : layout;
+
+    // Run the action in the emitted state. xkb keeps per-key action state across mask
+    // updates, so a lock toggled here is released correctly by the matching key-up.
+    xkb_state_update_mask(m_state.get(), (DEPRESSED & ~dropped) | levelMods, LATCHED & ~dropped, LOCKED & ~dropped, BASEGROUP, LATCHEDGROUP, GROUP);
+    key(code, pressed);
+
+    // Keep what the action changed, but put back the real modifiers the level overrode.
+    const auto SYNTHETIC = levelMods & ~DEPRESSED;
+    const auto NEWGROUP  = xkb_state_serialize_layout(m_state.get(), XKB_STATE_LAYOUT_LOCKED);
+    xkb_state_update_mask(m_state.get(), (xkb_state_serialize_mods(m_state.get(), XKB_STATE_MODS_DEPRESSED) & ~SYNTHETIC) | (DEPRESSED & dropped),
+                          xkb_state_serialize_mods(m_state.get(), XKB_STATE_MODS_LATCHED), xkb_state_serialize_mods(m_state.get(), XKB_STATE_MODS_LOCKED) | (LOCKED & dropped),
+                          BASEGROUP, xkb_state_serialize_layout(m_state.get(), XKB_STATE_LAYOUT_LATCHED), NEWGROUP == GROUP ? LOCKEDGROUP : NEWGROUP);
+    return true;
+}
+
 std::vector<uint32_t> CKeyboardState::releaseAll() {
     std::vector<uint32_t> keys(m_pressed.begin(), m_pressed.end());
     for (const auto KEY : keys)

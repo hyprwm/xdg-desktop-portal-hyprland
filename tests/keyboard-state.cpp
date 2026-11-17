@@ -90,5 +90,31 @@ int main() {
     xkb_mod_mask_t altGr[1]{};
     require(xkb_keymap_key_get_mods_for_level(KEYMAP.get(), KEY_0 + 8, 0, 2, altGr, 1) == 1, "find AltGr's level mask");
     require(keyboard.conflictingMods(KEY_0, XKB_KEY_at, altGr[0], 0) == 0, "the level's own modifiers select AltGr symbols");
-    std::cout << "PASS: AZERTY, AltGr, duplicate presses, both Ctrl keys, lock state, 100 release/resume cycles, keysym modifiers under locks\n";
+    // A keysym on a Shift level runs that level's action: with caps:escape_shifted_capslock,
+    // a synthesized Shift+Caps must toggle Caps Lock, and Shift must not stay held.
+    xkb_rule_names capsNames{};
+    capsNames.layout  = "us";
+    capsNames.options = "caps:escape_shifted_capslock";
+    const std::unique_ptr<xkb_keymap, decltype(&xkb_keymap_unref)> CAPSMAP{xkb_keymap_new_from_names(CONTEXT.get(), &capsNames, XKB_KEYMAP_COMPILE_NO_FLAGS), xkb_keymap_unref};
+    require(CAPSMAP != nullptr, "load caps:escape_shifted_capslock keymap");
+    CKeyboardState caps{CAPSMAP.get()};
+    const auto     CAPSSHIFT = 1u << xkb_keymap_mod_get_index(CAPSMAP.get(), XKB_MOD_NAME_SHIFT);
+    const auto     CAPSLOCK  = 1u << xkb_keymap_mod_get_index(CAPSMAP.get(), XKB_MOD_NAME_CAPS);
+    const auto     CAPSCTRL  = 1u << xkb_keymap_mod_get_index(CAPSMAP.get(), XKB_MOD_NAME_CTRL);
+    caps.key(KEY_LEFTCTRL, true);
+    require(caps.key(KEY_CAPSLOCK, true, CAPSSHIFT, 0, 0), "synthesized-level press is applied");
+    require(caps.key(KEY_CAPSLOCK, false, CAPSSHIFT, 0, 0), "synthesized-level release is applied");
+    require(xkb_state_serialize_mods(caps.get(), XKB_STATE_MODS_LOCKED) == CAPSLOCK, "Shift-level Caps_Lock toggles Caps Lock on");
+    require(xkb_state_serialize_mods(caps.get(), XKB_STATE_MODS_DEPRESSED) == CAPSCTRL, "only the real held Ctrl stays depressed");
+    require(!caps.key(KEY_CAPSLOCK, false, CAPSSHIFT, 0, 0), "ignore releases for keys that are not held at a level either");
+    caps.key(KEY_LEFTCTRL, false);
+    require(xkb_state_serialize_mods(caps.get(), XKB_STATE_MODS_DEPRESSED) == 0, "real Ctrl release still clears it");
+    caps.key(KEY_CAPSLOCK, true, CAPSSHIFT, 0, 0);
+    caps.key(KEY_CAPSLOCK, false, CAPSSHIFT, 0, 0);
+    require(xkb_state_serialize_mods(caps.get(), XKB_STATE_MODS_LOCKED) == 0, "a second Shift-level Caps_Lock toggles it off");
+    caps.key(KEY_CAPSLOCK, true);
+    caps.key(KEY_CAPSLOCK, false);
+    require(xkb_state_serialize_mods(caps.get(), XKB_STATE_MODS_LOCKED) == 0, "the plain level stays Escape");
+
+    std::cout << "PASS: AZERTY, AltGr, duplicate presses, both Ctrl keys, lock state, 100 release/resume cycles, keysym modifiers under locks, level-dependent key actions\n";
 }

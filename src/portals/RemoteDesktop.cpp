@@ -1068,9 +1068,10 @@ void CRemoteDesktopPortal::onNotifyKeyboardKeysym(sdbus::ObjectPath sessionHandl
         PSESSION->keysymKeycodes[keysym] = KEY;
     }
 
-    sendSessionModifiers(PSESSION, KEY);
+    const auto DROPPED = sendSessionModifiers(PSESSION, KEY);
     PSESSION->virtualKeyboard->sendKey(currentTimeMs(), KEY.keycode, state);
-    PSESSION->xkbState->key(KEY.keycode, state == 1);
+    // Run the key's XKB action at the level just emitted, not the real one.
+    PSESSION->xkbState->key(KEY.keycode, state == 1, KEY.modifiers, DROPPED, KEY.layout);
     if (state != 1)
         PSESSION->keysymKeycodes.erase(keysym);
     sendSessionModifiers(PSESSION, {});
@@ -1409,10 +1410,11 @@ void CRemoteDesktopPortal::sendRawKey(SSession* session, uint32_t keycode, uint3
 // Control_L don't take over the repeat, so the newest repeating key wins over them.
 // Conflicts are resolved against the current state rather than at press time, so a
 // real modifier or lock that changes while the keysym is held can't flip its repeats.
-void CRemoteDesktopPortal::sendSessionModifiers(SSession* session, const SKeycode& pending) {
+xkb_mod_mask_t CRemoteDesktopPortal::sendSessionModifiers(SSession* session, const SKeycode& pending) {
     const auto KEY     = pending.keycode ? pending : newestHeldKeysym(session);
     const auto DROPPED = KEY.keycode && KEY.keysym != XKB_KEY_NoSymbol ? session->xkbState->conflictingMods(KEY.keycode, KEY.keysym, KEY.modifiers, KEY.layout) : 0;
     sendModifiers(session->virtualKeyboard.get(), session->xkbState->get(), KEY.modifiers, KEY.layout, DROPPED);
+    return DROPPED;
 }
 
 // ─── Keysym → keycode conversion ─────────────────────────────────
