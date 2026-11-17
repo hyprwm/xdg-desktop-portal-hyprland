@@ -1405,12 +1405,13 @@ void CRemoteDesktopPortal::sendRawKey(SSession* session, uint32_t keycode, uint3
 
         takeOverKey(session, keycode, XKB_KEY_NoSymbol);
         session->rawKeys[keycode] = ++session->keyPresses;
-        // Drop a held keysym's synthetic level before the key lands, or it would pick it
-        // up (e.g. Alt_L turning into Meta_L under Shift). A repeating key then keeps the
-        // real state; otherwise the keysym's level is reapplied once the key is in.
-        if (!session->keysymKeycodes.empty())
-            sendModifiers(session->virtualKeyboard.get(), session->xkbState->get(), 0, XKB_LAYOUT_INVALID, 0);
     }
+
+    // Drop a held keysym's synthetic level before the key lands, press or release, or it
+    // would pick it up (e.g. Alt_L turning into Meta_L under Shift). A repeating key then
+    // keeps the real state; otherwise the keysym's level is reapplied once the key is in.
+    if (!session->keysymKeycodes.empty())
+        sendModifiers(session->virtualKeyboard.get(), session->xkbState->get(), 0, XKB_LAYOUT_INVALID, 0);
 
     session->xkbState->key(keycode, state == 1);
     session->virtualKeyboard->sendKey(time, keycode, state);
