@@ -1321,9 +1321,22 @@ void CRemoteDesktopPortal::releaseKeyboardKeys(SSession* session) {
         return;
 
     const auto TIME = currentTimeMs();
+
+    // Release every key in the state its owner pressed it in, so each key-up resolves to
+    // the same keysym as its key-down: keysyms at their own level first, then whatever is
+    // left (raw keys) in the real state once no keysym level is installed anymore.
+    while (!session->keysymKeycodes.empty()) {
+        const auto KEY = session->keysymKeycodes.begin()->second;
+        session->keysymKeycodes.erase(session->keysymKeycodes.begin());
+
+        const auto DROPPED = sendSessionModifiers(session, KEY);
+        session->virtualKeyboard->sendKey(TIME, KEY.keycode, 0);
+        session->xkbState->key(KEY.keycode, false, KEY.modifiers, DROPPED, KEY.layout);
+    }
+
+    sendSessionModifiers(session, {});
     for (const auto KEY : session->xkbState->releaseAll())
         session->virtualKeyboard->sendKey(TIME, KEY, 0);
-    session->keysymKeycodes.clear();
     session->rawKeys.clear();
     sendSessionModifiers(session, {});
     wl_display_flush(g_pPortalManager->m_sWaylandConnection.display);
