@@ -38,11 +38,15 @@ bool CKeyboardState::key(uint32_t code, bool pressed, xkb_mod_mask_t levelMods, 
     key(code, pressed);
 
     // Keep what the action changed, but put back the real modifiers the level overrode.
+    // The depressed group only moves through actions such as Mode_switch, so keep its
+    // change; the locked group was only overridden to select the level, unless the
+    // action locked a different one.
     const auto SYNTHETIC = levelMods & ~DEPRESSED;
     const auto NEWGROUP  = xkb_state_serialize_layout(m_state.get(), XKB_STATE_LAYOUT_LOCKED);
     xkb_state_update_mask(m_state.get(), (xkb_state_serialize_mods(m_state.get(), XKB_STATE_MODS_DEPRESSED) & ~SYNTHETIC) | (DEPRESSED & dropped),
                           xkb_state_serialize_mods(m_state.get(), XKB_STATE_MODS_LATCHED), xkb_state_serialize_mods(m_state.get(), XKB_STATE_MODS_LOCKED) | (LOCKED & dropped),
-                          BASEGROUP, xkb_state_serialize_layout(m_state.get(), XKB_STATE_LAYOUT_LATCHED), NEWGROUP == GROUP ? LOCKEDGROUP : NEWGROUP);
+                          xkb_state_serialize_layout(m_state.get(), XKB_STATE_LAYOUT_DEPRESSED), xkb_state_serialize_layout(m_state.get(), XKB_STATE_LAYOUT_LATCHED),
+                          NEWGROUP == GROUP ? LOCKEDGROUP : NEWGROUP);
     return true;
 }
 

@@ -116,5 +116,18 @@ int main() {
     caps.key(KEY_CAPSLOCK, false);
     require(xkb_state_serialize_mods(caps.get(), XKB_STATE_MODS_LOCKED) == 0, "the plain level stays Escape");
 
-    std::cout << "PASS: AZERTY, AltGr, duplicate presses, both Ctrl keys, lock state, 100 release/resume cycles, keysym modifiers under locks, level-dependent key actions\n";
+    // A keysym action that switches the group while held (Mode_switch) must stay in effect.
+    xkb_rule_names groupNames{};
+    groupNames.layout  = "us,de";
+    groupNames.options = "grp:switch";
+    const std::unique_ptr<xkb_keymap, decltype(&xkb_keymap_unref)> GROUPMAP{xkb_keymap_new_from_names(CONTEXT.get(), &groupNames, XKB_KEYMAP_COMPILE_NO_FLAGS), xkb_keymap_unref};
+    require(GROUPMAP != nullptr, "load us,de grp:switch keymap");
+    CKeyboardState group{GROUPMAP.get()};
+    group.key(KEY_RIGHTALT, true, 0, 0, 0);
+    require(xkb_state_key_get_one_sym(group.get(), KEY_Y + 8) == XKB_KEY_z, "held keysym Mode_switch keeps the German group active");
+    group.key(KEY_RIGHTALT, false, 0, 0, 0);
+    require(xkb_state_serialize_layout(group.get(), XKB_STATE_LAYOUT_EFFECTIVE) == 0, "releasing Mode_switch returns to the US group");
+
+    std::cout << "PASS: AZERTY, AltGr, duplicate presses, both Ctrl keys, lock state, 100 release/resume cycles, keysym modifiers under locks, level-dependent key actions, "
+                 "momentary group switches\n";
 }
