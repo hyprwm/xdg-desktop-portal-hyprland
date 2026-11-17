@@ -30,7 +30,10 @@ bool CKeyboardState::key(uint32_t code, bool pressed, xkb_mod_mask_t levelMods, 
     const auto BASEGROUP    = xkb_state_serialize_layout(m_state.get(), XKB_STATE_LAYOUT_DEPRESSED);
     const auto LATCHEDGROUP = xkb_state_serialize_layout(m_state.get(), XKB_STATE_LAYOUT_LATCHED);
     const auto LOCKEDGROUP  = xkb_state_serialize_layout(m_state.get(), XKB_STATE_LAYOUT_LOCKED);
-    const auto GROUP        = layout == XKB_LAYOUT_INVALID ? xkb_state_serialize_layout(m_state.get(), XKB_STATE_LAYOUT_EFFECTIVE) : layout;
+    // A key with a single group reads the same in every layout, so keep the real locked
+    // group: forcing it to 0 would make relative actions such as ISO_Next_Group start there.
+    const bool SINGLEGROUP = xkb_keymap_num_layouts_for_key(xkb_state_get_keymap(m_state.get()), code + 8) <= 1;
+    const auto GROUP       = layout == XKB_LAYOUT_INVALID || SINGLEGROUP ? LOCKEDGROUP : layout;
 
     // Run the action in the emitted state. xkb keeps per-key action state across mask
     // updates, so a lock toggled here is released correctly by the matching key-up.

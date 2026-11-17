@@ -128,6 +128,20 @@ int main() {
     group.key(KEY_RIGHTALT, false, 0, 0, 0);
     require(xkb_state_serialize_layout(group.get(), XKB_STATE_LAYOUT_EFFECTIVE) == 0, "releasing Mode_switch returns to the US group");
 
+    // A relative group action on a single-group key steps from the real locked group.
+    xkb_rule_names toggleNames{};
+    toggleNames.layout  = "us,de";
+    toggleNames.options = "grp:menu_toggle";
+    const std::unique_ptr<xkb_keymap, decltype(&xkb_keymap_unref)> TOGGLEMAP{xkb_keymap_new_from_names(CONTEXT.get(), &toggleNames, XKB_KEYMAP_COMPILE_NO_FLAGS), xkb_keymap_unref};
+    require(TOGGLEMAP != nullptr, "load us,de grp:menu_toggle keymap");
+    CKeyboardState toggle{TOGGLEMAP.get()};
+    toggle.key(KEY_COMPOSE, true, 0, 0, 0);
+    toggle.key(KEY_COMPOSE, false, 0, 0, 0);
+    require(xkb_state_serialize_layout(toggle.get(), XKB_STATE_LAYOUT_LOCKED) == 1, "keysym ISO_Next_Group switches to the German group");
+    toggle.key(KEY_COMPOSE, true, 0, 0, 0);
+    toggle.key(KEY_COMPOSE, false, 0, 0, 0);
+    require(xkb_state_serialize_layout(toggle.get(), XKB_STATE_LAYOUT_LOCKED) == 0, "a second keysym ISO_Next_Group returns to the US group");
+
     std::cout << "PASS: AZERTY, AltGr, duplicate presses, both Ctrl keys, lock state, 100 release/resume cycles, keysym modifiers under locks, level-dependent key actions, "
-                 "momentary group switches\n";
+                 "momentary group switches, relative group toggles\n";
 }
