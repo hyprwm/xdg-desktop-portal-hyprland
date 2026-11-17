@@ -19,6 +19,9 @@ struct eis;
 struct eis_client;
 struct eis_seat;
 struct eis_device;
+struct eis_region;
+struct eis_keymap;
+struct eis_event;
 class CKeyboardState;
 
 class CRemoteDesktopPortal {
@@ -71,6 +74,9 @@ class CRemoteDesktopPortal {
         void operator()(struct eis* p) const;
         void operator()(struct eis_seat* p) const;
         void operator()(struct eis_device* p) const;
+        void operator()(struct eis_region* p) const;
+        void operator()(struct eis_keymap* p) const;
+        void operator()(struct eis_event* p) const;
     };
 
     // One EIS region per output, in the layout's logical coordinate space with the

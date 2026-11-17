@@ -395,6 +395,18 @@ void CRemoteDesktopPortal::SEISDeleter::operator()(struct eis_device* p) const {
     eis_device_unref(p);
 }
 
+void CRemoteDesktopPortal::SEISDeleter::operator()(struct eis_region* p) const {
+    eis_region_unref(p);
+}
+
+void CRemoteDesktopPortal::SEISDeleter::operator()(struct eis_keymap* p) const {
+    eis_keymap_unref(p);
+}
+
+void CRemoteDesktopPortal::SEISDeleter::operator()(struct eis_event* p) const {
+    eis_event_unref(p);
+}
+
 // Regions are advertised per output rather than as one bounding box, so a client can
 // tell where the screens actually are. Coordinates stay in the layout's logical space,
 // shifted so its top-left is the origin: EIS offsets are unsigned, and the absolute
@@ -466,35 +478,34 @@ void CRemoteDesktopPortal::createEISPointerDevice(SSession* session) {
     if (!session->eisSeat)
         return;
 
-    auto* dev = eis_seat_new_device(session->eisSeat.get());
+    std::unique_ptr<struct eis_device, SEISDeleter> dev{eis_seat_new_device(session->eisSeat.get())};
     if (!dev)
         return;
 
-    eis_device_configure_type(dev, EIS_DEVICE_TYPE_VIRTUAL);
-    eis_device_configure_name(dev, "Hyprland virtual pointer");
-    eis_device_configure_capability(dev, EIS_DEVICE_CAP_POINTER);
-    eis_device_configure_capability(dev, EIS_DEVICE_CAP_POINTER_ABSOLUTE);
-    eis_device_configure_capability(dev, EIS_DEVICE_CAP_BUTTON);
-    eis_device_configure_capability(dev, EIS_DEVICE_CAP_SCROLL);
+    eis_device_configure_type(dev.get(), EIS_DEVICE_TYPE_VIRTUAL);
+    eis_device_configure_name(dev.get(), "Hyprland virtual pointer");
+    eis_device_configure_capability(dev.get(), EIS_DEVICE_CAP_POINTER);
+    eis_device_configure_capability(dev.get(), EIS_DEVICE_CAP_POINTER_ABSOLUTE);
+    eis_device_configure_capability(dev.get(), EIS_DEVICE_CAP_BUTTON);
+    eis_device_configure_capability(dev.get(), EIS_DEVICE_CAP_SCROLL);
 
     auto regions = pointerRegions();
     for (const auto& REGION : regions) {
-        auto* region = eis_device_new_region(dev);
+        const std::unique_ptr<struct eis_region, SEISDeleter> region{eis_device_new_region(dev.get())};
         if (!region)
             continue;
 
-        eis_region_set_offset(region, sc<uint32_t>(REGION.x), sc<uint32_t>(REGION.y));
-        eis_region_set_size(region, REGION.w, REGION.h);
-        eis_region_set_physical_scale(region, REGION.scale);
+        eis_region_set_offset(region.get(), sc<uint32_t>(REGION.x), sc<uint32_t>(REGION.y));
+        eis_region_set_size(region.get(), REGION.w, REGION.h);
+        eis_region_set_physical_scale(region.get(), REGION.scale);
         if (!REGION.mappingId.empty())
-            eis_region_set_mapping_id(region, REGION.mappingId.c_str());
-        eis_region_add(region);
-        eis_region_unref(region);
+            eis_region_set_mapping_id(region.get(), REGION.mappingId.c_str());
+        eis_region_add(region.get());
     }
 
-    eis_device_add(dev);
-    eis_device_resume(dev);
-    session->eisPointer.reset(dev);
+    eis_device_add(dev.get());
+    eis_device_resume(dev.get());
+    session->eisPointer        = std::move(dev);
     session->eisPointerRegions = std::move(regions);
     Debug::log(LOG, "[remotedesktop] EIS pointer device added & resumed with {} region(s)", session->eisPointerRegions.size());
 }
@@ -520,28 +531,26 @@ void CRemoteDesktopPortal::createEISKeyboardDevice(SSession* session) {
         return;
     }
 
-    auto* dev = eis_seat_new_device(session->eisSeat.get());
+    std::unique_ptr<struct eis_device, SEISDeleter> dev{eis_seat_new_device(session->eisSeat.get())};
     if (!dev)
         return;
 
-    eis_device_configure_type(dev, EIS_DEVICE_TYPE_VIRTUAL);
-    eis_device_configure_name(dev, "Hyprland virtual keyboard");
-    eis_device_configure_capability(dev, EIS_DEVICE_CAP_KEYBOARD);
+    eis_device_configure_type(dev.get(), EIS_DEVICE_TYPE_VIRTUAL);
+    eis_device_configure_name(dev.get(), "Hyprland virtual keyboard");
+    eis_device_configure_capability(dev.get(), EIS_DEVICE_CAP_KEYBOARD);
 
     // libeis takes its own copy of the fd, so the session keeps ownership of it.
-    auto* eisKm = eis_device_new_keymap(dev, EIS_KEYMAP_TYPE_XKB, session->keymap.fd.get(), session->keymap.size);
+    const std::unique_ptr<struct eis_keymap, SEISDeleter> eisKm{eis_device_new_keymap(dev.get(), EIS_KEYMAP_TYPE_XKB, session->keymap.fd.get(), session->keymap.size)};
     if (!eisKm) {
         Debug::log(ERR, "[remotedesktop] failed to create EIS keyboard keymap, withholding device");
-        eis_device_unref(dev);
         return;
     }
 
-    eis_keymap_add(eisKm);
-    eis_keymap_unref(eisKm);
+    eis_keymap_add(eisKm.get());
 
-    eis_device_add(dev);
-    eis_device_resume(dev);
-    session->eisKeyboard.reset(dev);
+    eis_device_add(dev.get());
+    eis_device_resume(dev.get());
+    session->eisKeyboard = std::move(dev);
     Debug::log(LOG, "[remotedesktop] EIS keyboard device added & resumed");
 }
 
@@ -1090,14 +1099,19 @@ void CRemoteDesktopPortal::processEISEvents() {
         eis_dispatch(s->eis.get());
 
         // Process events (pull model)
-        bool              disconnected = false;
-        struct eis_event* event;
-        while (!disconnected && (event = eis_get_event(s->eis.get()))) {
-            auto     eventType = eis_event_get_type(event);
+        bool disconnected = false;
+        while (!disconnected) {
+            // Dropped at the end of each pass, before a disconnect tears down the context.
+            const std::unique_ptr<struct eis_event, SEISDeleter> EVENT{eis_get_event(s->eis.get())};
+            if (!EVENT)
+                break;
 
-            auto*    client = eis_event_get_client(event);
-            auto*    seat   = eis_event_get_seat(event);
-            uint32_t time   = currentTimeMs();
+            auto* const event     = EVENT.get();
+            auto        eventType = eis_event_get_type(event);
+
+            auto*       client = eis_event_get_client(event);
+            auto*       seat   = eis_event_get_seat(event);
+            uint32_t    time   = currentTimeMs();
 
             switch (eventType) {
                 case EIS_EVENT_CLIENT_CONNECT: {
@@ -1105,21 +1119,20 @@ void CRemoteDesktopPortal::processEISEvents() {
                     eis_client_connect(client);
 
                     // Create a seat with the capabilities authorized for this session.
-                    auto* newSeat = eis_client_new_seat(client, "kdeconnect-virtual-input");
+                    const std::unique_ptr<struct eis_seat, SEISDeleter> newSeat{eis_client_new_seat(client, "kdeconnect-virtual-input")};
                     if (!newSeat) {
                         Debug::log(ERR, "[remotedesktop] failed to create EIS seat");
                         break;
                     }
                     if (s->deviceTypes & 2) {
-                        eis_seat_configure_capability(newSeat, EIS_DEVICE_CAP_POINTER);
-                        eis_seat_configure_capability(newSeat, EIS_DEVICE_CAP_POINTER_ABSOLUTE);
-                        eis_seat_configure_capability(newSeat, EIS_DEVICE_CAP_SCROLL);
-                        eis_seat_configure_capability(newSeat, EIS_DEVICE_CAP_BUTTON);
+                        eis_seat_configure_capability(newSeat.get(), EIS_DEVICE_CAP_POINTER);
+                        eis_seat_configure_capability(newSeat.get(), EIS_DEVICE_CAP_POINTER_ABSOLUTE);
+                        eis_seat_configure_capability(newSeat.get(), EIS_DEVICE_CAP_SCROLL);
+                        eis_seat_configure_capability(newSeat.get(), EIS_DEVICE_CAP_BUTTON);
                     }
                     if (s->deviceTypes & 1)
-                        eis_seat_configure_capability(newSeat, EIS_DEVICE_CAP_KEYBOARD);
-                    eis_seat_add(newSeat);
-                    eis_seat_unref(newSeat);
+                        eis_seat_configure_capability(newSeat.get(), EIS_DEVICE_CAP_KEYBOARD);
+                    eis_seat_add(newSeat.get());
                     Debug::log(LOG, "[remotedesktop] EIS seat added with authorized capabilities");
                     break;
                 }
@@ -1289,8 +1302,6 @@ void CRemoteDesktopPortal::processEISEvents() {
                 }
                 default: break;
             }
-
-            eis_event_unref(event);
         }
 
         if (disconnected) {
