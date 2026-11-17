@@ -1036,10 +1036,7 @@ void CRemoteDesktopPortal::onNotifyKeyboardKeycode(sdbus::ObjectPath sessionHand
     if (!PSESSION || !PSESSION->virtualKeyboard)
         return;
 
-    if (!PSESSION->xkbState->key(keycode, state == 1))
-        return;
-    PSESSION->virtualKeyboard->sendKey(currentTimeMs(), keycode, state);
-    sendSessionModifiers(PSESSION, {});
+    sendRawKey(PSESSION, keycode, state, currentTimeMs());
     wl_display_flush(g_pPortalManager->m_sWaylandConnection.display);
 }
 
@@ -1071,7 +1068,7 @@ void CRemoteDesktopPortal::onNotifyKeyboardKeysym(sdbus::ObjectPath sessionHandl
 
     if (state == 1) {
         KEY.keysym                       = keysym;
-        KEY.order                        = ++PSESSION->keysymPresses;
+        KEY.order                        = ++PSESSION->keyPresses;
         KEY.repeats                      = xkb_keymap_key_repeats(PSESSION->keymap.keymap.get(), KEY.keycode + 8);
         PSESSION->keysymKeycodes[keysym] = KEY;
     }
@@ -1281,10 +1278,7 @@ void CRemoteDesktopPortal::processEISEvents() {
                     if (s->virtualKeyboard) {
                         uint32_t key   = eis_event_keyboard_get_key(event);
                         uint32_t state = eis_event_keyboard_get_key_is_press(event) ? 1 : 0;
-                        if (!s->xkbState->key(key, state == 1))
-                            break;
-                        s->virtualKeyboard->sendKey(time, key, state);
-                        sendSessionModifiers(s.get(), {});
+                        sendRawKey(s.get(), key, state, time);
                     }
                     break;
                 }
@@ -1323,6 +1317,7 @@ void CRemoteDesktopPortal::releaseKeyboardKeys(SSession* session) {
     for (const auto KEY : session->xkbState->releaseAll())
         session->virtualKeyboard->sendKey(TIME, KEY, 0);
     session->keysymKeycodes.clear();
+    session->rawRepeatKeys.clear();
     sendSessionModifiers(session, {});
     wl_display_flush(g_pPortalManager->m_sWaylandConnection.display);
 }
@@ -1366,7 +1361,29 @@ CRemoteDesktopPortal::SKeycode CRemoteDesktopPortal::newestHeldKeysym(const SSes
         if (std::tie(key.repeats, key.order) > std::tie(newest.repeats, newest.order))
             newest = key;
     }
+
+    // A newer repeating raw key owns the repeat, and it was asked for in the real state.
+    for (const auto& [_, order] : session->rawRepeatKeys) {
+        if (!newest.repeats || order > newest.order)
+            return {};
+    }
     return newest;
+}
+
+void CRemoteDesktopPortal::sendRawKey(SSession* session, uint32_t keycode, uint32_t state, uint32_t time) {
+    if (!session->xkbState->key(keycode, state == 1))
+        return;
+
+    if (state != 1)
+        session->rawRepeatKeys.erase(keycode);
+    else if (xkb_keymap_key_repeats(session->keymap.keymap.get(), keycode + 8)) {
+        // Drop a held keysym's synthetic level before the key lands, or it would pick it up.
+        session->rawRepeatKeys[keycode] = ++session->keyPresses;
+        sendSessionModifiers(session, {});
+    }
+
+    session->virtualKeyboard->sendKey(time, keycode, state);
+    sendSessionModifiers(session, {});
 }
 
 // Only one level can be in effect: OR-ing every held keysym's modifiers would turn a
