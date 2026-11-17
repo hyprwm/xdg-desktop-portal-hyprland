@@ -1,0 +1,147 @@
+#include "../src/shared/KeyboardState.hpp"
+
+#include <algorithm>
+#include <cstdlib>
+#include <iostream>
+#include <linux/input-event-codes.h>
+
+static void require(bool condition, const char* message) {
+    if (condition)
+        return;
+    std::cerr << "FAIL: " << message << '\n';
+    std::exit(EXIT_FAILURE);
+}
+
+int main() {
+    const std::unique_ptr<xkb_context, decltype(&xkb_context_unref)> CONTEXT{xkb_context_new(XKB_CONTEXT_NO_FLAGS), xkb_context_unref};
+    require(CONTEXT != nullptr, "create XKB context");
+    xkb_rule_names names{};
+    names.layout = "fr";
+    const std::unique_ptr<xkb_keymap, decltype(&xkb_keymap_unref)> KEYMAP{xkb_keymap_new_from_names(CONTEXT.get(), &names, XKB_KEYMAP_COMPILE_NO_FLAGS), xkb_keymap_unref};
+    require(KEYMAP != nullptr, "load French keymap");
+    CKeyboardState keyboard{KEYMAP.get()};
+    require(keyboard.get() != nullptr, "create keyboard state");
+
+    require(xkb_state_key_get_utf32(keyboard.get(), KEY_Q + 8) == 'a', "use compositor's AZERTY layout");
+    require(xkb_state_key_get_utf32(keyboard.get(), KEY_2 + 8) == U'é', "preserve accented characters");
+    keyboard.key(KEY_RIGHTALT, true);
+    require(xkb_state_key_get_utf32(keyboard.get(), KEY_0 + 8) == '@', "AltGr uses the keymap's modifier");
+    keyboard.key(KEY_RIGHTALT, false);
+
+    keyboard.key(KEY_LEFTSHIFT, true);
+    keyboard.key(KEY_LEFTSHIFT, true);
+    keyboard.key(KEY_LEFTSHIFT, false);
+    require(xkb_state_serialize_mods(keyboard.get(), XKB_STATE_MODS_DEPRESSED) == 0, "duplicate press must not leave Shift stuck");
+    require(!keyboard.key(KEY_LEFTSHIFT, false), "ignore releases for keys that are not held");
+
+    keyboard.key(KEY_LEFTCTRL, true);
+    keyboard.key(KEY_RIGHTCTRL, true);
+    keyboard.key(KEY_LEFTCTRL, false);
+    require(xkb_state_mod_name_is_active(keyboard.get(), XKB_MOD_NAME_CTRL, XKB_STATE_MODS_DEPRESSED) == 1, "right Ctrl stays held after left Ctrl release");
+    keyboard.key(KEY_RIGHTCTRL, false);
+    require(xkb_state_serialize_mods(keyboard.get(), XKB_STATE_MODS_DEPRESSED) == 0, "both Ctrl keys released");
+
+    for (int cycle = 0; cycle < 100; ++cycle) {
+        keyboard.key(KEY_LEFTCTRL, true);
+        keyboard.key(KEY_RIGHTALT, true);
+        keyboard.key(KEY_Q, true);
+        auto released = keyboard.releaseAll();
+        std::ranges::sort(released);
+        require(released == std::vector<uint32_t>{KEY_Q, KEY_LEFTCTRL, KEY_RIGHTALT}, "cleanup returns every held key for virtual key-up events");
+        require(keyboard.releaseAll().empty(), "cleanup is idempotent");
+        require(xkb_state_serialize_mods(keyboard.get(), XKB_STATE_MODS_DEPRESSED) == 0, "cleanup clears depressed modifiers");
+        require(xkb_state_key_get_utf32(keyboard.get(), KEY_Q + 8) == 'a', "resume without stale modifiers");
+        require(xkb_state_serialize_layout(keyboard.get(), XKB_STATE_LAYOUT_EFFECTIVE) == 0, "cleanup preserves the active layout");
+    }
+
+    keyboard.key(KEY_CAPSLOCK, true);
+    keyboard.key(KEY_CAPSLOCK, false);
+    const auto LOCKED = xkb_state_serialize_mods(keyboard.get(), XKB_STATE_MODS_LOCKED);
+    require(LOCKED != 0, "Caps Lock enabled");
+    keyboard.key(KEY_LEFTSHIFT, true);
+    keyboard.releaseAll();
+    require(xkb_state_serialize_mods(keyboard.get(), XKB_STATE_MODS_LOCKED) == LOCKED, "cleanup preserves lock state");
+
+    // Keysym synthesis under Caps Lock: Q is 'a' on AZERTY, Shift selects 'A'.
+    const auto SHIFT  = 1u << xkb_keymap_mod_get_index(KEYMAP.get(), XKB_MOD_NAME_SHIFT);
+    const auto CAPPED = keyboard.conflictingMods(KEY_Q, XKB_KEY_a, 0, 0);
+    require((CAPPED & LOCKED) == LOCKED, "Caps Lock is dropped so a plain keysym stays lowercase");
+    const auto SHIFTED = keyboard.conflictingMods(KEY_Q, XKB_KEY_A, SHIFT, 0);
+    require((SHIFTED & LOCKED) == LOCKED, "Caps Lock is dropped so Shift+Caps can't undo the capital");
+    require(keyboard.conflictingMods(KEY_SPACE, XKB_KEY_space, 0, 0) == 0, "keep Caps Lock when it doesn't change the keysym");
+    keyboard.key(KEY_CAPSLOCK, true);
+    keyboard.key(KEY_CAPSLOCK, false);
+    require(xkb_state_serialize_mods(keyboard.get(), XKB_STATE_MODS_LOCKED) == 0, "Caps Lock disabled");
+    require(keyboard.conflictingMods(KEY_Q, XKB_KEY_A, SHIFT, 0) == 0, "nothing to drop without conflicting modifiers");
+
+    keyboard.key(KEY_LEFTSHIFT, true);
+    require((keyboard.conflictingMods(KEY_Q, XKB_KEY_a, 0, 0) & SHIFT) == SHIFT, "a held Shift is dropped for a lowercase keysym");
+    keyboard.key(KEY_LEFTSHIFT, false);
+
+    const auto CTRL = 1u << xkb_keymap_mod_get_index(KEYMAP.get(), XKB_MOD_NAME_CTRL);
+    keyboard.key(KEY_LEFTCTRL, true);
+    keyboard.key(KEY_LEFTSHIFT, true);
+    const auto CTRLSHIFT = keyboard.conflictingMods(KEY_Q, XKB_KEY_a, 0, 0);
+    require((CTRLSHIFT & SHIFT) == SHIFT, "Ctrl+Shift held: Shift is dropped for a lowercase keysym");
+    require((CTRLSHIFT & CTRL) == 0, "Ctrl+Shift held: Ctrl stays for the shortcut");
+    keyboard.key(KEY_LEFTSHIFT, false);
+    keyboard.key(KEY_LEFTCTRL, false);
+
+    xkb_mod_mask_t altGr[1]{};
+    require(xkb_keymap_key_get_mods_for_level(KEYMAP.get(), KEY_0 + 8, 0, 2, altGr, 1) == 1, "find AltGr's level mask");
+    require(keyboard.conflictingMods(KEY_0, XKB_KEY_at, altGr[0], 0) == 0, "the level's own modifiers select AltGr symbols");
+    // A keysym on a Shift level runs that level's action: with caps:escape_shifted_capslock,
+    // a synthesized Shift+Caps must toggle Caps Lock, and Shift must not stay held.
+    xkb_rule_names capsNames{};
+    capsNames.layout  = "us";
+    capsNames.options = "caps:escape_shifted_capslock";
+    const std::unique_ptr<xkb_keymap, decltype(&xkb_keymap_unref)> CAPSMAP{xkb_keymap_new_from_names(CONTEXT.get(), &capsNames, XKB_KEYMAP_COMPILE_NO_FLAGS), xkb_keymap_unref};
+    require(CAPSMAP != nullptr, "load caps:escape_shifted_capslock keymap");
+    CKeyboardState caps{CAPSMAP.get()};
+    const auto     CAPSSHIFT = 1u << xkb_keymap_mod_get_index(CAPSMAP.get(), XKB_MOD_NAME_SHIFT);
+    const auto     CAPSLOCK  = 1u << xkb_keymap_mod_get_index(CAPSMAP.get(), XKB_MOD_NAME_CAPS);
+    const auto     CAPSCTRL  = 1u << xkb_keymap_mod_get_index(CAPSMAP.get(), XKB_MOD_NAME_CTRL);
+    caps.key(KEY_LEFTCTRL, true);
+    require(caps.key(KEY_CAPSLOCK, true, CAPSSHIFT, 0, 0), "synthesized-level press is applied");
+    require(caps.key(KEY_CAPSLOCK, false, CAPSSHIFT, 0, 0), "synthesized-level release is applied");
+    require(xkb_state_serialize_mods(caps.get(), XKB_STATE_MODS_LOCKED) == CAPSLOCK, "Shift-level Caps_Lock toggles Caps Lock on");
+    require(xkb_state_serialize_mods(caps.get(), XKB_STATE_MODS_DEPRESSED) == CAPSCTRL, "only the real held Ctrl stays depressed");
+    require(!caps.key(KEY_CAPSLOCK, false, CAPSSHIFT, 0, 0), "ignore releases for keys that are not held at a level either");
+    caps.key(KEY_LEFTCTRL, false);
+    require(xkb_state_serialize_mods(caps.get(), XKB_STATE_MODS_DEPRESSED) == 0, "real Ctrl release still clears it");
+    caps.key(KEY_CAPSLOCK, true, CAPSSHIFT, 0, 0);
+    caps.key(KEY_CAPSLOCK, false, CAPSSHIFT, 0, 0);
+    require(xkb_state_serialize_mods(caps.get(), XKB_STATE_MODS_LOCKED) == 0, "a second Shift-level Caps_Lock toggles it off");
+    caps.key(KEY_CAPSLOCK, true);
+    caps.key(KEY_CAPSLOCK, false);
+    require(xkb_state_serialize_mods(caps.get(), XKB_STATE_MODS_LOCKED) == 0, "the plain level stays Escape");
+
+    // A keysym action that switches the group while held (Mode_switch) must stay in effect.
+    xkb_rule_names groupNames{};
+    groupNames.layout  = "us,de";
+    groupNames.options = "grp:switch";
+    const std::unique_ptr<xkb_keymap, decltype(&xkb_keymap_unref)> GROUPMAP{xkb_keymap_new_from_names(CONTEXT.get(), &groupNames, XKB_KEYMAP_COMPILE_NO_FLAGS), xkb_keymap_unref};
+    require(GROUPMAP != nullptr, "load us,de grp:switch keymap");
+    CKeyboardState group{GROUPMAP.get()};
+    group.key(KEY_RIGHTALT, true, 0, 0, 0);
+    require(xkb_state_key_get_one_sym(group.get(), KEY_Y + 8) == XKB_KEY_z, "held keysym Mode_switch keeps the German group active");
+    group.key(KEY_RIGHTALT, false, 0, 0, 0);
+    require(xkb_state_serialize_layout(group.get(), XKB_STATE_LAYOUT_EFFECTIVE) == 0, "releasing Mode_switch returns to the US group");
+
+    // A relative group action on a single-group key steps from the real locked group.
+    xkb_rule_names toggleNames{};
+    toggleNames.layout  = "us,de";
+    toggleNames.options = "grp:menu_toggle";
+    const std::unique_ptr<xkb_keymap, decltype(&xkb_keymap_unref)> TOGGLEMAP{xkb_keymap_new_from_names(CONTEXT.get(), &toggleNames, XKB_KEYMAP_COMPILE_NO_FLAGS), xkb_keymap_unref};
+    require(TOGGLEMAP != nullptr, "load us,de grp:menu_toggle keymap");
+    CKeyboardState toggle{TOGGLEMAP.get()};
+    toggle.key(KEY_COMPOSE, true, 0, 0, 0);
+    toggle.key(KEY_COMPOSE, false, 0, 0, 0);
+    require(xkb_state_serialize_layout(toggle.get(), XKB_STATE_LAYOUT_LOCKED) == 1, "keysym ISO_Next_Group switches to the German group");
+    toggle.key(KEY_COMPOSE, true, 0, 0, 0);
+    toggle.key(KEY_COMPOSE, false, 0, 0, 0);
+    require(xkb_state_serialize_layout(toggle.get(), XKB_STATE_LAYOUT_LOCKED) == 0, "a second keysym ISO_Next_Group returns to the US group");
+
+    std::cout << "PASS: AZERTY, AltGr, duplicate presses, both Ctrl keys, lock state, 100 release/resume cycles, keysym modifiers under locks, level-dependent key actions, "
+                 "momentary group switches, relative group toggles\n";
+}

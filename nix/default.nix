@@ -8,9 +8,11 @@
   hyprlang,
   hyprtoolkit,
   hyprwayland-scanner,
+  libei,
   libgbm,
   libuuid,
   libxdmcp,
+  libxkbcommon,
   pipewire,
   sdbus-cpp_2,
   slurp,
@@ -42,9 +44,11 @@ stdenv.mkDerivation {
     hyprland-protocols
     hyprlang
     hyprtoolkit
+    libei
     libgbm
     libuuid
     libxdmcp
+    libxkbcommon
     pipewire
     sdbus-cpp_2
     systemd
