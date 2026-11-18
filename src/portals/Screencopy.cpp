@@ -1174,9 +1174,7 @@ static const pw_stream_events pwStreamEvents = {
 // ------------------------------------------------------- //
 
 bool CPipewireConnection::createStream(CScreencopyPortal::SSession* pSession) {
-    const auto PSTREAM = m_vStreams.emplace_back(std::make_unique<SPWStream>(pSession)).get();
-
-    pw_loop_enter(g_pPortalManager->m_sPipewire.loop);
+    const auto              PSTREAM = m_vStreams.emplace_back(std::make_unique<SPWStream>(pSession)).get();
 
     uint8_t                 buffer[2][1024];
     spa_pod_dynamic_builder dynBuilder[2];
