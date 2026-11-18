@@ -292,6 +292,11 @@ bool CScreencopyPortal::startSharing(CScreencopyPortal::SSession* pSession) {
     if (pSession->selection.type == TYPE_INVALID)
         return false;
 
+    if (!m_pPipewire->good()) {
+        Debug::log(ERR, "[screencopy] Can't start sharing: not connected to PipeWire");
+        return false;
+    }
+
     pSession->sharingData.active = true;
     const auto FAIL              = [&]() {
         m_pPipewire->destroyStream(pSession);
@@ -733,8 +738,17 @@ void CScreencopyPortal::appendHLWorkspace(SP<CCHyprlandWorkspaceImageCaptureSour
     Debug::log(LOG, "[screencopy] Registered for hyprland workspace source");
 }
 
+static void pwCoreError(void* data, uint32_t id, int seq, int res, const char* message) {
+    sc<CPipewireConnection*>(data)->onCoreError(id, res, message);
+}
+
+static const pw_core_events pwCoreEvents = {
+    .version = PW_VERSION_CORE_EVENTS,
+    .error   = pwCoreError,
+};
+
 bool CPipewireConnection::good() {
-    return m_pContext && m_pCore;
+    return m_pContext && m_pCore && !m_disconnected;
 }
 
 CPipewireConnection::CPipewireConnection() {
@@ -752,7 +766,18 @@ CPipewireConnection::CPipewireConnection() {
         return;
     }
 
+    pw_core_add_listener(m_pCore, &m_coreListener, &pwCoreEvents, this);
+
     Debug::log(LOG, "[pipewire] connected");
+}
+
+void CPipewireConnection::onCoreError(uint32_t id, int res, const char* message) {
+    // errors about other objects reach their own listeners, only a broken socket is fatal here
+    if (id != PW_ID_CORE || res != -EPIPE)
+        return;
+
+    Debug::log(ERR, "[pipewire] Lost connection to PipeWire: {}", message ? message : "unknown error");
+    m_disconnected = true;
 }
 
 void CPipewireConnection::removeSessionFrameCallbacks(CScreencopyPortal::SSession* pSession) {
@@ -772,8 +797,11 @@ void CPipewireConnection::removeSessionFrameCallbacks(CScreencopyPortal::SSessio
 }
 
 CPipewireConnection::~CPipewireConnection() {
-    if (m_pCore)
+    if (m_pCore) {
+        spa_hook_remove(&m_coreListener);
         pw_core_disconnect(m_pCore);
+    }
+
     if (m_pContext)
         pw_context_destroy(m_pContext);
 }
