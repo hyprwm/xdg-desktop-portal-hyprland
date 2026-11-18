@@ -323,6 +323,8 @@ void CPortalManager::init() {
 
     if (!m_sPipewire.loop)
         Debug::log(ERR, "Pipewire: refused to create a loop. Screensharing will not work.");
+    else
+        pw_loop_enter(m_sPipewire.loop);
 
     Debug::log(LOG, "Gathering exported interfaces");
 
@@ -561,6 +563,7 @@ void CPortalManager::startEventLoop() {
     m_sPortals.inputCapture.reset();
 
     m_pConnection.reset();
+    pw_loop_leave(m_sPipewire.loop);
     pw_loop_destroy(m_sPipewire.loop);
     releaseWayland();
 }
