@@ -159,6 +159,7 @@ class CPipewireConnection {
     ~CPipewireConnection();
 
     bool good();
+    bool ensureConnected();
     void onCoreError(uint32_t id, int res, const char* message);
 
     bool createStream(CScreencopyPortal::SSession* pSession);
@@ -194,6 +195,7 @@ class CPipewireConnection {
     std::vector<std::unique_ptr<SPWStream>> m_vStreams;
 
     bool                                    buildModListFor(SPWStream* stream, uint32_t drmFmt, uint64_t** mods, uint32_t* modCount);
+    bool                                    connectCore();
 
     pw_context*                             m_pContext     = nullptr;
     pw_core*                                m_pCore        = nullptr;

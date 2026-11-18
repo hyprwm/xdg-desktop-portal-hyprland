@@ -292,7 +292,7 @@ bool CScreencopyPortal::startSharing(CScreencopyPortal::SSession* pSession) {
     if (pSession->selection.type == TYPE_INVALID)
         return false;
 
-    if (!m_pPipewire->good()) {
+    if (!m_pPipewire->ensureConnected()) {
         Debug::log(ERR, "[screencopy] Can't start sharing: not connected to PipeWire");
         return false;
     }
@@ -759,16 +759,47 @@ CPipewireConnection::CPipewireConnection() {
         return;
     }
 
+    connectCore();
+}
+
+bool CPipewireConnection::connectCore() {
     m_pCore = pw_context_connect(m_pContext, nullptr, 0);
 
     if (!m_pCore) {
         Debug::log(ERR, "[pipewire] pw didn't allow for a context connection");
-        return;
+        return false;
     }
 
     pw_core_add_listener(m_pCore, &m_coreListener, &pwCoreEvents, this);
+    m_disconnected = false;
 
     Debug::log(LOG, "[pipewire] connected");
+    return true;
+}
+
+bool CPipewireConnection::ensureConnected() {
+    if (good())
+        return true;
+
+    if (!m_pContext)
+        return false;
+
+    // pw_core_disconnect() destroys every pw_stream on the core, so drop ours first
+    std::vector<CScreencopyPortal::SSession*> sessions;
+    for (const auto& stream : m_vStreams)
+        sessions.emplace_back(stream->pSession);
+
+    for (const auto& session : sessions)
+        destroyStream(session);
+
+    if (m_pCore) {
+        spa_hook_remove(&m_coreListener);
+        pw_core_disconnect(m_pCore);
+        m_pCore = nullptr;
+    }
+
+    Debug::log(LOG, "[pipewire] reconnecting");
+    return connectCore();
 }
 
 void CPipewireConnection::onCoreError(uint32_t id, int res, const char* message) {
