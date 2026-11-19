@@ -458,7 +458,14 @@ void CScreencopyPortal::SSession::initCallbacks() {
             Debug::log(TRACE, "[sc] wlrOnFailed for {}", (void*)self.get());
             if (!self)
                 return;
-            sharingData.status = FRAME_FAILED;
+
+            // The compositor fails a frame when the source changes size mid capture,
+            // request a new one, otherwise nothing is ever queued again and the stream stalls
+            const auto EXPIRED = std::move(sharingData.frameCallback);
+            sharingData.status = FRAME_NONE;
+            if (sharingData.copyRetries++ < MAX_RETRIES)
+                Debug::log(LOG, "[sc] Frame failed, retrying ({}/{})", sharingData.copyRetries, MAX_RETRIES);
+            g_pPortalManager->m_sPortals.screencopy->queueNextShareFrame(this);
         });
         sharingData.frameCallback->setDamage([this, self = self](CCZwlrScreencopyFrameV1* r, uint32_t x, uint32_t y, uint32_t width, uint32_t height) {
             Debug::log(TRACE, "[sc] wlrOnDamage for {}", (void*)self.get());
@@ -576,7 +583,14 @@ void CScreencopyPortal::SSession::initCallbacks() {
             Debug::log(TRACE, "[sc] hlOnFailed for {}", (void*)self.get());
             if (!self)
                 return;
-            sharingData.status = FRAME_FAILED;
+
+            // The compositor fails a frame when the source changes size mid capture,
+            // request a new one, otherwise nothing is ever queued again and the stream stalls
+            const auto EXPIRED = std::move(sharingData.windowFrameCallback);
+            sharingData.status = FRAME_NONE;
+            if (sharingData.copyRetries++ < MAX_RETRIES)
+                Debug::log(LOG, "[sc] Frame failed, retrying ({}/{})", sharingData.copyRetries, MAX_RETRIES);
+            g_pPortalManager->m_sPortals.screencopy->queueNextShareFrame(this);
         });
         sharingData.windowFrameCallback->setDamage([this, self = self](CCHyprlandToplevelExportFrameV1* r, uint32_t x, uint32_t y, uint32_t width, uint32_t height) {
             Debug::log(TRACE, "[sc] hlOnDamage for {}", (void*)self.get());
