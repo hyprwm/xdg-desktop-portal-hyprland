@@ -48,6 +48,8 @@ class CFileList {
 
     // keyboard navigation, extend grows the selection from the last toggled entry
     void moveCursor(long delta, bool extend);
+    // selects only this entry and scrolls to it
+    void select(size_t index);
 
     struct {
         Hyprutils::Signal::CSignalT<> selectionChanged;
@@ -67,6 +69,7 @@ class CFileList {
     void                                     bind(SSlot& slot, size_t index);
     void                                     detach(SSlot& slot);
     void                                     click(size_t index);
+    void                                     setCursor(size_t index, bool extend);
     void                                     selectOnly(size_t index);
     void                                     selectRange(size_t from, size_t to);
     void                                     refreshStates();

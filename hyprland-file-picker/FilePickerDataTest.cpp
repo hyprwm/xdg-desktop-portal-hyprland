@@ -3,6 +3,7 @@
 #include "MimeDatabase.hpp"
 #include "PickerOptions.hpp"
 #include "Places.hpp"
+#include "QuickSearch.hpp"
 
 #include <array>
 #include <fstream>
@@ -206,6 +207,46 @@ static bool testUserDirs() {
                   "user-dirs.dirs is parsed wrong");
 }
 
+static bool testQuickSearch() {
+    bool                          success = true;
+
+    const std::vector<SFileEntry> ENTRIES = {
+        {.name = "Desktop", .directory = true},
+        {.name = "Documents", .directory = true},
+        {.name = "hello.txt"},
+        {.name = "help.md"},
+        {.name = "Hexagon.png"},
+        {.name = "notes.txt"},
+        {.name = "q3 report.pdf"},
+    };
+
+    success &= expect(findQuickSearchMatch(ENTRIES, "hel", 0) == 2 && findQuickSearchMatch(ENTRIES, "HEL", 0) == 2, "prefix matching must ignore case");
+    success &= expect(findQuickSearchMatch(ENTRIES, "hel", 3) == 3 && findQuickSearchMatch(ENTRIES, "doc", 5) == 1, "matching must start at the given entry and wrap around");
+    success &= expect(findQuickSearchMatch(ENTRIES, "report", 0) == 6 && findQuickSearchMatch(ENTRIES, "XAG", 0) == 4, "a contained query must be found without a prefix match");
+    success &= expect(findQuickSearchMatch({{.name = "area.txt"}, {.name = "readme"}}, "re", 0) == 1, "a prefix match must win over an earlier contained one");
+    success &= expect(!findQuickSearchMatch(ENTRIES, "zzz", 0) && !findQuickSearchMatch(ENTRIES, "", 0) && !findQuickSearchMatch({}, "a", 0), "nothing must match an absent query");
+
+    using namespace std::chrono_literals;
+    const auto   START = CQuickSearch::Clock::time_point{} + 1h;
+
+    CQuickSearch search;
+    success &= expect(search.type("h", ENTRIES, std::nullopt, START) == 2 && search.type("e", ENTRIES, 2, START + 100ms) == 2, "a growing query must keep a matching entry");
+    success &= expect(search.type("l", ENTRIES, 2, START + 200ms) == 2 && search.type("p", ENTRIES, 2, START + 300ms) == 3, "a growing query must move on once it stops matching");
+    success &= expect(search.query() == "help" && search.active(START + 300ms) && !search.active(START + 2s), "the query must expire after the timeout");
+    success &= expect(search.backspace(ENTRIES, 3, START + 400ms) == 3 && search.query() == "hel", "backspace must shorten the query");
+    success &= expect(search.type("n", ENTRIES, 3, START + 3s) == 5 && search.query() == "n", "typing after the timeout must start a new query");
+
+    search.reset();
+    success &= expect(search.type("d", ENTRIES, std::nullopt, START + 4s) == 0, "a new query must start from the current entry");
+    success &= expect(search.type("d", ENTRIES, 0, START + 4s) == 1 && search.type("d", ENTRIES, 1, START + 4s) == 0, "repeating a character must cycle through its matches");
+
+    search.reset();
+    search.type("é", ENTRIES, std::nullopt, START + 5s);
+    success &= expect(!search.backspace(ENTRIES, std::nullopt, START + 5s) && search.query().empty(), "backspace must remove a whole UTF-8 character");
+
+    return success;
+}
+
 int main() {
     bool success = true;
 
@@ -217,6 +258,7 @@ int main() {
     success &= testFormatting();
     success &= testListing();
     success &= testUserDirs();
+    success &= testQuickSearch();
 
     return success ? 0 : 1;
 }

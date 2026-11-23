@@ -136,15 +136,23 @@ void CFileList::moveCursor(long delta, bool extend) {
     const long FIRST_VISIBLE = sc<long>(std::ceil(m_scroll->getCurrentScroll().y / m_rowHeight));
     const long LAST_VISIBLE  = sc<long>((m_scroll->getCurrentScroll().y + m_scroll->size().y) / m_rowHeight) - 1;
     const long START         = m_cursor ? sc<long>(*m_cursor) + delta : (delta > 0 ? FIRST_VISIBLE : LAST_VISIBLE);
-    const long NEXT          = std::clamp(START, 0L, LAST);
 
+    setCursor(std::clamp(START, 0L, LAST), extend);
+}
+
+void CFileList::select(size_t index) {
+    if (index < m_entries.size())
+        setCursor(index, false);
+}
+
+void CFileList::setCursor(size_t index, bool extend) {
     if (extend && m_multiple && m_anchor)
-        selectRange(*m_anchor, NEXT);
+        selectRange(*m_anchor, index);
     else
-        selectOnly(NEXT);
+        selectOnly(index);
 
-    m_cursor = NEXT;
-    ensureVisible(NEXT);
+    m_cursor = index;
+    ensureVisible(index);
     refreshStates();
     m_events.selectionChanged.emit();
 }
