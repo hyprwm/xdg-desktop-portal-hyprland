@@ -11,6 +11,7 @@
 #include "../portals/Screenshot.hpp"
 #include "../portals/GlobalShortcuts.hpp"
 #include "../portals/InputCapture.hpp"
+#include "../portals/FileChooser.hpp"
 #include "../shared/ToplevelManager.hpp"
 #include "../shared/ToplevelMappingManager.hpp"
 #include "../shared/WorkspaceTracker.hpp"
@@ -90,6 +91,7 @@ class CPortalManager {
         std::unique_ptr<CScreenshotPortal>      screenshot;
         std::unique_ptr<CGlobalShortcutsPortal> globalShortcuts;
         std::unique_ptr<CInputCapturePortal>    inputCapture;
+        std::unique_ptr<CFileChooserPortal>     fileChooser;
     } m_sPortals;
 
     struct {
@@ -126,7 +128,8 @@ class CPortalManager {
 
     void                         addTimer(std::chrono::milliseconds timeout, std::function<void()>&& callback);
     // runs once the current event loop callback has returned
-    void                         addIdle(std::function<void()>&& callback);
+    void                                        addIdle(std::function<void()>&& callback);
+    const SP<Hyprutils::EventLoop::IEventLoop>& eventLoop() const;
 
     gbm_device*                  createGBMDevice(drmDevice* dev);
 

@@ -101,6 +101,13 @@ target_link_libraries(
   xdg-desktop-portal-hyprland PRIVATE rt PkgConfig::SDBUS Threads::Threads
                                       PkgConfig::deps)
 
+if(BUILD_TESTING)
+  add_executable(xdph-file-chooser-data-test tests/FileChooserDataTest.cpp
+                                             src/shared/FileChooserData.cpp)
+  target_link_libraries(xdph-file-chooser-data-test PRIVATE PkgConfig::deps)
+  add_test(NAME xdph-file-chooser-data COMMAND xdph-file-chooser-data-test)
+endif()
+
 # protocols
 pkg_get_variable(WAYLAND_PROTOCOLS_DIR wayland-protocols pkgdatadir)
 message(STATUS "Found wayland-protocols at ${WAYLAND_PROTOCOLS_DIR}")

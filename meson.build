@@ -71,3 +71,11 @@ subdir('protocols')
 subdir('src')
 subdir('hyprland-share-picker')
 subdir('hyprland-file-picker')
+
+if get_option('tests')
+  file_chooser_data_test = executable('xdph-file-chooser-data-test',
+    files(['tests/FileChooserDataTest.cpp', 'src/shared/FileChooserData.cpp']),
+    dependencies: [dependency('hyprutils')],
+  )
+  test('xdph-file-chooser-data', file_chooser_data_test)
+endif
