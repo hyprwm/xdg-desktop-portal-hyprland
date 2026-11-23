@@ -11,6 +11,7 @@
 #include <sdbus-c++/Types.h>
 #include <sys/mman.h>
 #include <fcntl.h>
+#include <poll.h>
 #include <unistd.h>
 
 using namespace Hyprutils::EventLoop;
@@ -458,14 +459,73 @@ SP<IFDSource> CPortalManager::addCoreSource(int fd, const char* name, std::funct
     return *source;
 }
 
-void CPortalManager::startEventLoop() {
-    m_sEventLoop.dbus = addCoreSource(m_pConnection->getEventLoopPollData().fd, "D-Bus", [this](FdEventMask events) {
-        if (!(events & eEventMask::READABLE))
-            return;
-
+void CPortalManager::processDBusEvents() {
+    try {
         while (m_pConnection->processPendingEvent()) {
             ;
         }
+    } catch (const sdbus::Error& e) {
+        Debug::log(CRIT, "[core] D-Bus processing failed: {}", e.what());
+        terminate();
+    }
+}
+
+void CPortalManager::updateDBusPollData() {
+    // sd-bus wants its poll data refreshed before every sleep: queued writes need
+    // writability, and pending method call timeouts or already read messages need a wakeup
+    sdbus::IConnection::PollData pollData;
+    try {
+        pollData = m_pConnection->getEventLoopPollData();
+    } catch (const sdbus::Error& e) {
+        Debug::log(CRIT, "[core] Couldn't get the D-Bus poll data: {}", e.what());
+        terminate();
+        return;
+    }
+
+    if (const bool WANTS_WRITE = pollData.events & POLLOUT; WANTS_WRITE != m_sEventLoop.dbusWantsWrite) {
+        const FdEventMask MASK = WANTS_WRITE ? eEventMask::READABLE | eEventMask::WRITABLE : FdEventMask{eEventMask::READABLE};
+        if (const auto RESULT = m_sEventLoop.dbus->setMask(MASK); !RESULT) {
+            Debug::log(CRIT, "[core] Couldn't update the D-Bus event mask: {}", RESULT.error());
+            terminate();
+            return;
+        }
+
+        m_sEventLoop.dbusWantsWrite = WANTS_WRITE;
+    }
+
+    if (pollData.timeout == m_sEventLoop.dbusDeadline)
+        return;
+
+    m_sEventLoop.dbusDeadline = pollData.timeout;
+
+    const auto                                         RELATIVE = pollData.getRelativeTimeout();
+    std::optional<std::chrono::steady_clock::duration> timeout;
+    if (RELATIVE != std::chrono::microseconds::max())
+        timeout = std::chrono::duration_cast<std::chrono::steady_clock::duration>(RELATIVE);
+
+    m_sEventLoop.dbusTimeout->updateTimeout(timeout);
+}
+
+void CPortalManager::startEventLoop() {
+    const auto DBUS_POLL_DATA = m_pConnection->getEventLoopPollData();
+
+    m_sEventLoop.dbus = addCoreSource(DBUS_POLL_DATA.fd, "D-Bus", [this](FdEventMask events) {
+        if (events & (eEventMask::READABLE | eEventMask::WRITABLE))
+            processDBusEvents();
+    });
+
+    // signalled by sdbus-c++ when messages got queued up outside of our processing, e.g. during a sync call
+    m_sEventLoop.dbusEvent = addCoreSource(DBUS_POLL_DATA.eventFd, "D-Bus events", [this](FdEventMask events) {
+        if (events & eEventMask::READABLE)
+            processDBusEvents();
+    });
+
+    m_sEventLoop.dbusTimeout = m_sEventLoop.loop->addTimer(std::nullopt, [this](ITimer&) {
+        // re-armed by the poll data refresh after this dispatch
+        m_sEventLoop.dbusDeadline = std::chrono::microseconds::max();
+
+        if (!m_bTerminate)
+            processDBusEvents();
     });
 
     m_sEventLoop.wayland = addCoreSource(wl_display_get_fd(m_sWaylandConnection.display), "Wayland", [this](FdEventMask events) {
@@ -493,10 +553,20 @@ void CPortalManager::startEventLoop() {
             terminate();
     });
 
-    if (!m_sEventLoop.dbus || !m_sEventLoop.wayland || (m_sPipewire.loop && !m_sEventLoop.pipewire))
+    // last, Wayland events can emit D-Bus signals
+    m_sEventLoop.dbusPoll = m_sEventLoop.loop->addPostDispatch([this] {
+        if (!m_bTerminate)
+            updateDBusPollData();
+    });
+
+    if (!m_sEventLoop.dbus || !m_sEventLoop.dbusEvent || !m_sEventLoop.wayland || (m_sPipewire.loop && !m_sEventLoop.pipewire))
         Debug::log(CRIT, "[core] Couldn't set up the event loop");
-    else if (const auto RESULT = m_sEventLoop.loop->enterLoop(); !RESULT)
-        Debug::log(CRIT, "[core] Event loop failed: {}", RESULT.error());
+    else {
+        updateDBusPollData();
+
+        if (const auto RESULT = m_sEventLoop.loop->enterLoop(); !RESULT)
+            Debug::log(CRIT, "[core] Event loop failed: {}", RESULT.error());
+    }
 
     Debug::log(ERR, "[core] Terminated");
 

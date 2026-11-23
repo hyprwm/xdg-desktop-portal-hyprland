@@ -136,6 +136,8 @@ class CPortalManager {
     void                                startEventLoop();
     SP<Hyprutils::EventLoop::IFDSource> addCoreSource(int fd, const char* name, std::function<void(Hyprutils::EventLoop::FdEventMask)>&& callback);
     bool                                processWaylandEvents(bool read);
+    void                                processDBusEvents();
+    void                                updateDBusPollData();
     void                                setupXDGOutput(SOutput* output);
 
     bool                                m_bTerminate = false;
@@ -143,11 +145,16 @@ class CPortalManager {
     struct {
         SP<Hyprutils::EventLoop::IEventLoop>          loop;
         SP<Hyprutils::EventLoop::IFDSource>           dbus;
+        SP<Hyprutils::EventLoop::IFDSource>           dbusEvent;
+        SP<Hyprutils::EventLoop::ITimer>              dbusTimeout;
         SP<Hyprutils::EventLoop::IFDSource>           wayland;
         SP<Hyprutils::EventLoop::IFDSource>           pipewire;
         SP<Hyprutils::EventLoop::IPostDispatchHook>   waylandFlush;
+        SP<Hyprutils::EventLoop::IPostDispatchHook>   dbusPoll;
         std::vector<SP<Hyprutils::EventLoop::ITimer>> timers;
         bool                                          waylandWantsWrite = false;
+        bool                                          dbusWantsWrite    = false;
+        std::chrono::microseconds                     dbusDeadline      = std::chrono::microseconds::max();
     } m_sEventLoop;
 
     std::unique_ptr<sdbus::IConnection>   m_pConnection;
