@@ -83,6 +83,7 @@ CPortalManager::CPortalManager() {
     m_sConfig.config->addConfigValue("screencopy:custom_picker_binary", Hyprlang::STRING{""});
     m_sConfig.config->addConfigValue("screencopy:force_shm", Hyprlang::INT{0L});
     m_sConfig.config->addConfigValue("screencopy:cursor_mode", Hyprlang::INT{0L});
+    m_sConfig.config->addConfigValue("filechooser:custom_picker_binary", Hyprlang::STRING{""});
 
     m_sConfig.config->commence();
     m_sConfig.config->parse();
@@ -374,6 +375,11 @@ void CPortalManager::init() {
             Debug::log(INFO, "hyprpicker not found. We suggest to use hyprpicker for color picking to be less meh.");
     }
 
+    if (const auto FILE_PICKER = CFileChooserPortal::pickerBinary(); !inShellPath(FILE_PICKER))
+        Debug::log(WARN, "{} not found. The file chooser will not work.", FILE_PICKER);
+    else
+        m_sPortals.fileChooser = std::make_unique<CFileChooserPortal>();
+
     if (wl_display_roundtrip(m_sWaylandConnection.display) < 0) {
         Debug::log(CRIT, "[core] Wayland initialization roundtrip failed: {}", strerror(errno));
         return;
@@ -577,6 +583,7 @@ void CPortalManager::startEventLoop() {
     m_sHelpers.toplevelMapping.reset();
     m_sHelpers.workspaceTracker.reset();
     m_sPortals.inputCapture.reset();
+    m_sPortals.fileChooser.reset();
 
     m_pConnection.reset();
 
@@ -662,6 +669,10 @@ void CPortalManager::addTimer(std::chrono::milliseconds timeout, std::function<v
 void CPortalManager::addIdle(std::function<void()>&& callback) {
     if (m_sEventLoop.loop)
         m_sEventLoop.loop->addIdle(std::move(callback));
+}
+
+const SP<IEventLoop>& CPortalManager::eventLoop() const {
+    return m_sEventLoop.loop;
 }
 
 void CPortalManager::releaseWayland() {
