@@ -102,6 +102,17 @@ bool CFilePicker::initialize() {
     m_window->m_events.closeRequest.listenStatic([this] { cancel(); });
     m_window->m_events.keyboardKey.listenStatic([this](const Input::SKeyboardKeyEvent& event) { onKey(event); });
 
+    // the press is still being dispatched to whatever is hovered, navigate after it
+    m_window->m_events.mouseButton.listenStatic([this](Input::eMouseButton button, bool down) {
+        if (!down)
+            return;
+
+        if (button == Input::MOUSE_BUTTON_BACK)
+            m_backend->addIdle([this] { goBack(); });
+        else if (button == Input::MOUSE_BUTTON_FORWARD)
+            m_backend->addIdle([this] { goForward(); });
+    });
+
     navigate(initialDirectory());
     return true;
 }
