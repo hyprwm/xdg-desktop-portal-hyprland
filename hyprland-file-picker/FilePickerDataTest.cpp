@@ -65,6 +65,11 @@ static bool testMimeDatabase() {
     success &= expect(db.iconsForType("text/markdown") == std::vector<std::string>{"text-markdown", "text-x-generic"}, "media type fallback icons are wrong");
     success &= expect(db.iconsForType("") == std::vector<std::string>{"text-x-generic"}, "unknown types need a fallback icon");
 
+    const SFilter IMAGES = {.name = "Images", .rules = {{.pattern = "*.jpg"}, {.mime = true, .pattern = "image/*"}}};
+    const SFilter TEXT   = {.name = "Text", .rules = {{.mime = true, .pattern = "text/plain"}}};
+    success &= expect(matchesFilter(IMAGES, "a.PNG", db) && matchesFilter(IMAGES, "b.JPG", db) && !matchesFilter(IMAGES, "c.md", db), "image filters are wrong");
+    success &= expect(matchesFilter(TEXT, "main.c", db) && !matchesFilter(TEXT, "unknown.qqq", db) && matchesFilter({.name = "All"}, "x", db), "text filters are wrong");
+
     return success;
 }
 

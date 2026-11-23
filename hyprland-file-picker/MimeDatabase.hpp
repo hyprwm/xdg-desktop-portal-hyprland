@@ -48,5 +48,10 @@ class CMimeDatabase {
     std::unordered_map<std::string, std::string>              m_genericIcons;
 };
 
+struct SFilter;
+
+// globs match case-insensitively, mime types through CMimeDatabase::isA. A filter without rules matches everything.
+bool matchesFilter(const SFilter& filter, std::string_view name, const CMimeDatabase& mime);
+
 // $XDG_DATA_HOME followed by $XDG_DATA_DIRS, with the spec's defaults
 std::vector<std::filesystem::path> xdgDataDirs();
