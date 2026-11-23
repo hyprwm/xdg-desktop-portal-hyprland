@@ -706,8 +706,11 @@ void CFilePicker::closeNewFolder() {
 }
 
 void CFilePicker::releaseTextFocus() {
-    // unfocuses whatever has keyboard focus, not just the path box
-    m_pathBox->focus(false);
+    // a textbox only gives up focus it has, so ask every one of them
+    for (const auto& textbox : {m_pathBox, m_nameBox, m_newFolderBox}) {
+        if (textbox)
+            textbox->focus(false);
+    }
 }
 
 void CFilePicker::setMessage(const std::string& message) {
