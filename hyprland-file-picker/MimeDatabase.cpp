@@ -1,9 +1,11 @@
 #include "MimeDatabase.hpp"
 #include "Directory.hpp"
 #include "Glob.hpp"
+#include "PickerOptions.hpp"
 
 #include <algorithm>
 #include <cstdlib>
+#include <optional>
 #include <ranges>
 #include <unordered_set>
 
@@ -199,6 +201,28 @@ std::vector<std::string> CMimeDatabase::iconsForType(std::string_view type) cons
         icons.emplace_back("text-x-generic");
 
     return icons;
+}
+
+bool matchesFilter(const SFilter& filter, std::string_view name, const CMimeDatabase& mime) {
+    if (filter.rules.empty())
+        return true;
+
+    std::optional<std::string> type;
+    for (const auto& rule : filter.rules) {
+        if (!rule.mime) {
+            if (globMatch(rule.pattern, name, false))
+                return true;
+            continue;
+        }
+
+        if (!type)
+            type = mime.typeForName(name);
+
+        if (mime.isA(*type, rule.pattern))
+            return true;
+    }
+
+    return false;
 }
 
 std::vector<std::filesystem::path> xdgDataDirs() {
