@@ -4,6 +4,7 @@ file_picker_data_sources = files([
   'MimeDatabase.cpp',
   'Places.cpp',
   'PickerOptions.cpp',
+  'QuickSearch.cpp',
 ])
 
 executable('hyprland-file-picker',

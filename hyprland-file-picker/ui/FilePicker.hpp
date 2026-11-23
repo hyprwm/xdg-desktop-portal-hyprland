@@ -4,6 +4,7 @@
 #include "../Directory.hpp"
 #include "../PickerOptions.hpp"
 #include "../Places.hpp"
+#include "../QuickSearch.hpp"
 
 #include <hyprutils/signal/Listener.hpp>
 
@@ -22,6 +23,7 @@ namespace Hyprtoolkit {
     class CRowLayoutElement;
     class CTextboxElement;
     class CTextElement;
+    class CTimer;
 
     namespace Input {
         struct SKeyboardKeyEvent;
@@ -72,6 +74,10 @@ class CFilePicker {
     void                      onActivated(size_t index);
     void                      onSelectionChanged();
 
+    bool                      onQuickSearchKey(const Hyprtoolkit::Input::SKeyboardKeyEvent& event);
+    void                      showQuickSearch(std::optional<size_t> match);
+    void                      endQuickSearch();
+
     void                      openTypedPath();
     void                      accept();
     void                      finish(std::vector<std::filesystem::path> paths);
@@ -83,6 +89,7 @@ class CFilePicker {
 
     // keeps the focused textbox from also handling a shortcut
     void                                   releaseTextFocus();
+    bool                                   textFocused() const;
     void                                   setMessage(const std::string& message);
     void                                   updateNavigation();
     void                                   updateAccept();
@@ -132,6 +139,11 @@ class CFilePicker {
     eInput                               m_lastInput     = INPUT_NONE;
     bool                                 m_showHidden    = false;
     bool                                 m_newFolderOpen = false;
+
+    CQuickSearch                         m_quickSearch;
+    ASP<Hyprtoolkit::CTimer>             m_quickSearchTimer;
+    bool                                 m_quickSearchSelecting = false;
+    bool                                 m_quickSearchShown     = false;
 
     std::optional<SPickerResult>         m_result;
 };

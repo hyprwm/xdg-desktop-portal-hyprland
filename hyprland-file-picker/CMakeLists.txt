@@ -17,7 +17,7 @@ pkg_check_modules(file_picker_ui_deps REQUIRED IMPORTED_TARGET
                   hyprtoolkit>=0.7.0 libdrm)
 
 set(FILE_PICKER_DATA_SOURCES Directory.cpp Glob.cpp MimeDatabase.cpp Places.cpp
-                             PickerOptions.cpp)
+                             PickerOptions.cpp QuickSearch.cpp)
 
 add_executable(
   hyprland-file-picker main.cpp ui/FileList.cpp ui/FilePicker.cpp

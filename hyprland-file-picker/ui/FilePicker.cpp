@@ -4,6 +4,7 @@
 #include "../MimeDatabase.hpp"
 
 #include <hyprtoolkit/core/Backend.hpp>
+#include <hyprtoolkit/core/Timer.hpp>
 #include <hyprtoolkit/element/Button.hpp>
 #include <hyprtoolkit/element/Checkbox.hpp>
 #include <hyprtoolkit/element/ColumnLayout.hpp>
@@ -27,18 +28,28 @@ static constexpr float SIDEBAR_WIDTH  = 170.F;
 
 // keysyms we handle, values from xkbcommon-keysyms.h
 enum eKeysym : uint32_t {
-    KEYSYM_H_UPPER  = 0x0048,
-    KEYSYM_L_UPPER  = 0x004c,
-    KEYSYM_H_LOWER  = 0x0068,
-    KEYSYM_L_LOWER  = 0x006c,
-    KEYSYM_RETURN   = 0xff0d,
-    KEYSYM_ESCAPE   = 0xff1b,
-    KEYSYM_LEFT     = 0xff51,
-    KEYSYM_UP       = 0xff52,
-    KEYSYM_RIGHT    = 0xff53,
-    KEYSYM_DOWN     = 0xff54,
-    KEYSYM_KP_ENTER = 0xff8d,
+    KEYSYM_H_UPPER   = 0x0048,
+    KEYSYM_L_UPPER   = 0x004c,
+    KEYSYM_H_LOWER   = 0x0068,
+    KEYSYM_L_LOWER   = 0x006c,
+    KEYSYM_BACKSPACE = 0xff08,
+    KEYSYM_RETURN    = 0xff0d,
+    KEYSYM_ESCAPE    = 0xff1b,
+    KEYSYM_LEFT      = 0xff51,
+    KEYSYM_UP        = 0xff52,
+    KEYSYM_RIGHT     = 0xff53,
+    KEYSYM_DOWN      = 0xff54,
+    KEYSYM_KP_ENTER  = 0xff8d,
 };
+
+// a character being typed, not a shortcut or a control key like Return
+static bool isPlainText(const Input::SKeyboardKeyEvent& event) {
+    if (event.utf8.empty() || (event.modMask & (Input::HT_MODIFIER_CTRL | Input::HT_MODIFIER_ALT | Input::HT_MODIFIER_META)))
+        return false;
+
+    const auto FIRST = Hyprutils::Memory::sc<unsigned char>(event.utf8.front());
+    return FIRST >= 0x20 && FIRST != 0x7f;
+}
 
 static CDynamicSize fullSize() {
     return {CDynamicSize::HT_SIZE_PERCENT, CDynamicSize::HT_SIZE_PERCENT, {1.F, 1.F}};
@@ -369,6 +380,9 @@ void CFilePicker::navigate(const std::filesystem::path& target, bool remember) {
 }
 
 void CFilePicker::refresh() {
+    // the entries change under the search
+    endQuickSearch();
+
     std::vector<SFileEntry> entries;
     for (const auto& entry : m_allEntries) {
         if (shown(entry))
@@ -432,6 +446,10 @@ void CFilePicker::onKey(const Input::SKeyboardKeyEvent& event) {
     const bool CTRL  = event.modMask & Input::HT_MODIFIER_CTRL;
     const bool ALT   = event.modMask & Input::HT_MODIFIER_ALT;
     const bool SHIFT = event.modMask & Input::HT_MODIFIER_SHIFT;
+
+    // an active search takes Escape and Backspace before the dialog does
+    if (onQuickSearchKey(event))
+        return;
 
     switch (event.xkbKeysym) {
         case KEYSYM_ESCAPE:
@@ -530,6 +548,10 @@ void CFilePicker::onActivated(size_t index) {
 }
 
 void CFilePicker::onSelectionChanged() {
+    // clicks and arrow keys start over
+    if (!m_quickSearchSelecting)
+        endQuickSearch();
+
     m_lastInput = INPUT_LIST;
 
     const auto CURSOR = m_list->cursor();
@@ -539,6 +561,71 @@ void CFilePicker::onSelectionChanged() {
     }
 
     updateAccept();
+}
+
+bool CFilePicker::onQuickSearchKey(const Input::SKeyboardKeyEvent& event) {
+    if (m_newFolderOpen || textFocused())
+        return false;
+
+    // don't let the list overwrite a name that's being typed
+    if (m_options.mode == PICKER_MODE_SAVE && m_lastInput == INPUT_NAME)
+        return false;
+
+    const auto NOW = CQuickSearch::Clock::now();
+
+    if (event.xkbKeysym == KEYSYM_ESCAPE || event.xkbKeysym == KEYSYM_BACKSPACE) {
+        if (!m_quickSearch.active(NOW))
+            return false;
+
+        if (event.xkbKeysym == KEYSYM_ESCAPE)
+            endQuickSearch();
+        else
+            showQuickSearch(m_quickSearch.backspace(m_list->entries(), m_list->cursor(), NOW));
+
+        return true;
+    }
+
+    if (!isPlainText(event))
+        return false;
+
+    showQuickSearch(m_quickSearch.type(event.utf8, m_list->entries(), m_list->cursor(), NOW));
+    return true;
+}
+
+void CFilePicker::showQuickSearch(std::optional<size_t> match) {
+    if (m_quickSearch.query().empty()) {
+        endQuickSearch();
+        return;
+    }
+
+    // unlike a click, this selection mustn't end the search
+    if (match) {
+        m_quickSearchSelecting = true;
+        m_list->select(*match);
+        m_quickSearchSelecting = false;
+    }
+
+    // set after setMessage, which clears it for every other message
+    setMessage(std::format("Find: {}{}", m_quickSearch.query(), match ? "" : " (no match)"));
+    m_quickSearchShown = true;
+
+    if (m_quickSearchTimer)
+        m_quickSearchTimer->cancel();
+
+    m_quickSearchTimer = m_backend->addTimer(CQuickSearch::TIMEOUT, [this](ASP<CTimer>, void*) { endQuickSearch(); }, nullptr);
+}
+
+void CFilePicker::endQuickSearch() {
+    m_quickSearch.reset();
+
+    if (m_quickSearchTimer) {
+        m_quickSearchTimer->cancel();
+        m_quickSearchTimer.reset();
+    }
+
+    // a message that replaced the query stays
+    if (m_quickSearchShown)
+        setMessage("");
 }
 
 void CFilePicker::openTypedPath() {
@@ -713,8 +800,18 @@ void CFilePicker::releaseTextFocus() {
     }
 }
 
+bool CFilePicker::textFocused() const {
+    for (const auto& textbox : {m_pathBox, m_nameBox, m_newFolderBox}) {
+        if (textbox && textbox->focused())
+            return true;
+    }
+
+    return false;
+}
+
 void CFilePicker::setMessage(const std::string& message) {
     m_message->setText(escapeMarkup(message));
+    m_quickSearchShown = false;
 }
 
 void CFilePicker::updateNavigation() {
