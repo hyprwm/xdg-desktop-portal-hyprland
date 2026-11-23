@@ -646,18 +646,22 @@ gbm_device* CPortalManager::createGBMDevice(drmDevice* dev) {
     return gbm_create_device(fd);
 }
 
-void CPortalManager::addTimer(const CTimer& timer) {
-    Debug::log(TRACE, "[core] adding timer for {}ms", timer.duration());
+void CPortalManager::addTimer(std::chrono::milliseconds timeout, std::function<void()>&& callback) {
+    Debug::log(TRACE, "[core] adding timer for {}ms", timeout.count());
 
     if (!m_sEventLoop.loop)
         return;
 
     // the loop only holds timers weakly, keep this one alive until it fires
-    const auto TIMEOUT = std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<float, std::milli>{timer.duration()});
-    m_sEventLoop.timers.emplace_back(m_sEventLoop.loop->addTimer(TIMEOUT, [this, callback = timer.m_fnCallback](ITimer& self) {
+    m_sEventLoop.timers.emplace_back(m_sEventLoop.loop->addTimer(timeout, [this, callback = std::move(callback)](ITimer& self) {
         std::erase_if(m_sEventLoop.timers, [&self](const auto& other) { return other.get() == &self; });
         callback();
     }));
+}
+
+void CPortalManager::addIdle(std::function<void()>&& callback) {
+    if (m_sEventLoop.loop)
+        m_sEventLoop.loop->addIdle(std::move(callback));
 }
 
 void CPortalManager::releaseWayland() {

@@ -21,11 +21,11 @@ static int onCloseSession(SDBusSession* sess) {
         return 0;
 
     auto destroy = std::move(sess->onDestroy);
-    g_pPortalManager->addTimer({0, [sess, destroy]() {
-                                    sess->object.reset();
-                                    if (destroy)
-                                        destroy();
-                                }});
+    g_pPortalManager->addIdle([sess, destroy]() {
+        sess->object.reset();
+        if (destroy)
+            destroy();
+    });
 
     return 0;
 }

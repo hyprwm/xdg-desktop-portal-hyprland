@@ -698,11 +698,11 @@ void CScreencopyPortal::queueNextShareFrame(CScreencopyPortal::SSession* pSessio
     auto       delay                        = std::clamp(MSTILNEXTREFRESH - 1.0 /* safezone */, 6.0, 1000.0);
     if (pSession->selection.type == TYPE_WORKSPACE && pSession->sharingData.copyRetries)
         delay = std::max(delay, std::min(1000.0, 50.0 * pSession->sharingData.copyRetries));
-    g_pPortalManager->addTimer({delay, [session = pSession->self, GENERATION]() {
-                                    if (!session || !session->sharingData.active || session->sharingData.frameTimerGeneration != GENERATION)
-                                        return;
-                                    g_pPortalManager->m_sPortals.screencopy->startFrameCopy(session.get());
-                                }});
+    g_pPortalManager->addTimer(std::chrono::milliseconds{sc<int64_t>(delay)}, [session = pSession->self, GENERATION]() {
+        if (!session || !session->sharingData.active || session->sharingData.frameTimerGeneration != GENERATION)
+            return;
+        g_pPortalManager->m_sPortals.screencopy->startFrameCopy(session.get());
+    });
 }
 bool CScreencopyPortal::hasToplevelCapabilities() {
     return !!m_sState.toplevel;
@@ -917,17 +917,17 @@ static void pwStreamStateChange(void* data, pw_stream_state old, pw_stream_state
 
     if (state == PW_STREAM_STATE_ERROR && PSTREAM->pSession->selection.type == TYPE_WORKSPACE) {
         Debug::log(ERR, "[workspace] PipeWire stream failed: {}", error ? error : "unknown error");
-        g_pPortalManager->addTimer({0, [session = PSTREAM->pSession->self]() {
-                                        if (session && session->sharingData.active)
-                                            session->stopWorkspaceCapture();
-                                    }});
+        g_pPortalManager->addIdle([session = PSTREAM->pSession->self]() {
+            if (session && session->sharingData.active)
+                session->stopWorkspaceCapture();
+        });
     } else if (state == PW_STREAM_STATE_UNCONNECTED) {
         g_pPortalManager->m_sPortals.screencopy->m_pPipewire->removeSessionFrameCallbacks(PSTREAM->pSession);
         if (PSTREAM->pSession->selection.type == TYPE_WORKSPACE) {
-            g_pPortalManager->addTimer({0, [session = PSTREAM->pSession->self]() {
-                                            if (session && session->sharingData.active)
-                                                session->stopWorkspaceCapture();
-                                        }});
+            g_pPortalManager->addIdle([session = PSTREAM->pSession->self]() {
+                if (session && session->sharingData.active)
+                    session->stopWorkspaceCapture();
+            });
         } else
             g_pPortalManager->m_sPortals.screencopy->m_pPipewire->destroyStream(PSTREAM->pSession);
     }
@@ -1131,23 +1131,23 @@ static void retryWorkspaceBufferAllocation(CPipewireConnection::SPWStream* strea
         return;
 
     stream->bufferRetryPending = true;
-    g_pPortalManager->addTimer({0, [session = stream->pSession->self, generation = stream->bufferGeneration]() {
-                                    if (!session || !session->sharingData.active)
-                                        return;
-                                    const auto PIPEWIRE = g_pPortalManager->m_sPortals.screencopy->m_pPipewire.get();
-                                    const auto STREAM   = PIPEWIRE->streamFromSession(session.get());
-                                    if (!STREAM || STREAM->bufferGeneration != generation)
-                                        return;
-                                    STREAM->bufferRetryPending = false;
-                                    if (!STREAM->isDMA || STREAM->dmaBufFailed) {
-                                        session->stopWorkspaceCapture();
-                                        return;
-                                    }
-                                    Debug::log(WARN, "[workspace] DMA-BUF allocation failed, trying SHM");
-                                    STREAM->dmaBufFailed = true;
-                                    PIPEWIRE->removeSessionFrameCallbacks(session.get());
-                                    session->updateWorkspaceConstraints();
-                                }});
+    g_pPortalManager->addIdle([session = stream->pSession->self, generation = stream->bufferGeneration]() {
+        if (!session || !session->sharingData.active)
+            return;
+        const auto PIPEWIRE = g_pPortalManager->m_sPortals.screencopy->m_pPipewire.get();
+        const auto STREAM   = PIPEWIRE->streamFromSession(session.get());
+        if (!STREAM || STREAM->bufferGeneration != generation)
+            return;
+        STREAM->bufferRetryPending = false;
+        if (!STREAM->isDMA || STREAM->dmaBufFailed) {
+            session->stopWorkspaceCapture();
+            return;
+        }
+        Debug::log(WARN, "[workspace] DMA-BUF allocation failed, trying SHM");
+        STREAM->dmaBufFailed = true;
+        PIPEWIRE->removeSessionFrameCallbacks(session.get());
+        session->updateWorkspaceConstraints();
+    });
 }
 
 static void pwStreamAddBuffer(void* data, pw_buffer* buffer) {
@@ -1688,10 +1688,10 @@ void CPipewireConnection::updateStreamParam(SPWStream* pStream) {
         pw_stream_update_params(pStream->stream, params, n_params);
     else if (pStream->pSession->selection.type == TYPE_WORKSPACE) {
         Debug::log(ERR, "[workspace] No supported PipeWire buffer format remains");
-        g_pPortalManager->addTimer({0, [session = pStream->pSession->self]() {
-                                        if (session && session->sharingData.active)
-                                            session->stopWorkspaceCapture();
-                                    }});
+        g_pPortalManager->addIdle([session = pStream->pSession->self]() {
+            if (session && session->sharingData.active)
+                session->stopWorkspaceCapture();
+        });
     }
     spa_pod_dynamic_builder_clean(&dynBuilder[0]);
     spa_pod_dynamic_builder_clean(&dynBuilder[1]);
