@@ -14,7 +14,6 @@
 #include "../shared/ToplevelMappingManager.hpp"
 #include "../shared/WorkspaceTracker.hpp"
 #include <gbm.h>
-#include <poll.h>
 #include <xf86drm.h>
 
 #include "hyprland-toplevel-export-v1.hpp"
@@ -26,10 +25,16 @@
 #include "../includes.hpp"
 #include "../dbusDefines.hpp"
 
-#include <mutex>
-#include <atomic>
+#include <hyprutils/eventLoop/EventMask.hpp>
 
 struct pw_loop;
+
+namespace Hyprutils::EventLoop {
+    class IEventLoop;
+    class IFDSource;
+    class IPostDispatchHook;
+    class ITimer;
+}
 
 class CCZxdgOutputManagerV1;
 class CCZxdgOutputV1;
@@ -122,42 +127,31 @@ class CPortalManager {
 
     gbm_device*                  createGBMDevice(drmDevice* dev);
 
-    void                         addFdToEventLoop(int fd, short events, std::function<void()> callback);
-    void                         removeFdFromEventLoop(int fd);
-
     // terminate after the event loop has been created. Before we can exit()
     void terminate();
 
     void releaseWayland();
 
   private:
-    void              startEventLoop();
-    bool              processWaylandEvents(bool read);
-    void              setupXDGOutput(SOutput* output);
+    void                                startEventLoop();
+    SP<Hyprutils::EventLoop::IFDSource> addCoreSource(int fd, const char* name, std::function<void(Hyprutils::EventLoop::FdEventMask)>&& callback);
+    bool                                processWaylandEvents(bool read);
+    void                                setupXDGOutput(SOutput* output);
 
-    std::atomic<bool> m_bTerminate = false;
-
-    struct {
-        std::condition_variable              loopSignal;
-        std::mutex                           loopMutex;
-        std::atomic<bool>                    shouldProcess = false;
-        std::mutex                           loopRequestMutex;
-        std::vector<pollfd>                  pollFds;
-        std::map<int, std::function<void()>> pollCallbacks;
-    } m_sEventLoopInternals;
+    bool                                m_bTerminate = false;
 
     struct {
-        std::condition_variable              loopSignal;
-        std::mutex                           loopMutex;
-        bool                                 shouldProcess = false;
-        std::vector<std::unique_ptr<CTimer>> timers;
-        std::unique_ptr<std::thread>         thread;
-    } m_sTimersThread;
+        SP<Hyprutils::EventLoop::IEventLoop>          loop;
+        SP<Hyprutils::EventLoop::IFDSource>           dbus;
+        SP<Hyprutils::EventLoop::IFDSource>           wayland;
+        SP<Hyprutils::EventLoop::IFDSource>           pipewire;
+        SP<Hyprutils::EventLoop::IPostDispatchHook>   waylandFlush;
+        std::vector<SP<Hyprutils::EventLoop::ITimer>> timers;
+        bool                                          waylandWantsWrite = false;
+    } m_sEventLoop;
 
     std::unique_ptr<sdbus::IConnection>   m_pConnection;
     std::vector<std::unique_ptr<SOutput>> m_vOutputs;
-
-    std::mutex                            m_mEventLock;
 };
 
 inline std::unique_ptr<CPortalManager> g_pPortalManager;
