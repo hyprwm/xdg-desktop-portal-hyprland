@@ -1,5 +1,7 @@
 #pragma once
 
+#include <chrono>
+#include <functional>
 #include <memory>
 #include <sdbus-c++/sdbus-c++.h>
 #include <hyprlang.hpp>
@@ -9,7 +11,6 @@
 #include "../portals/Screenshot.hpp"
 #include "../portals/GlobalShortcuts.hpp"
 #include "../portals/InputCapture.hpp"
-#include "../helpers/Timer.hpp"
 #include "../shared/ToplevelManager.hpp"
 #include "../shared/ToplevelMappingManager.hpp"
 #include "../shared/WorkspaceTracker.hpp"
@@ -123,7 +124,9 @@ class CPortalManager {
 
     std::vector<SDMABUFModifier> m_vDMABUFMods;
 
-    void                         addTimer(const CTimer& timer);
+    void                         addTimer(std::chrono::milliseconds timeout, std::function<void()>&& callback);
+    // runs once the current event loop callback has returned
+    void                         addIdle(std::function<void()>&& callback);
 
     gbm_device*                  createGBMDevice(drmDevice* dev);
 
