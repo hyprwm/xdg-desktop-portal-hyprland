@@ -14,7 +14,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(file_picker_deps REQUIRED IMPORTED_TARGET hyprutils>=0.14.4)
 
-set(FILE_PICKER_DATA_SOURCES Glob.cpp MimeDatabase.cpp PickerOptions.cpp)
+set(FILE_PICKER_DATA_SOURCES Directory.cpp Glob.cpp MimeDatabase.cpp Places.cpp
+                             PickerOptions.cpp)
 
 if(BUILD_TESTING)
   add_executable(hyprland-file-picker-data-test FilePickerDataTest.cpp

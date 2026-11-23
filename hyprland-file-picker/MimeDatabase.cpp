@@ -1,12 +1,10 @@
 #include "MimeDatabase.hpp"
+#include "Directory.hpp"
 #include "Glob.hpp"
 
 #include <algorithm>
 #include <cstdlib>
-#include <fstream>
-#include <optional>
 #include <ranges>
-#include <sstream>
 #include <unordered_set>
 
 static std::string lowercase(std::string_view text) {
@@ -41,27 +39,17 @@ static bool hasFlag(std::string_view flags, std::string_view flag) {
     return false;
 }
 
-static std::optional<std::string> readFile(const std::filesystem::path& path) {
-    std::ifstream file(path);
-    if (!file.good())
-        return std::nullopt;
-
-    std::stringstream buffer;
-    buffer << file.rdbuf();
-    return buffer.str();
-}
-
 void CMimeDatabase::load(const std::vector<std::filesystem::path>& dataDirs) {
     for (const auto& dir : dataDirs) {
         const auto MIME_DIR = dir / "mime";
 
-        if (const auto DATA = readFile(MIME_DIR / "globs2"); DATA)
+        if (const auto DATA = readTextFile(MIME_DIR / "globs2"); DATA)
             parseGlobs(*DATA);
-        if (const auto DATA = readFile(MIME_DIR / "aliases"); DATA)
+        if (const auto DATA = readTextFile(MIME_DIR / "aliases"); DATA)
             parseAliases(*DATA);
-        if (const auto DATA = readFile(MIME_DIR / "subclasses"); DATA)
+        if (const auto DATA = readTextFile(MIME_DIR / "subclasses"); DATA)
             parseSubclasses(*DATA);
-        if (const auto DATA = readFile(MIME_DIR / "generic-icons"); DATA)
+        if (const auto DATA = readTextFile(MIME_DIR / "generic-icons"); DATA)
             parseGenericIcons(*DATA);
     }
 }
