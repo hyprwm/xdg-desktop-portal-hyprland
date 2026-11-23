@@ -6,13 +6,14 @@
 #include "hyprland-workspace-image-capture-source-v1.hpp"
 #include "xdg-output-unstable-v1.hpp"
 
+#include <hyprutils/eventLoop/EventLoop.hpp>
 #include <pipewire/pipewire.h>
 #include <sdbus-c++/Types.h>
 #include <sys/mman.h>
 #include <fcntl.h>
 #include <unistd.h>
 
-#include <thread>
+using namespace Hyprutils::EventLoop;
 
 SOutput::SOutput(SP<CCWlOutput> output_) : output(output_) {
     output->setName([this](CCWlOutput* o, const char* name_) {
@@ -285,6 +286,14 @@ void CPortalManager::onGlobalRemoved(uint32_t name) {
 }
 
 void CPortalManager::init() {
+    auto loop = Hyprutils::EventLoop::IEventLoop::create();
+    if (!loop) {
+        Debug::log(CRIT, "Couldn't create the event loop ({})", loop.error());
+        exit(1);
+    }
+
+    m_sEventLoop.loop = *loop;
+
     try {
         m_pConnection = sdbus::createSessionBusConnection(sdbus::ServiceName{"org.freedesktop.impl.portal.desktop.hyprland"});
     } catch (std::exception& e) {
@@ -389,7 +398,8 @@ bool CPortalManager::processWaylandEvents(bool read) {
         // without a blocking read; poll will report any remaining socket data.
     }
 
-    int dispatched = 0;
+    int  dispatched = 0;
+    bool wantsWrite = false;
     do {
         dispatched = wl_display_dispatch_pending(DISPLAY);
         if (dispatched < 0) {
@@ -397,160 +407,96 @@ bool CPortalManager::processWaylandEvents(bool read) {
             return false;
         }
 
-        if (wl_display_flush(DISPLAY) < 0 && errno != EAGAIN) {
+        wantsWrite = wl_display_flush(DISPLAY) < 0;
+        if (wantsWrite && errno != EAGAIN) {
             Debug::log(CRIT, "[core] Wayland flush failed: {}", strerror(errno));
             return false;
         }
     } while (dispatched > 0);
 
+    // a full socket keeps the rest of the requests buffered, flush them once it drains
+    if (!m_sEventLoop.wayland || wantsWrite == m_sEventLoop.waylandWantsWrite)
+        return true;
+
+    const FdEventMask MASK = wantsWrite ? eEventMask::READABLE | eEventMask::WRITABLE : FdEventMask{eEventMask::READABLE};
+    if (const auto RESULT = m_sEventLoop.wayland->setMask(MASK); !RESULT) {
+        Debug::log(CRIT, "[core] Couldn't update the Wayland event mask: {}", RESULT.error());
+        return false;
+    }
+
+    m_sEventLoop.waylandWantsWrite = wantsWrite;
     return true;
 }
 
-void CPortalManager::startEventLoop() {
-    addFdToEventLoop(m_pConnection->getEventLoopPollData().fd, POLLIN, nullptr);
-    addFdToEventLoop(wl_display_get_fd(m_sWaylandConnection.display), POLLIN, nullptr);
-    addFdToEventLoop(pw_loop_get_fd(m_sPipewire.loop), POLLIN, nullptr);
+SP<IFDSource> CPortalManager::addCoreSource(int fd, const char* name, std::function<void(FdEventMask)>&& callback) {
+    // the library keeps owning its fd, the event loop owns a duplicate
+    Hyprutils::OS::CFileDescriptor duplicated{fcntl(fd, F_DUPFD_CLOEXEC, 0)};
+    if (!duplicated.isValid()) {
+        Debug::log(CRIT, "[core] Couldn't duplicate the {} fd: {}", name, strerror(errno));
+        return nullptr;
+    }
 
-    std::thread pollThr([this]() {
-        while (!m_bTerminate) {
-
-            int ret = poll(m_sEventLoopInternals.pollFds.data(), m_sEventLoopInternals.pollFds.size(), 5000 /* 5 seconds, reasonable. It's because we might need to terminate */);
-            if (ret < 0) {
-                if (errno == EINTR)
-                    continue;
-
-                Debug::log(CRIT, "[core] Polling fds failed with {}", strerror(errno));
-                g_pPortalManager->terminate();
-                break;
-            }
-
-            for (size_t i = 0; i < m_sEventLoopInternals.pollFds.size(); ++i) {
-                if (!(m_sEventLoopInternals.pollFds[i].revents & (POLLHUP | POLLERR | POLLNVAL)))
-                    continue;
-
-                Debug::log(CRIT, "[core] Disconnected from pollfd id {}", i);
-                g_pPortalManager->terminate();
-                break;
-            }
-
-            if (m_bTerminate)
-                break;
-
-            if (ret != 0) {
-                Debug::log(TRACE, "[core] got poll event");
-                std::lock_guard<std::mutex> lg(m_sEventLoopInternals.loopRequestMutex);
-                m_sEventLoopInternals.shouldProcess = true;
-                m_sEventLoopInternals.loopSignal.notify_all();
-            }
-        }
-    });
-
-    m_sTimersThread.thread = std::make_unique<std::thread>([this] {
-        while (!m_bTerminate) {
-            // find nearest timer ms
-            float nearest = 60000; /* reasonable timeout */
-            {
-                std::lock_guard eventLock(m_mEventLock);
-                for (auto& t : m_sTimersThread.timers) {
-                    float until = t->duration() - t->passedMs();
-                    if (until < nearest)
-                        nearest = until;
-                }
-            }
-
-            {
-                std::unique_lock lk(m_sTimersThread.loopMutex);
-                m_sTimersThread.loopSignal.wait_for(lk, std::chrono::milliseconds((int)nearest), [this] { return m_sTimersThread.shouldProcess || m_bTerminate; });
-                m_sTimersThread.shouldProcess = false;
-            }
-
-            if (m_bTerminate)
-                break;
-
-            // awakened. Check if any timers passed
-            m_mEventLock.lock();
-            bool notify = false;
-            for (auto& t : m_sTimersThread.timers) {
-                if (t->passed()) {
-                    Debug::log(TRACE, "[core] got timer event");
-                    notify = true;
-                    break;
-                }
-            }
-            m_mEventLock.unlock();
-
-            if (notify) {
-                std::lock_guard<std::mutex> lg(m_sEventLoopInternals.loopRequestMutex);
-                m_sEventLoopInternals.shouldProcess = true;
-                m_sEventLoopInternals.loopSignal.notify_all();
-            }
-        }
-    });
-
-    while (1) { // dbus events
-        // wait for being awakened
-        std::unique_lock lk(m_sEventLoopInternals.loopMutex);
-        if (m_sEventLoopInternals.shouldProcess == false) // avoid a lock if a thread managed to request something already since we .unlock()ed
-            m_sEventLoopInternals.loopSignal.wait_for(lk, std::chrono::seconds(5), [this] { return m_sEventLoopInternals.shouldProcess == true; }); // wait for events
-
-        std::lock_guard<std::mutex> lg(m_sEventLoopInternals.loopRequestMutex);
-
+    auto source = m_sEventLoop.loop->addFD(std::move(duplicated), eEventMask::READABLE, [this, name, callback = std::move(callback)](IFDSource& self, FdEventMask events) {
         if (m_bTerminate)
-            break;
+            return;
 
-        m_sEventLoopInternals.shouldProcess = false;
+        callback(events);
 
-        std::lock_guard eventLock(m_mEventLock);
+        if (m_bTerminate || !(events & (eEventMask::HUP | eEventMask::ERROR)))
+            return;
 
-        if (m_sEventLoopInternals.pollFds[0].revents & POLLIN /* dbus */) {
-            while (m_pConnection->processPendingEvent()) {
-                ;
-            }
+        Debug::log(CRIT, "[core] Disconnected from {}", name);
+        (void)self.setMask(eEventMask::EMPTY);
+        terminate();
+    });
+
+    if (!source) {
+        Debug::log(CRIT, "[core] Couldn't add the {} fd to the event loop: {}", name, source.error());
+        return nullptr;
+    }
+
+    return *source;
+}
+
+void CPortalManager::startEventLoop() {
+    m_sEventLoop.dbus = addCoreSource(m_pConnection->getEventLoopPollData().fd, "D-Bus", [this](FdEventMask events) {
+        if (!(events & eEventMask::READABLE))
+            return;
+
+        while (m_pConnection->processPendingEvent()) {
+            ;
         }
+    });
 
-        if (!processWaylandEvents(m_sEventLoopInternals.pollFds[1].revents & POLLIN /* wl */)) {
+    m_sEventLoop.wayland = addCoreSource(wl_display_get_fd(m_sWaylandConnection.display), "Wayland", [this](FdEventMask events) {
+        if (!(events & (eEventMask::READABLE | eEventMask::WRITABLE)))
+            return;
+
+        if (!processWaylandEvents(sc<bool>(events & eEventMask::READABLE)))
             terminate();
-            break;
-        }
+    });
 
-        if (m_sEventLoopInternals.pollFds[2].revents & POLLIN /* pw */) {
+    if (m_sPipewire.loop) {
+        m_sEventLoop.pipewire = addCoreSource(pw_loop_get_fd(m_sPipewire.loop), "PipeWire", [this](FdEventMask events) {
+            if (!(events & eEventMask::READABLE))
+                return;
+
             while (pw_loop_iterate(m_sPipewire.loop, 0) != 0) {
                 ;
             }
-        }
-
-        for (pollfd p : m_sEventLoopInternals.pollFds) {
-            if (p.revents & POLLIN && m_sEventLoopInternals.pollCallbacks.contains(p.fd)) {
-                m_sEventLoopInternals.pollCallbacks[p.fd]();
-            }
-        }
-
-        std::vector<CTimer*> toRemove;
-        for (auto& t : m_sTimersThread.timers) {
-            if (t->passed())
-                toRemove.emplace_back(t.get());
-        }
-        // Callbacks may add timers and reallocate the owning vector.
-        for (const auto timer : toRemove) {
-            Debug::log(TRACE, "[core] calling timer {}", sc<void*>(timer));
-            timer->m_fnCallback();
-        }
-
-        if (!processWaylandEvents(false)) {
-            terminate();
-            break;
-        }
-
-        if (!toRemove.empty())
-            std::erase_if(m_sTimersThread.timers,
-                          [&](const auto& t) { return std::find_if(toRemove.begin(), toRemove.end(), [&](const auto& other) { return other == t.get(); }) != toRemove.end(); });
+        });
     }
 
-    // Workers must stop using the event loop and timers before their resources
-    // are destroyed. The poll thread checks termination at least every 5s.
-    pollThr.join();
-    m_sTimersThread.thread->join();
-    m_sTimersThread.thread.reset();
+    // whatever the callbacks queued up, dispatch and flush before going to sleep
+    m_sEventLoop.waylandFlush = m_sEventLoop.loop->addPostDispatch([this] {
+        if (!m_bTerminate && !processWaylandEvents(false))
+            terminate();
+    });
+
+    if (!m_sEventLoop.dbus || !m_sEventLoop.wayland || (m_sPipewire.loop && !m_sEventLoop.pipewire))
+        Debug::log(CRIT, "[core] Couldn't set up the event loop");
+    else if (const auto RESULT = m_sEventLoop.loop->enterLoop(); !RESULT)
+        Debug::log(CRIT, "[core] Event loop failed: {}", RESULT.error());
 
     Debug::log(ERR, "[core] Terminated");
 
@@ -563,6 +509,10 @@ void CPortalManager::startEventLoop() {
     m_sPortals.inputCapture.reset();
 
     m_pConnection.reset();
+
+    // portal teardown may still queue timers, so the loop goes last
+    m_sEventLoop = {};
+
     pw_loop_leave(m_sPipewire.loop);
     pw_loop_destroy(m_sPipewire.loop);
     releaseWayland();
@@ -628,26 +578,16 @@ gbm_device* CPortalManager::createGBMDevice(drmDevice* dev) {
 
 void CPortalManager::addTimer(const CTimer& timer) {
     Debug::log(TRACE, "[core] adding timer for {}ms", timer.duration());
-    m_sTimersThread.timers.emplace_back(std::make_unique<CTimer>(timer));
-    {
-        std::lock_guard lk(m_sTimersThread.loopMutex);
-        m_sTimersThread.shouldProcess = true;
-    }
-    m_sTimersThread.loopSignal.notify_all();
-}
 
-void CPortalManager::addFdToEventLoop(int fd, short events, std::function<void()> callback) {
-    m_sEventLoopInternals.pollFds.emplace_back(pollfd{.fd = fd, .events = events});
-
-    if (callback == nullptr)
+    if (!m_sEventLoop.loop)
         return;
 
-    m_sEventLoopInternals.pollCallbacks[fd] = callback;
-}
-
-void CPortalManager::removeFdFromEventLoop(int fd) {
-    std::erase_if(m_sEventLoopInternals.pollFds, [fd](const pollfd& p) { return p.fd == fd; });
-    m_sEventLoopInternals.pollCallbacks.erase(fd);
+    // the loop only holds timers weakly, keep this one alive until it fires
+    const auto TIMEOUT = std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<float, std::milli>{timer.duration()});
+    m_sEventLoop.timers.emplace_back(m_sEventLoop.loop->addTimer(TIMEOUT, [this, callback = timer.m_fnCallback](ITimer& self) {
+        std::erase_if(m_sEventLoop.timers, [&self](const auto& other) { return other.get() == &self; });
+        callback();
+    }));
 }
 
 void CPortalManager::releaseWayland() {
@@ -669,17 +609,11 @@ void CPortalManager::releaseWayland() {
 }
 
 void CPortalManager::terminate() {
-    if (m_bTerminate.exchange(true))
+    if (m_bTerminate)
         return;
 
-    {
-        m_sEventLoopInternals.shouldProcess = true;
-        m_sEventLoopInternals.loopSignal.notify_all();
-    }
+    m_bTerminate = true;
 
-    {
-        std::lock_guard lk(m_sTimersThread.loopMutex);
-        m_sTimersThread.shouldProcess = true;
-    }
-    m_sTimersThread.loopSignal.notify_all();
+    if (m_sEventLoop.loop)
+        m_sEventLoop.loop->stop();
 }

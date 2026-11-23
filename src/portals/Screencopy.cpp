@@ -15,6 +15,7 @@
 #include "ext-image-copy-capture-v1.hpp"
 #include "hyprland-workspace-image-capture-source-v1.hpp"
 #include "linux-dmabuf-v1.hpp"
+#include <poll.h>
 #include <unistd.h>
 #include <hyprutils/math/Vector2D.hpp>
 
