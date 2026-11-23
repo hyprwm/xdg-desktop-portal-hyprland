@@ -51,6 +51,7 @@ add_compile_options(
 # dependencies
 message(STATUS "Checking deps...")
 add_subdirectory(hyprland-share-picker)
+add_subdirectory(hyprland-file-picker)
 
 find_package(Threads REQUIRED)
 find_package(PkgConfig REQUIRED)
