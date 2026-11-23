@@ -1,6 +1,8 @@
 file_picker_data_sources = files([
+  'Directory.cpp',
   'Glob.cpp',
   'MimeDatabase.cpp',
+  'Places.cpp',
   'PickerOptions.cpp',
 ])
 
