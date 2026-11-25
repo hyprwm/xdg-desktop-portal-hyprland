@@ -963,6 +963,10 @@ static void pwStreamParamChanged(void* data, uint32_t id, const spa_pod* param) 
 
     uint32_t data_type = 1 << SPA_DATA_MemFd;
     PSTREAM->isDMA     = false;
+    // A new FORMAT negotiation gets a fresh dmabuf retry budget: dmaBufRetries is otherwise
+    // session-lifetime, so the retries spent during the initial negotiation are still counted when
+    // a later re-negotiation (e.g. a window resize) needs them, and the stream goes sticky-SHM.
+    PSTREAM->dmaBufRetries = 0;
 
     const struct spa_pod_prop* prop_modifier;
     if ((prop_modifier = spa_pod_find_prop(param, nullptr, SPA_FORMAT_VIDEO_modifier))) {
